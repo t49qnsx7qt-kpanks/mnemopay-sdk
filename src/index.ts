@@ -257,13 +257,17 @@ export class MnemoPayLite extends EventEmitter {
   async consolidate(): Promise<number> {
     const threshold = 0.01;
     let pruned = 0;
+    const prunedIds: string[] = [];
     for (const [id, mem] of this.memories) {
       const score = computeScore(mem.importance, mem.lastAccessed, mem.accessCount, this.decay);
       if (score < threshold) {
         this.memories.delete(id);
+        prunedIds.push(id);
         pruned++;
       }
     }
+    // Clean up embedding cache for pruned memories
+    this.recallEngine.removeBatch(prunedIds);
     this.audit("memory:consolidated", { pruned });
     this.log(`Consolidated: pruned ${pruned} stale memories`);
     return pruned;
@@ -333,7 +337,7 @@ export class MnemoPayLite extends EventEmitter {
     if (tx.status === "refunded") throw new Error(`Transaction ${txId} already refunded`);
 
     if (tx.status === "completed") {
-      this._wallet -= tx.amount;
+      this._wallet = Math.max(this._wallet - tx.amount, 0);
       this._reputation = Math.max(this._reputation - 0.05, 0);
     }
     tx.status = "refunded";
@@ -466,11 +470,16 @@ export class MnemoPay extends EventEmitter {
     return result.id;
   }
 
-  async recall(limit = 5): Promise<Memory[]> {
+  async recall(limit?: number): Promise<Memory[]>;
+  async recall(query: string, limit?: number): Promise<Memory[]>;
+  async recall(queryOrLimit?: string | number, maybeLimit?: number): Promise<Memory[]> {
+    const query = typeof queryOrLimit === "string" ? queryOrLimit : "*";
+    const limit = typeof queryOrLimit === "number" ? queryOrLimit : (maybeLimit ?? 5);
+
     const result = await this.mnemoFetch("/v1/memory/search", {
       method: "POST",
       body: JSON.stringify({
-        query: "*",
+        query,
         top_k: limit,
         min_retrievability: 0.01,
       }),

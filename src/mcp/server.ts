@@ -49,7 +49,12 @@ function createAgent(): Agent {
     });
   }
 
-  return MnemoPay.quick(agentId, { debug: process.env.DEBUG === "true" });
+  const recall = (process.env.MNEMOPAY_RECALL as "score" | "vector" | "hybrid") || undefined;
+  return MnemoPay.quick(agentId, {
+    debug: process.env.DEBUG === "true",
+    recall,
+    openaiApiKey: process.env.OPENAI_API_KEY,
+  });
 }
 
 // ─── Tool definitions ───────────────────────────────────────────────────────
@@ -83,11 +88,15 @@ const TOOLS = [
   {
     name: "recall",
     description:
-      "Recall the most relevant memories, ranked by importance x recency x frequency. " +
+      "Recall the most relevant memories. Supports semantic search when a query is provided. " +
       "Call this before making decisions or answering questions about past interactions.",
     inputSchema: {
       type: "object" as const,
       properties: {
+        query: {
+          type: "string",
+          description: "Semantic search query (optional). When provided, returns memories most similar to this query.",
+        },
         limit: {
           type: "number",
           minimum: 1,
@@ -230,7 +239,10 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
     }
 
     case "recall": {
-      const memories = await agent.recall(args.limit ?? 5);
+      const limit = args.limit ?? 5;
+      const memories = args.query
+        ? await agent.recall(args.query, limit)
+        : await agent.recall(limit);
       if (memories.length === 0) return "No memories found.";
       return memories
         .map((m, i) => `${i + 1}. [score:${m.score.toFixed(2)}, importance:${m.importance.toFixed(2)}] ${m.content}`)

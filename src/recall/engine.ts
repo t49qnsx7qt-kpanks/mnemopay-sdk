@@ -236,6 +236,20 @@ export class RecallEngine {
   }
 
   /**
+   * Remove multiple embeddings from cache.
+   */
+  removeBatch(ids: string[]): void {
+    for (const id of ids) this.vectors.delete(id);
+  }
+
+  /**
+   * Clear all cached embeddings.
+   */
+  clear(): void {
+    this.vectors.clear();
+  }
+
+  /**
    * Semantic search: find memories similar to a query.
    */
   async search(
