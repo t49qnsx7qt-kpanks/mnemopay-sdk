@@ -20,7 +20,18 @@
     "./langgraph": {
       "import": "./dist/langgraph/tools.js",
       "types": "./dist/langgraph/tools.d.ts"
+    },
+    "./mcp": {
+      "import": "./dist/mcp/server.js",
+      "types": "./dist/mcp/server.d.ts"
+    },
+    "./recall": {
+      "import": "./dist/recall/engine.js",
+      "types": "./dist/recall/engine.d.ts"
     }
+  },
+  "bin": {
+    "mnemopay-mcp": "./dist/mcp/server.js"
   },
   "files": [
     "dist",
@@ -91,5 +102,8 @@
     "typescript": "^5.5.0",
     "vitest": "^2.0.0",
     "zod": "^3.23.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }

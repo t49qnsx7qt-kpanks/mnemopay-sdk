@@ -12,11 +12,22 @@
 
 import { EventEmitter } from "events";
 import { randomUUID } from "crypto";
+import { RecallEngine, type RecallStrategy, type EmbeddingProvider, type RecallEngineConfig } from "./recall/engine.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface MnemoPayConfig {
   agentId: string;
+  /** Recall strategy: "score" (default), "vector", or "hybrid" */
+  recall?: RecallStrategy;
+  /** Embedding provider for vector/hybrid: "openai" or "local" (default) */
+  embeddings?: EmbeddingProvider;
+  /** OpenAI API key for embeddings (or set OPENAI_API_KEY env var) */
+  openaiApiKey?: string;
+  /** Weight for score component in hybrid mode (0-1, default: 0.4) */
+  scoreWeight?: number;
+  /** Weight for vector component in hybrid mode (0-1, default: 0.6) */
+  vectorWeight?: number;
   /** Mnemosyne API base URL */
   mnemoUrl?: string;
   /** AgentPay API base URL */
@@ -129,13 +140,15 @@ export class MnemoPayLite extends EventEmitter {
   private auditLog: AuditEntry[] = [];
   private _wallet: number = 0;
   private _reputation: number = 0.5;
+  private recallEngine: RecallEngine;
 
-  constructor(agentId: string, decay = 0.05, debug = false) {
+  constructor(agentId: string, decay = 0.05, debug = false, recallConfig?: Partial<RecallEngineConfig>) {
     super();
     this.agentId = agentId;
     this.decay = decay;
     this.debugMode = debug;
-    this.log("MnemoPayLite initialized (in-memory mode)");
+    this.recallEngine = new RecallEngine(recallConfig);
+    this.log(`MnemoPayLite initialized (in-memory mode, recall: ${this.recallEngine.strategy})`);
     setTimeout(() => this.emit("ready"), 0);
   }
 
@@ -171,32 +184,61 @@ export class MnemoPayLite extends EventEmitter {
       tags: opts?.tags ?? [],
     };
     this.memories.set(mem.id, mem);
+
+    // Generate embedding if using vector/hybrid recall
+    if (this.recallEngine.strategy !== "score") {
+      await this.recallEngine.embed(mem.id, content);
+    }
+
     this.audit("memory:stored", { id: mem.id, content: content.slice(0, 100), importance: mem.importance });
     this.emit("memory:stored", { id: mem.id, content, importance: mem.importance });
     this.log(`Stored memory: "${content.slice(0, 60)}..." (importance: ${mem.importance.toFixed(2)})`);
     return mem.id;
   }
 
-  async recall(limit = 5): Promise<Memory[]> {
-    const scored = Array.from(this.memories.values()).map((m) => {
+  async recall(limit?: number): Promise<Memory[]>;
+  async recall(query: string, limit?: number): Promise<Memory[]>;
+  async recall(queryOrLimit?: string | number, maybeLimit?: number): Promise<Memory[]> {
+    // Parse overloaded args
+    const query = typeof queryOrLimit === "string" ? queryOrLimit : undefined;
+    const limit = typeof queryOrLimit === "number" ? queryOrLimit : (maybeLimit ?? 5);
+
+    // Compute decay scores for all memories
+    const all = Array.from(this.memories.values()).map((m) => {
       m.score = computeScore(m.importance, m.lastAccessed, m.accessCount, this.decay);
       return m;
     });
-    scored.sort((a, b) => b.score - a.score);
-    const results = scored.slice(0, limit);
+
+    let results: Memory[];
+
+    if (this.recallEngine.strategy !== "score" && query) {
+      // Use vector/hybrid search with the query
+      const searchResults = await this.recallEngine.search(query, all, limit);
+      results = searchResults.map((r) => {
+        const mem = this.memories.get(r.id)!;
+        mem.score = r.combinedScore;
+        return mem;
+      });
+    } else {
+      // Default: score-based ranking
+      all.sort((a, b) => b.score - a.score);
+      results = all.slice(0, limit);
+    }
+
     const now = new Date();
     for (const m of results) {
       m.lastAccessed = now;
       m.accessCount++;
     }
     this.emit("memory:recalled", { count: results.length });
-    this.log(`Recalled ${results.length} memories`);
+    this.log(`Recalled ${results.length} memories (strategy: ${this.recallEngine.strategy})`);
     return results;
   }
 
   async forget(id: string): Promise<boolean> {
     const existed = this.memories.delete(id);
     if (existed) {
+      this.recallEngine.remove(id);
       this.audit("memory:deleted", { id });
       this.log(`Forgot memory: ${id}`);
     }
@@ -594,8 +636,25 @@ export class MnemoPay extends EventEmitter {
    * Zero-infrastructure mode. In-memory, no database, no Redis.
    * Perfect for development, testing, and demos.
    */
-  static quick(agentId: string, opts?: { decay?: number; debug?: boolean }): MnemoPayLite {
-    return new MnemoPayLite(agentId, opts?.decay ?? 0.05, opts?.debug ?? false);
+  static quick(agentId: string, opts?: {
+    decay?: number;
+    debug?: boolean;
+    recall?: RecallStrategy;
+    embeddings?: EmbeddingProvider;
+    openaiApiKey?: string;
+    scoreWeight?: number;
+    vectorWeight?: number;
+  }): MnemoPayLite {
+    const recallConfig: Partial<RecallEngineConfig> | undefined = opts?.recall
+      ? {
+          strategy: opts.recall,
+          embeddingProvider: opts.embeddings,
+          openaiApiKey: opts.openaiApiKey,
+          scoreWeight: opts.scoreWeight,
+          vectorWeight: opts.vectorWeight,
+        }
+      : undefined;
+    return new MnemoPayLite(agentId, opts?.decay ?? 0.05, opts?.debug ?? false, recallConfig);
   }
 
   /**
@@ -611,3 +670,5 @@ export class MnemoPay extends EventEmitter {
 
 export default MnemoPay;
 export { autoScore, computeScore };
+export { RecallEngine, cosineSimilarity, localEmbed, l2Normalize } from "./recall/engine.js";
+export type { RecallStrategy, EmbeddingProvider, RecallEngineConfig, RecallResult } from "./recall/engine.js";
