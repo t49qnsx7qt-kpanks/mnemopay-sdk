@@ -472,9 +472,47 @@ export async function startServer(): Promise<void> {
 
   // ── Start ───────────────────────────────────────────────────────────────
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("[mnemopay-mcp] Server started (stdio mode)");
+  const useHttp = process.argv.includes("--http") || !!process.env.PORT;
+
+  if (useHttp) {
+    const express = (await import("express")).default;
+    const { SSEServerTransport } = await import(
+      "@modelcontextprotocol/sdk/server/sse.js"
+    );
+
+    const app = express();
+    app.use(express.json());
+
+    const transports: Record<string, InstanceType<typeof SSEServerTransport>> = {};
+
+    app.get("/health", (_req, res) => {
+      res.json({ status: "ok", mode: process.env.MNEMOPAY_MODE || "quick" });
+    });
+
+    app.get("/mcp", async (req, res) => {
+      const transport = new SSEServerTransport("/messages", res);
+      transports[transport.sessionId] = transport;
+      transport.onclose = () => delete transports[transport.sessionId];
+      await server.connect(transport);
+      console.error(`[mnemopay-mcp] SSE session: ${transport.sessionId}`);
+    });
+
+    app.post("/messages", async (req, res) => {
+      const sessionId = req.query.sessionId as string;
+      const transport = transports[sessionId];
+      if (!transport) { res.status(404).send("Session not found"); return; }
+      await transport.handlePostMessage(req, res, req.body);
+    });
+
+    const port = parseInt(process.env.PORT || "3200", 10);
+    app.listen(port, () => {
+      console.error(`[mnemopay-mcp] HTTP/SSE server on port ${port}`);
+    });
+  } else {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("[mnemopay-mcp] Server started (stdio mode)");
+  }
 }
 
 // Auto-start when run directly

@@ -104,6 +104,8 @@
     "zod": "^3.23.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@types/express": "^5.0.6",
+    "express": "^5.2.1"
   }
 }
