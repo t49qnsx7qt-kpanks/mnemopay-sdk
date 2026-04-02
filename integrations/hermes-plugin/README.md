@@ -1,0 +1,54 @@
+# MnemoPay Plugin for Hermes Agent
+
+Give Hermes persistent cognitive memory and a micropayment wallet.
+
+## Install
+
+```bash
+pip install mnemopay-hermes
+```
+
+Or drop into your plugins directory:
+
+```bash
+cp -r mnemopay_hermes ~/.hermes/plugins/mnemopay/
+cp plugin.yaml ~/.hermes/plugins/mnemopay/
+```
+
+## What It Does
+
+- **12 tools**: remember, recall, forget, reinforce, consolidate, charge, settle, refund, balance, profile, logs, history
+- **Memory injection**: `pre_llm_call` hook automatically recalls relevant memories and injects them into every prompt
+- **Auto-remember**: `post_tool_call` hook stores significant tool outcomes as memories
+- **Session lifecycle**: Recalls top memories on session start, clean shutdown on end
+
+## Configuration
+
+The plugin spawns the MnemoPay MCP server (`npx @mnemopay/sdk`) as a subprocess. Configure via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MNEMOPAY_AGENT_ID` | `"mcp-agent"` | Agent identifier |
+| `MNEMOPAY_MODE` | `"quick"` | `"quick"` (in-memory) or `"production"` (Postgres+Redis) |
+| `MNEMO_URL` | `"http://localhost:8100"` | Mnemosyne API URL (production) |
+| `AGENTPAY_URL` | `"http://localhost:3100"` | AgentPay API URL (production) |
+
+## Alternative: MCP Config (No Plugin Needed)
+
+If you just want the tools without hooks, add to your Hermes config:
+
+```yaml
+mcp_servers:
+  mnemopay:
+    command: "npx"
+    args: ["-y", "@mnemopay/sdk"]
+    env:
+      MNEMOPAY_AGENT_ID: "hermes-agent"
+```
+
+The plugin adds the `pre_llm_call` memory injection and `post_tool_call` auto-remember on top of this.
+
+## Links
+
+- [MnemoPay SDK](https://github.com/t49qnsx7qt-kpanks/mnemopay-sdk)
+- [Hermes Agent](https://github.com/NousResearch/hermes-agent)

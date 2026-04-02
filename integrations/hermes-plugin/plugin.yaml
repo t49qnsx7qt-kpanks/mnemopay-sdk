@@ -1,0 +1,26 @@
+name: mnemopay
+version: 1.0.0
+description: >
+  Persistent agent memory + micropayment wallet for Hermes.
+  Upgrades Hermes's built-in memory with cognitive recall (semantic search,
+  importance scoring, decay-based consolidation) and adds escrow economics
+  (charge, settle, refund) with reputation tracking.
+author: Jerry Omiagbo <jeremiah@getbizsuite.com>
+homepage: https://github.com/t49qnsx7qt-kpanks/mnemopay-sdk
+license: MIT
+tags:
+  - memory
+  - payments
+  - wallet
+  - escrow
+  - reputation
+  - mcp
+requires:
+  python: ">=3.10"
+  packages:
+    - mnemopay-hermes
+hooks:
+  - pre_llm_call
+  - on_session_start
+  - on_session_end
+  - post_tool_call
