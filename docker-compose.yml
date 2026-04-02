@@ -2,20 +2,19 @@
 # Run: docker compose up -d
 # Then use MnemoPay.create({ agentId: "my-agent" }) to connect
 
-version: "3.9"
-
 services:
   # ── Mnemosyne Engine (cognitive memory backend) ──────────────────────────
   mnemosyne:
     build:
       context: ../mnemosyne-engine
-      dockerfile: Dockerfile.mnemo
+      dockerfile: Dockerfile
     ports:
       - "8100:8100"
     environment:
-      - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgres://mnemopay:mnemopay_dev@postgres:5432/mnemopay
       - PORT=8100
+      - MNEMOSYNE_PERSISTENCE=true
+      - POSTGRES_URL=postgres://mnemopay:mnemopay_dev@postgres:5432/mnemopay
+      - REDIS_URL=redis://:mnemopay_dev@redis:6379
     depends_on:
       postgres:
         condition: service_healthy
@@ -26,13 +25,16 @@ services:
   agentpay:
     build:
       context: ../agentpay-roa
-      dockerfile: Dockerfile.agentpay
+      dockerfile: Dockerfile
     ports:
       - "3100:3100"
     environment:
-      - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=postgres://mnemopay:mnemopay_dev@postgres:5432/mnemopay
       - PORT=3100
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://mnemopay:mnemopay_dev@postgres:5432/mnemopay
+      - REDIS_URL=redis://:mnemopay_dev@redis:6379
+      - JWT_SECRET=mnemopay-dev-secret-key-minimum-32-chars
+      - MNEMOSYNE_URL=http://mnemosyne:8100
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,7 +43,7 @@ services:
 
   # ── Infrastructure ───────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: mnemopay
       POSTGRES_USER: mnemopay

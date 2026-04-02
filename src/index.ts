@@ -494,7 +494,7 @@ export class MnemoPay extends EventEmitter {
 
   async remember(content: string, opts?: RememberOptions): Promise<string> {
     const importance = opts?.importance ?? autoScore(content);
-    const result = await this.mnemoFetch("/v1/memory", {
+    const result = await this.mnemoFetch("/v1/memories", {
       method: "POST",
       body: JSON.stringify({
         content,
@@ -517,7 +517,7 @@ export class MnemoPay extends EventEmitter {
     const query = typeof queryOrLimit === "string" ? queryOrLimit : "*";
     const limit = typeof queryOrLimit === "number" ? queryOrLimit : (maybeLimit ?? 5);
 
-    const result = await this.mnemoFetch("/v1/memory/search", {
+    const result = await this.mnemoFetch("/v1/memories/search", {
       method: "POST",
       body: JSON.stringify({
         query,
@@ -525,17 +525,21 @@ export class MnemoPay extends EventEmitter {
         min_retrievability: 0.01,
       }),
     });
-    const memories: Memory[] = (result.results || []).map((r: any) => ({
-      id: r.id,
-      agentId: this.agentId,
-      content: r.content,
-      importance: r.retrievability ?? 0.5,
-      score: r.score ?? 0,
-      createdAt: new Date(r.created_at || Date.now()),
-      lastAccessed: new Date(),
-      accessCount: r.access_count ?? 0,
-      tags: r.tags ?? [],
-    }));
+    const memories: Memory[] = (result.results || []).map((r: any) => {
+      // API returns { memory: {...}, score: ... } per result
+      const m = r.memory || r;
+      return {
+        id: m.id,
+        agentId: this.agentId,
+        content: m.content,
+        importance: m.retrievability ?? 0.5,
+        score: r.score ?? m.score ?? 0,
+        createdAt: new Date((m.created_at || Date.now()) * 1000),
+        lastAccessed: new Date(),
+        accessCount: m.access_count ?? 0,
+        tags: m.tags ?? [],
+      };
+    });
     this.emit("memory:recalled", { count: memories.length });
     this.log(`Recalled ${memories.length} memories`);
     return memories;
@@ -543,7 +547,7 @@ export class MnemoPay extends EventEmitter {
 
   async forget(id: string): Promise<boolean> {
     try {
-      await this.mnemoFetch(`/v1/memory/${id}`, { method: "DELETE" });
+      await this.mnemoFetch(`/v1/memories/${id}`, { method: "DELETE" });
       this.log(`Forgot memory: ${id}`);
       return true;
     } catch {
@@ -552,7 +556,7 @@ export class MnemoPay extends EventEmitter {
   }
 
   async reinforce(id: string, boost = 0.1): Promise<void> {
-    await this.mnemoFetch(`/v1/memory/${id}/review`, {
+    await this.mnemoFetch(`/v1/memories/${id}/review`, {
       method: "POST",
       body: JSON.stringify({ grade: boost >= 0.15 ? 4 : 3 }),
     });
@@ -560,7 +564,7 @@ export class MnemoPay extends EventEmitter {
   }
 
   async consolidate(): Promise<number> {
-    const result = await this.mnemoFetch("/v1/consolidate", {
+    const result = await this.mnemoFetch("/v1/memories/consolidate", {
       method: "POST",
       body: JSON.stringify({ namespace: `agent:${this.agentId}`, scope: "incremental", dry_run: false }),
     });
@@ -598,6 +602,7 @@ export class MnemoPay extends EventEmitter {
   async settle(txId: string): Promise<Transaction> {
     const result = await this.agentpayFetch(`/api/escrow/${txId}/release`, {
       method: "POST",
+      body: JSON.stringify({}),
     });
     this.emit("payment:completed", { id: txId, amount: result.amount });
     this.log(`Settled: $${result.amount?.toFixed(2)}`);
@@ -615,6 +620,7 @@ export class MnemoPay extends EventEmitter {
   async refund(txId: string): Promise<Transaction> {
     const result = await this.agentpayFetch(`/api/escrow/${txId}/refund`, {
       method: "POST",
+      body: JSON.stringify({}),
     });
     this.emit("payment:refunded", { id: txId });
     this.log(`Refunded: ${txId}`);

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * MnemoPay Unified MCP Server
  *

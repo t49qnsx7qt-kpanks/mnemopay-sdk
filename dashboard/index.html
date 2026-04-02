@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' http://localhost:3200; img-src 'self' data:;">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="X-Frame-Options" content="DENY">
+<meta name="referrer" content="no-referrer">
+<title>MnemoPay Live Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { outfit: ['Outfit', 'sans-serif'] },
+      colors: {
+        void: '#07090F', cortex: '#0D1117', teal: '#0D9488',
+        mnemo: '#3B82F6', indigo: '#818CF8', signal: '#F0F6FF',
+        glass: 'rgba(255,255,255,0.05)', glassBorder: 'rgba(255,255,255,0.08)'
+      }
+    }
+  }
+}
+</script>
+<style>
+  body { font-family: 'Outfit', sans-serif; background: #07090F; }
+  .glass { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(12px); }
+  .glow-teal { box-shadow: 0 0 20px rgba(13,148,136,0.3); }
+  .glow-blue { box-shadow: 0 0 20px rgba(59,130,246,0.3); }
+  .stat-card:hover { transform: translateY(-2px); transition: all 0.2s; }
+  .memory-row:hover { background: rgba(255,255,255,0.04); }
+  .fade-in { animation: fadeIn 0.3s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .pulse { animation: pulse 2s infinite; }
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+  .rep-bar { transition: width 0.5s ease; }
+  .tab-active { border-bottom: 2px solid #0D9488; color: #0D9488; }
+  .status-badge { padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .status-forked { background: rgba(59,130,246,0.15); color: #60A5FA; }
+  .status-pr-open { background: rgba(13,148,136,0.15); color: #2DD4BF; }
+  .status-merged { background: rgba(168,85,247,0.15); color: #C084FC; }
+  .status-pr-closed { background: rgba(239,68,68,0.15); color: #FCA5A5; }
+  .status-error { background: rgba(239,68,68,0.15); color: #FCA5A5; }
+  .repo-card { transition: all 0.2s; }
+  .repo-card:hover { border-color: rgba(13,148,136,0.3); transform: translateY(-1px); }
+</style>
+</head>
+<body class="bg-void text-signal min-h-screen">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ── API client (talks to real SDK backend) ────────────────────────────────
+const API_BASE = window.location.origin;
+
+const api = {
+  async get(path) {
+    const res = await fetch(`${API_BASE}${path}`);
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  },
+  async post(path, body) {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  },
+  async del(path) {
+    const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  },
+};
+
+// ── Sanitize text to prevent XSS ──────────────────────────────────────────
+function sanitize(str) {
+  if (typeof str !== 'string') return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── Components ────────────────────────────────────────────────────────────
+
+function StatCard({ label, value, sub, color = 'teal', icon }) {
+  const colors = {
+    teal: 'from-teal-500/20 to-teal-500/5 border-teal-500/20',
+    blue: 'from-mnemo/20 to-mnemo/5 border-mnemo/20',
+    indigo: 'from-indigo/20 to-indigo/5 border-indigo/20',
+    amber: 'from-amber-500/20 to-amber-500/5 border-amber-500/20',
+    purple: 'from-purple-500/20 to-purple-500/5 border-purple-500/20'
+  };
+  return (
+    <div className={`stat-card glass rounded-xl p-5 bg-gradient-to-br ${colors[color]} cursor-default`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs uppercase tracking-wider text-gray-400">{label}</span>
+        <span className="text-lg">{icon}</span>
+      </div>
+      <div className="text-2xl font-bold text-white">{value}</div>
+      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function ReputationBar({ value }) {
+  const pct = Math.round((value || 0) * 100);
+  const color = pct >= 70 ? 'bg-teal' : pct >= 40 ? 'bg-amber-500' : 'bg-red-500';
+  return (
+    <div className="w-full">
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-gray-400">Reputation Score</span>
+        <span className="text-white font-mono">{(value || 0).toFixed(3)}</span>
+      </div>
+      <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+        <div className={`rep-bar h-full ${color} rounded-full`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ConnectionIndicator({ connected }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`w-2 h-2 rounded-full ${connected ? 'bg-teal pulse' : 'bg-red-500'}`} />
+      <span className="text-xs text-gray-400">{connected ? 'Live (real SDK)' : 'Disconnected'}</span>
+    </div>
+  );
+}
+
+function MemoryPanel({ memories, onRefresh }) {
+  const [newContent, setNewContent] = useState('');
+  const [newTags, setNewTags] = useState('');
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const filtered = search
+    ? memories.filter(m => m.content.toLowerCase().includes(search.toLowerCase()) || (m.tags || []).some(t => t.includes(search.toLowerCase())))
+    : memories;
+
+  const handleStore = async () => {
+    if (!newContent.trim() || saving) return;
+    setSaving(true);
+    try {
+      await api.post('/api/memories', { content: newContent.trim(), tags: newTags.split(',').map(t => t.trim()).filter(Boolean) });
+      setNewContent(''); setNewTags('');
+      onRefresh();
+    } catch (e) { console.error('Store failed:', e); }
+    setSaving(false);
+  };
+
+  const handleReinforce = async (id) => {
+    await api.post('/api/memories/reinforce', { id, boost: 0.1 });
+    onRefresh();
+  };
+
+  const handleForget = async (id) => {
+    await api.del(`/api/memories/${id}`);
+    onRefresh();
+  };
+
+  const handleConsolidate = async () => {
+    await api.post('/api/memories/consolidate', {});
+    onRefresh();
+  };
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="glass rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-gray-300 mb-3">Store New Memory</h3>
+        <textarea
+          className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white placeholder-gray-500 focus:border-teal/50 focus:outline-none resize-none"
+          rows="2" placeholder="What should the agent remember?"
+          value={newContent} onChange={e => setNewContent(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleStore(); }}}
+        />
+        <div className="flex gap-2 mt-2">
+          <input className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-teal/50 focus:outline-none"
+            placeholder="Tags (comma-separated)" value={newTags} onChange={e => setNewTags(e.target.value)} />
+          <button onClick={handleStore} disabled={saving}
+            className="px-4 py-2 bg-teal text-white rounded-lg text-sm font-medium hover:bg-teal-600 transition disabled:opacity-50">
+            {saving ? '...' : 'Store'}
+          </button>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <input className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none"
+          placeholder="Search memories..." value={search} onChange={e => setSearch(e.target.value)} />
+        <button onClick={handleConsolidate}
+          className="px-3 py-2 bg-indigo/20 border border-indigo/30 text-indigo rounded-lg text-xs font-medium hover:bg-indigo/30 transition">
+          Consolidate
+        </button>
+      </div>
+
+      <div className="glass rounded-xl overflow-hidden">
+        <div className="grid grid-cols-12 gap-2 px-4 py-2 text-xs text-gray-500 border-b border-white/5 font-medium">
+          <div className="col-span-5">Content</div>
+          <div className="col-span-2">Tags</div>
+          <div className="col-span-1 text-center">Score</div>
+          <div className="col-span-1 text-center">Imp.</div>
+          <div className="col-span-1 text-center">Hits</div>
+          <div className="col-span-2 text-right">Actions</div>
+        </div>
+        <div className="max-h-[400px] overflow-y-auto scrollbar-thin">
+          {filtered.map(m => (
+            <div key={m.id} className="memory-row grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/5 items-center text-sm">
+              <div className="col-span-5 text-gray-300 truncate" title={m.content}>{sanitize(m.content)}</div>
+              <div className="col-span-2 flex gap-1 flex-wrap">
+                {(m.tags || []).map(t => <span key={t} className="px-1.5 py-0.5 bg-mnemo/15 text-mnemo text-[10px] rounded">{sanitize(t)}</span>)}
+              </div>
+              <div className="col-span-1 text-center font-mono text-xs text-teal">{(m.score || 0).toFixed(2)}</div>
+              <div className="col-span-1 text-center font-mono text-xs">{(m.importance || 0).toFixed(2)}</div>
+              <div className="col-span-1 text-center font-mono text-xs text-gray-400">{m.accessCount || 0}</div>
+              <div className="col-span-2 flex gap-1 justify-end">
+                <button onClick={() => handleReinforce(m.id)}
+                  className="px-2 py-1 bg-teal/15 text-teal text-[10px] rounded hover:bg-teal/25 transition" title="Reinforce +0.1">+</button>
+                <button onClick={() => handleForget(m.id)}
+                  className="px-2 py-1 bg-red-500/15 text-red-400 text-[10px] rounded hover:bg-red-500/25 transition" title="Forget">x</button>
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && <div className="px-4 py-8 text-center text-gray-500 text-sm">No memories found</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentPanel({ history, onRefresh }) {
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+
+  const handleCharge = async () => {
+    const a = parseFloat(amount);
+    if (!a || a <= 0 || !reason.trim()) return;
+    await api.post('/api/charge', { amount: a, reason: reason.trim() });
+    setAmount(''); setReason('');
+    onRefresh();
+  };
+
+  const handleSettle = async (txId) => { await api.post('/api/settle', { txId }); onRefresh(); };
+  const handleRefund = async (txId) => { await api.post('/api/refund', { txId }); onRefresh(); };
+
+  const statusColors = { pending: 'text-amber-400 bg-amber-400/10', completed: 'text-teal bg-teal/10', refunded: 'text-red-400 bg-red-400/10' };
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="glass rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-gray-300 mb-3">Create Charge (Escrow)</h3>
+        <div className="flex gap-2">
+          <input className="w-28 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none"
+            type="number" step="0.01" min="0" placeholder="$0.00" value={amount} onChange={e => setAmount(e.target.value)} />
+          <input className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none"
+            placeholder="Reason (e.g., Code review)" value={reason} onChange={e => setReason(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleCharge(); }} />
+          <button onClick={handleCharge} className="px-4 py-2 bg-mnemo text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition">
+            Charge
+          </button>
+        </div>
+      </div>
+
+      <div className="glass rounded-xl overflow-hidden">
+        <div className="grid grid-cols-12 gap-2 px-4 py-2 text-xs text-gray-500 border-b border-white/5 font-medium">
+          <div className="col-span-2">ID</div>
+          <div className="col-span-2">Amount</div>
+          <div className="col-span-3">Reason</div>
+          <div className="col-span-2">Status</div>
+          <div className="col-span-1">Time</div>
+          <div className="col-span-2 text-right">Actions</div>
+        </div>
+        <div className="max-h-[400px] overflow-y-auto scrollbar-thin">
+          {(history || []).map(tx => (
+            <div key={tx.id} className="memory-row grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/5 items-center text-sm">
+              <div className="col-span-2 font-mono text-xs text-gray-400">{(tx.id || '').slice(0, 8)}</div>
+              <div className="col-span-2 font-mono text-white font-medium">${(tx.amount || 0).toFixed(2)}</div>
+              <div className="col-span-3 text-gray-300 truncate">{sanitize(tx.reason)}</div>
+              <div className="col-span-2">
+                <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${statusColors[tx.status] || ''}`}>{tx.status}</span>
+              </div>
+              <div className="col-span-1 text-xs text-gray-500">{tx.createdAt ? new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+              <div className="col-span-2 flex gap-1 justify-end">
+                {tx.status === 'pending' && (
+                  <>
+                    <button onClick={() => handleSettle(tx.id)} className="px-2 py-1 bg-teal/15 text-teal text-[10px] rounded hover:bg-teal/25">Settle</button>
+                    <button onClick={() => handleRefund(tx.id)} className="px-2 py-1 bg-red-500/15 text-red-400 text-[10px] rounded hover:bg-red-500/25">Refund</button>
+                  </>
+                )}
+                {tx.status === 'completed' && (
+                  <button onClick={() => handleRefund(tx.id)} className="px-2 py-1 bg-red-500/15 text-red-400 text-[10px] rounded hover:bg-red-500/25">Refund</button>
+                )}
+              </div>
+            </div>
+          ))}
+          {(!history || history.length === 0) && <div className="px-4 py-8 text-center text-gray-500 text-sm">No transactions yet</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuditPanel({ logs }) {
+  const actionColors = {
+    'memory:stored': 'text-teal', 'memory:deleted': 'text-red-400', 'memory:reinforced': 'text-mnemo',
+    'memory:consolidated': 'text-indigo', 'payment:pending': 'text-amber-400',
+    'payment:completed': 'text-teal', 'payment:refunded': 'text-red-400'
+  };
+  return (
+    <div className="fade-in glass rounded-xl overflow-hidden">
+      <div className="max-h-[500px] overflow-y-auto scrollbar-thin">
+        {(logs || []).map((e, i) => (
+          <div key={e.id || i} className="px-4 py-2.5 border-b border-white/5 flex items-start gap-3 text-sm">
+            <span className="text-[10px] text-gray-500 font-mono whitespace-nowrap mt-0.5">
+              {e.createdAt ? new Date(e.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
+            </span>
+            <span className={`text-xs font-mono ${actionColors[e.action] || 'text-gray-400'}`}>{e.action}</span>
+            <span className="text-xs text-gray-400 truncate">{JSON.stringify(e.details || {}).slice(0, 120)}</span>
+          </div>
+        ))}
+        {(!logs || logs.length === 0) && <div className="px-4 py-8 text-center text-gray-500">No audit entries yet</div>}
+      </div>
+    </div>
+  );
+}
+
+function RepoCard({ repo }) {
+  const statusLabel = { 'forked': 'Forked', 'pr-open': 'PR Open', 'merged': 'Merged', 'pr-closed': 'Closed', 'error': 'Error' };
+  const statusClass = `status-${repo.status}`;
+
+  return (
+    <div className="repo-card glass rounded-xl p-5 space-y-3">
+      <div className="flex items-start justify-between">
+        <div>
+          <a href={`https://github.com/${repo.name}`} target="_blank" rel="noopener noreferrer"
+            className="text-white font-semibold hover:text-teal transition text-sm">{repo.name}</a>
+          <div className="text-[10px] text-gray-500 mt-0.5 font-mono">{repo.branch}</div>
+        </div>
+        <span className={`status-badge ${statusClass}`}>{statusLabel[repo.status] || repo.status}</span>
+      </div>
+
+      {repo.description && <p className="text-xs text-gray-400 line-clamp-2">{sanitize(repo.description)}</p>}
+
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        {repo.upstreamStars > 0 && (
+          <span title="Upstream stars">
+            <span className="text-amber-400">&#9733;</span> {repo.upstreamStars.toLocaleString()}
+          </span>
+        )}
+        {repo.updatedAt && (
+          <span>Updated {new Date(repo.updatedAt).toLocaleDateString()}</span>
+        )}
+      </div>
+
+      {repo.pr && (
+        <div className="glass rounded-lg p-3 mt-2">
+          <div className="flex items-center gap-2">
+            <span className="text-teal text-xs font-mono">#{repo.pr.number}</span>
+            <a href={repo.pr.url} target="_blank" rel="noopener noreferrer"
+              className="text-xs text-gray-300 hover:text-white transition truncate">
+              {sanitize(repo.pr.title)}
+            </a>
+          </div>
+          <div className="text-[10px] text-gray-500 mt-1">
+            Opened {repo.pr.createdAt ? new Date(repo.pr.createdAt).toLocaleDateString() : 'recently'}
+          </div>
+        </div>
+      )}
+
+      {repo.status === 'error' && (
+        <div className="text-xs text-red-400 bg-red-400/5 rounded-lg p-2">
+          {sanitize(repo.error || 'Failed to fetch status')}
+        </div>
+      )}
+
+      <div className="flex gap-2 pt-1">
+        <a href={`https://github.com/${repo.fork}`} target="_blank" rel="noopener noreferrer"
+          className="text-[10px] px-2 py-1 bg-white/5 border border-white/10 rounded text-gray-400 hover:text-white transition">
+          Fork
+        </a>
+        <a href={`https://github.com/${repo.name}`} target="_blank" rel="noopener noreferrer"
+          className="text-[10px] px-2 py-1 bg-white/5 border border-white/10 rounded text-gray-400 hover:text-white transition">
+          Upstream
+        </a>
+        {repo.pr && repo.pr.url && (
+          <a href={repo.pr.url} target="_blank" rel="noopener noreferrer"
+            className="text-[10px] px-2 py-1 bg-teal/15 border border-teal/20 rounded text-teal hover:bg-teal/25 transition">
+            View PR
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReposPanel({ repos, loading, onRefresh }) {
+  const prOpen = (repos || []).filter(r => r.status === 'pr-open').length;
+  const merged = (repos || []).filter(r => r.status === 'merged').length;
+  const totalStars = (repos || []).reduce((sum, r) => sum + (r.upstreamStars || 0), 0);
+
+  return (
+    <div className="space-y-4 fade-in">
+      <div className="flex items-center justify-between">
+        <div className="flex gap-4 text-xs text-gray-400">
+          <span><span className="text-teal font-bold">{prOpen}</span> PRs Open</span>
+          <span><span className="text-purple-400 font-bold">{merged}</span> Merged</span>
+          <span><span className="text-amber-400">&#9733;</span> {totalStars.toLocaleString()} total upstream stars</span>
+        </div>
+        <button onClick={onRefresh} disabled={loading}
+          className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-400 hover:text-white transition disabled:opacity-50">
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {(repos || []).map(repo => <RepoCard key={repo.name} repo={repo} />)}
+      </div>
+
+      {(!repos || repos.length === 0) && !loading && (
+        <div className="glass rounded-xl p-8 text-center text-gray-500">No repos being monitored</div>
+      )}
+      {loading && (!repos || repos.length === 0) && (
+        <div className="glass rounded-xl p-8 text-center text-gray-500">Loading repo status from GitHub...</div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Dashboard ────────────────────────────────────────────────────────
+
+function Dashboard() {
+  const [tab, setTab] = useState('memories');
+  const [connected, setConnected] = useState(false);
+  const [profile, setProfile] = useState({ wallet: 0, reputation: 0.5, memoriesCount: 0, transactionsCount: 0 });
+  const [memories, setMemories] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [repos, setRepos] = useState([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState(null);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const [prof, mems, hist, auditLogs] = await Promise.all([
+        api.get('/api/profile'),
+        api.get('/api/memories?limit=50'),
+        api.get('/api/history?limit=20'),
+        api.get('/api/logs?limit=50'),
+      ]);
+      setProfile(prof);
+      setMemories(mems);
+      setHistory(hist);
+      setLogs(auditLogs);
+      setConnected(true);
+      setLastUpdate(new Date());
+    } catch (e) {
+      console.error('Fetch failed:', e);
+      setConnected(false);
+    }
+  }, []);
+
+  const fetchRepos = useCallback(async () => {
+    setReposLoading(true);
+    try {
+      const data = await api.get('/api/repos');
+      if (Array.isArray(data)) setRepos(data);
+    } catch (e) { console.error('Repo fetch failed:', e); }
+    setReposLoading(false);
+  }, []);
+
+  // Initial load
+  useEffect(() => { fetchAll(); fetchRepos(); }, []);
+
+  // Auto-poll every 3 seconds for SDK data
+  useEffect(() => {
+    const interval = setInterval(fetchAll, 3000);
+    return () => clearInterval(interval);
+  }, [fetchAll]);
+
+  // Auto-poll repos every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(fetchRepos, 60000);
+    return () => clearInterval(interval);
+  }, [fetchRepos]);
+
+  const highScoreCount = memories.filter(m => (m.score || 0) > 0.5).length;
+  const pendingTx = history.filter(t => t.status === 'pending').length;
+  const prCount = repos.filter(r => r.status === 'pr-open').length;
+
+  const tabs = [
+    { id: 'memories', label: 'Memories', icon: '\u{1F9E0}' },
+    { id: 'payments', label: 'Payments', icon: '\u{1F4B0}' },
+    { id: 'repos', label: `Repos (${repos.length})`, icon: '\u{1F4E6}' },
+    { id: 'audit', label: 'Audit Log', icon: '\u{1F4CB}' },
+  ];
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-teal to-mnemo rounded-xl flex items-center justify-center text-lg font-bold text-white">
+            M
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-white">MnemoPay Live Dashboard</h1>
+            <p className="text-xs text-gray-500">Brain + Wallet for AI Agents {lastUpdate ? `| Updated ${lastUpdate.toLocaleTimeString()}` : ''}</p>
+          </div>
+        </div>
+        <ConnectionIndicator connected={connected} />
+      </div>
+
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <StatCard label="Wallet" value={`$${(profile.wallet || 0).toFixed(2)}`} sub="Available balance" color="teal" icon="\u{1F4B0}" />
+        <StatCard label="Memories" value={profile.memoriesCount || 0} sub={`${highScoreCount} high-score`} color="blue" icon="\u{1F9E0}" />
+        <StatCard label="Transactions" value={profile.transactionsCount || 0} sub={`${pendingTx} pending`} color="amber" icon="\u{1F4CA}" />
+        <StatCard label="PRs Open" value={prCount} sub={`${repos.length} repos monitored`} color="purple" icon="\u{1F680}" />
+        <StatCard label="Audit Events" value={logs.length} sub="Total operations" color="indigo" icon="\u{1F4CB}" />
+      </div>
+
+      {/* Reputation Bar */}
+      <div className="glass rounded-xl p-4 mb-6">
+        <ReputationBar value={profile.reputation} />
+        <div className="flex gap-4 mt-3 text-[10px] text-gray-500">
+          <span>Ceiling: ${(500 * (profile.reputation || 0)).toFixed(0)}/charge</span>
+          <span>Decay: 0.05 (half-life ~14h)</span>
+          <span>Feedback Loop: +0.05 importance on settle</span>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-6 border-b border-white/10 mb-6">
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => { setTab(t.id); if (t.id === 'repos') fetchRepos(); }}
+            className={`pb-3 text-sm font-medium transition ${tab === t.id ? 'tab-active' : 'text-gray-500 hover:text-gray-300'}`}>
+            <span className="mr-1.5">{t.icon}</span>{t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      {tab === 'memories' && <MemoryPanel memories={memories} onRefresh={fetchAll} />}
+      {tab === 'payments' && <PaymentPanel history={history} onRefresh={fetchAll} />}
+      {tab === 'repos' && <ReposPanel repos={repos} loading={reposLoading} onRefresh={fetchRepos} />}
+      {tab === 'audit' && <AuditPanel logs={logs} />}
+
+      {/* Footer */}
+      <div className="mt-12 text-center text-xs text-gray-600 pb-8">
+        @mnemopay/sdk v0.1.1 | Live Dashboard | Memory + Payments + Feedback Loop + Repo Monitor
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Dashboard />);
+</script>
+</body>
+</html>
