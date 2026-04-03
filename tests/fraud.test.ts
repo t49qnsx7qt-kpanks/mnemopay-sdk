@@ -496,6 +496,18 @@ describe("Fraud + Payment Integration", () => {
     expect(settleLog!.details.feeRate).toBe(0.1);
   });
 
+  it("should load ML systems only when ml: true", () => {
+    const lean = new FraudGuard(); // default: ml false
+    expect(lean.isolationForest).toBeNull();
+    expect(lean.transactionGraph).toBeNull();
+    expect(lean.behaviorProfile).toBeNull();
+
+    const full = new FraudGuard({ ml: true });
+    expect(full.isolationForest).not.toBeNull();
+    expect(full.transactionGraph).not.toBeNull();
+    expect(full.behaviorProfile).not.toBeNull();
+  });
+
   it("should handle full lifecycle: charge → settle with fee → dispute → resolve", async () => {
     const agent = MnemoPay.quick("lifecycle", { fraud: { platformFeeRate: 0.03 } });
 
