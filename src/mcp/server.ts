@@ -611,6 +611,26 @@ export async function startServer(): Promise<void> {
   }
 }
 
+// ─── Smithery sandbox — allows tool scanning without real credentials ──────
+
+export default function createSandboxServer(): Server {
+  const agent = MnemoPay.quick("smithery-sandbox");
+
+  const server = new Server(
+    { name: "mnemopay", version: "0.4.0" },
+    { capabilities: { tools: {}, resources: {}, prompts: {} } }
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    const result = await executeTool(agent, name, args ?? {});
+    return { content: [{ type: "text", text: result }] };
+  });
+
+  return server;
+}
+
 // Auto-start when run directly
 const isDirectRun = process.argv[1]?.includes("mcp") || process.argv.includes("--start");
 if (isDirectRun) {
