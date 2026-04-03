@@ -6,6 +6,9 @@
  * before any money moves.
  */
 
+import { IsolationForest, TransactionGraph, BehaviorProfile } from "./fraud-ml.js";
+import type { CollusionSignal, DriftSignal, BehaviorSnapshot } from "./fraud-ml.js";
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface FraudConfig {
@@ -136,9 +139,18 @@ export class FraudGuard {
   private flaggedAgents: Set<string> = new Set();
   /** Hard-blocked agents */
   private blockedAgents: Set<string> = new Set();
+  /** ML anomaly detection — learns from agent behavior */
+  readonly isolationForest: IsolationForest;
+  /** Transaction graph — detects collusion and wash trading */
+  readonly transactionGraph: TransactionGraph;
+  /** Behavioral fingerprinting — detects drift from baseline */
+  readonly behaviorProfile: BehaviorProfile;
 
   constructor(config?: Partial<FraudConfig>) {
     this.config = { ...DEFAULT_FRAUD_CONFIG, ...config };
+    this.isolationForest = new IsolationForest();
+    this.transactionGraph = new TransactionGraph();
+    this.behaviorProfile = new BehaviorProfile();
   }
 
   // ── Risk Assessment ────────────────────────────────────────────────────
@@ -216,8 +228,22 @@ export class FraudGuard {
       });
     }
 
-    // 3. Amount anomaly detection (z-score)
+    // 3. Amount anomaly detection — ML Isolation Forest OR z-score fallback
     const stats = this.agentStats.get(agentId);
+    const iforestScore = this.isolationForest.score([
+      amount, new Date().getHours(), 0, history.filter((e) => now - e.timestamp < 600_000).length,
+      stats ? stats.sum / Math.max(stats.count, 1) : 0, 0, pendingCount, reputation,
+    ]);
+    if (iforestScore >= 0 && iforestScore > 0.65) {
+      signals.push({
+        type: "ml_anomaly",
+        severity: iforestScore > 0.8 ? "high" : "medium",
+        description: `ML anomaly score ${iforestScore.toFixed(2)} (Isolation Forest)`,
+        weight: Math.min(iforestScore * 0.9, 0.85),
+      });
+    }
+
+    // z-score fallback (always runs, adds to ML signal if both fire)
     if (stats && stats.count >= 5) {
       const mean = stats.sum / stats.count;
       const variance = stats.sumSq / stats.count - mean * mean;
@@ -233,6 +259,17 @@ export class FraudGuard {
           });
         }
       }
+    }
+
+    // 3b. Behavioral drift detection
+    const driftSignals = this.behaviorProfile.detectDrift(agentId, amount);
+    for (const ds of driftSignals) {
+      signals.push({
+        type: `drift:${ds.type}`,
+        severity: ds.severity > 0.6 ? "high" : ds.severity > 0.3 ? "medium" : "low",
+        description: ds.description,
+        weight: ds.severity,
+      });
     }
 
     // 4. New agent high charge
@@ -394,7 +431,8 @@ export class FraudGuard {
     history.push({ timestamp: now, amount, agentId });
     // Keep only last 48 hours
     const cutoff = now - 48 * 3_600_000;
-    this.chargeHistory.set(agentId, history.filter((e) => e.timestamp > cutoff));
+    const filtered = history.filter((e) => e.timestamp > cutoff);
+    this.chargeHistory.set(agentId, filtered);
 
     // Update running statistics (Welford's online algorithm)
     const stats = this.agentStats.get(agentId) || { sum: 0, sumSq: 0, count: 0 };
@@ -409,6 +447,39 @@ export class FraudGuard {
       ips.add(ctx.ip);
       this.agentIps.set(agentId, ips);
     }
+
+    // Feed ML systems
+    const recent10 = filtered.filter((e) => now - e.timestamp < 600_000);
+    const avgRecent = recent10.length > 0 ? recent10.reduce((s, e) => s + e.amount, 0) / recent10.length : 0;
+    const stdRecent = recent10.length > 1
+      ? Math.sqrt(recent10.reduce((s, e) => s + (e.amount - avgRecent) ** 2, 0) / recent10.length)
+      : 0;
+    this.isolationForest.addSample([
+      amount, new Date().getHours(), 0, recent10.length,
+      avgRecent, stdRecent, 0, 0.5,
+    ]);
+    this.behaviorProfile.recordEvent(agentId, "charge", amount);
+    if (ctx?.ip) this.transactionGraph.registerAgent(agentId, ctx.ip);
+  }
+
+  /** Record a non-payment event (memory ops) for behavioral profiling */
+  recordEvent(agentId: string, type: "remember" | "recall" | "settle" | "refund"): void {
+    this.behaviorProfile.recordEvent(agentId, type);
+  }
+
+  /** Record a transaction between agents for graph analysis */
+  recordTransfer(fromAgent: string, toAgent: string, amount: number, txId: string): void {
+    this.transactionGraph.addTransaction(fromAgent, toAgent, amount, txId);
+  }
+
+  /** Run collusion detection across the transaction graph */
+  detectCollusion(): CollusionSignal[] {
+    return this.transactionGraph.detectAll();
+  }
+
+  /** Get an agent's behavioral baseline */
+  getAgentBaseline(agentId: string): BehaviorSnapshot | undefined {
+    return this.behaviorProfile.getBaseline(agentId);
   }
 
   // ── Platform Fee ──────────────────────────────────────────────────────
@@ -589,6 +660,9 @@ export class FraudGuard {
       agentIps: Array.from(this.agentIps.entries()).map(([k, v]) => [k, Array.from(v)]),
       flaggedAgents: Array.from(this.flaggedAgents),
       blockedAgents: Array.from(this.blockedAgents),
+      isolationForest: this.isolationForest.serialize(),
+      transactionGraph: this.transactionGraph.serialize(),
+      behaviorProfile: this.behaviorProfile.serialize(),
     });
   }
 
@@ -624,6 +698,15 @@ export class FraudGuard {
       }
       if (data.blockedAgents) {
         guard.blockedAgents = new Set(data.blockedAgents);
+      }
+      if (data.isolationForest) {
+        (guard as any).isolationForest = IsolationForest.deserialize(data.isolationForest);
+      }
+      if (data.transactionGraph) {
+        (guard as any).transactionGraph = TransactionGraph.deserialize(data.transactionGraph);
+      }
+      if (data.behaviorProfile) {
+        (guard as any).behaviorProfile = BehaviorProfile.deserialize(data.behaviorProfile);
       }
     } catch {
       // Return fresh guard if deserialization fails

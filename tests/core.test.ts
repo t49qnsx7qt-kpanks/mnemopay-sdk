@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { MnemoPay, MnemoPayLite, autoScore, computeScore } from "../src/index.js";
 import type { FraudConfig } from "../src/index.js";
 
-/** Fraud config that disables fees and raises limits — for backward-compatible tests */
+/** Fraud config that disables fees and raises all limits — for backward-compatible tests */
 const NO_FRAUD: Partial<FraudConfig> = {
   platformFeeRate: 0,
   maxChargesPerMinute: 100000,
@@ -18,7 +18,8 @@ const NO_FRAUD: Partial<FraudConfig> = {
   maxChargesPerDay: 10000000,
   maxDailyVolume: 10000000,
   maxPendingTransactions: 100000,
-  blockThreshold: 0.99,
+  blockThreshold: 1.01, // impossible to reach — effectively disables blocking
+  flagThreshold: 1.01,
 };
 
 // ─── Memory Operations ─────────────────────────────────────────────────────

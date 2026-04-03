@@ -1166,3 +1166,5 @@ export { RecallEngine, cosineSimilarity, localEmbed, l2Normalize } from "./recal
 export type { RecallStrategy, EmbeddingProvider, RecallEngineConfig, RecallResult } from "./recall/engine.js";
 export { FraudGuard, RateLimiter, DEFAULT_FRAUD_CONFIG, DEFAULT_RATE_LIMIT } from "./fraud.js";
 export type { FraudConfig, FraudSignal, RiskAssessment, Dispute, PlatformFeeRecord, RequestContext, RateLimitConfig } from "./fraud.js";
+export { IsolationForest, TransactionGraph, BehaviorProfile } from "./fraud-ml.js";
+export type { CollusionSignal, DriftSignal, BehaviorSnapshot } from "./fraud-ml.js";
