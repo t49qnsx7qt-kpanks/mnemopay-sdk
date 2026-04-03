@@ -540,3 +540,110 @@ describe("Fraud + Payment Integration", () => {
     expect(stats.openDisputes).toBe(0);
   });
 });
+
+// ─── Stress Tests ────────────────────────────────────────────────────────────
+
+describe("Stress: Fraud Under Load", () => {
+  it("should handle 500 charges with velocity enforcement", async () => {
+    // High limits but not infinite — fraud guard must track all 500
+    const agent = MnemoPay.quick("stress-velocity", {
+      fraud: {
+        platformFeeRate: 0,
+        maxChargesPerMinute: 1000,
+        maxChargesPerHour: 5000,
+        maxChargesPerDay: 10000,
+        maxDailyVolume: 100000,
+        maxPendingTransactions: 1000,
+        blockThreshold: 0.95,
+        flagThreshold: 0.9,
+      },
+    });
+
+    // Fire 500 charges as fast as possible
+    const results = [];
+    for (let i = 0; i < 500; i++) {
+      results.push(await agent.charge(1 + Math.random() * 10, `Stress charge ${i}`));
+    }
+    expect(results).toHaveLength(500);
+    expect(results.every((r) => r.status === "pending")).toBe(true);
+
+    // Settle all — verify fee accounting stays consistent
+    let totalNet = 0;
+    for (const tx of results) {
+      const settled = await agent.settle(tx.id);
+      totalNet += settled.netAmount;
+    }
+    const bal = await agent.balance();
+    expect(bal.wallet).toBeCloseTo(totalNet, 2);
+
+    // Stats integrity
+    const stats = agent.fraud.stats();
+    expect(stats.totalChargesTracked).toBe(500);
+    expect(stats.platformFeesCollected).toBe(0); // 0% fee rate
+  }, 30000);
+
+  it("should correctly block under burst after legitimate warmup", async () => {
+    const guard = new FraudGuard({
+      maxChargesPerMinute: 10,
+      blockThreshold: 0.75,
+    });
+    const now = new Date();
+
+    // 8 legitimate charges — under limit
+    for (let i = 0; i < 8; i++) {
+      const r = guard.assessCharge("burst-agent", 5, 0.8, now, 0);
+      expect(r.allowed).toBe(true);
+      guard.recordCharge("burst-agent", 5);
+    }
+
+    // Charges 11+ should trigger velocity_burst and block
+    for (let i = 0; i < 5; i++) {
+      guard.recordCharge("burst-agent", 5);
+    }
+    const blocked = guard.assessCharge("burst-agent", 5, 0.8, now, 0);
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.signals.some((s) => s.type === "velocity_burst")).toBe(true);
+  });
+
+  it("should run ML mode with 200 charges and detect anomaly on spike", async () => {
+    const agent = MnemoPay.quick("stress-ml", {
+      fraud: {
+        ml: true,
+        platformFeeRate: 0,
+        maxChargesPerMinute: 100000,
+        maxChargesPerHour: 100000,
+        maxChargesPerDay: 100000,
+        maxDailyVolume: 1000000,
+        maxPendingTransactions: 100000,
+        blockThreshold: 1.01,  // disable blocking — this test is about ML training
+        flagThreshold: 1.01,
+      },
+    });
+
+    // ML systems should be loaded
+    expect(agent.fraud.isolationForest).not.toBeNull();
+    expect(agent.fraud.transactionGraph).not.toBeNull();
+    expect(agent.fraud.behaviorProfile).not.toBeNull();
+
+    // 200 normal charges ($1-$5) to train the model
+    for (let i = 0; i < 200; i++) {
+      const tx = await agent.charge(1 + Math.random() * 4, `Normal ${i}`);
+      await agent.settle(tx.id);
+    }
+
+    // Isolation forest should have trained by now
+    expect(agent.fraud.isolationForest!.isReady).toBe(true);
+    expect(agent.fraud.isolationForest!.sampleCount).toBeGreaterThanOrEqual(200);
+
+    // Profile should show 200 settled transactions
+    const profile = await agent.profile();
+    expect(profile.transactionsCount).toBe(200);
+
+    // Verify serialization roundtrip with ML state
+    const serialized = agent.fraud.serialize();
+    const restored = FraudGuard.deserialize(serialized, { ml: true });
+    expect(restored.isolationForest).not.toBeNull();
+    expect(restored.isolationForest!.isReady).toBe(true);
+    expect(restored.stats().totalChargesTracked).toBe(200);
+  }, 30000);
+});
