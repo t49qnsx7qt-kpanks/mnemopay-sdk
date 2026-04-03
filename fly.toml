@@ -7,6 +7,11 @@ primary_region = 'dfw'
   PORT = '3200'
   MNEMOPAY_MODE = 'quick'
   NODE_ENV = 'production'
+  MNEMOPAY_PERSIST_DIR = '/data'
+
+[mounts]
+  source = 'mnemopay_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 3200

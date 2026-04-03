@@ -51,11 +51,20 @@ function createAgent(): Agent {
   }
 
   const recall = (process.env.MNEMOPAY_RECALL as "score" | "vector" | "hybrid") || undefined;
-  return MnemoPay.quick(agentId, {
+  const agent = MnemoPay.quick(agentId, {
     debug: process.env.DEBUG === "true",
     recall,
     openaiApiKey: process.env.OPENAI_API_KEY,
   });
+
+  // Enable file persistence if MNEMOPAY_PERSIST_DIR is set (auto-detected in constructor)
+  // or default to /data when running on Fly.io
+  const persistDir = process.env.MNEMOPAY_PERSIST_DIR || (process.env.FLY_APP_NAME ? "/data" : undefined);
+  if (persistDir && !process.env.MNEMOPAY_PERSIST_DIR) {
+    agent.enablePersistence(persistDir);
+  }
+
+  return agent;
 }
 
 // ─── Tool definitions ───────────────────────────────────────────────────────
@@ -225,6 +234,13 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "reputation",
+    description:
+      "Full reputation report: score, tier, settlement rate, total value settled, " +
+      "memory stats. Use to prove agent trustworthiness to other agents or users.",
+    inputSchema: { type: "object" as const, properties: {} },
+  },
 ];
 
 // ─── Tool execution ─────────────────────────────────────────────────────────
@@ -299,6 +315,11 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
       const txns = await agent.history(args.limit ?? 10);
       if (txns.length === 0) return "No transactions yet.";
       return txns.map((t) => `$${t.amount.toFixed(2)} — ${t.status} — ${t.reason}`).join("\n");
+    }
+
+    case "reputation": {
+      const rep = await agent.reputation();
+      return JSON.stringify(rep, null, 2);
     }
 
     default:
@@ -487,6 +508,14 @@ export async function startServer(): Promise<void> {
 
     app.get("/health", (_req, res) => {
       res.json({ status: "ok", mode: process.env.MNEMOPAY_MODE || "quick" });
+    });
+
+    // A2A Agent Card — makes this agent discoverable by other agents
+    app.get("/.well-known/agent.json", (_req, res) => {
+      res.json(agent.agentCard(
+        process.env.MNEMOPAY_URL || `http://localhost:${process.env.PORT || 3200}`,
+        process.env.MNEMOPAY_CONTACT,
+      ));
     });
 
     app.get("/mcp", async (req, res) => {

@@ -135,6 +135,70 @@ export interface AuditEntry {
   createdAt: Date;
 }
 
+// ─── Reputation ────────────────────────────────────────────────────────────
+
+export interface ReputationReport {
+  agentId: string;
+  /** Overall reputation score 0-1 */
+  score: number;
+  /** Reputation tier: untrusted | newcomer | established | trusted | exemplary */
+  tier: "untrusted" | "newcomer" | "established" | "trusted" | "exemplary";
+  /** Total successful settlements */
+  settledCount: number;
+  /** Total refunds issued */
+  refundCount: number;
+  /** Settlement rate (settled / total completed) */
+  settlementRate: number;
+  /** Total value settled */
+  totalValueSettled: number;
+  /** Total memories stored */
+  memoriesCount: number;
+  /** Average memory importance */
+  avgMemoryImportance: number;
+  /** Account age in hours */
+  ageHours: number;
+  /** Generated at */
+  generatedAt: Date;
+}
+
+function reputationTier(score: number): ReputationReport["tier"] {
+  if (score >= 0.9) return "exemplary";
+  if (score >= 0.7) return "trusted";
+  if (score >= 0.4) return "established";
+  if (score >= 0.2) return "newcomer";
+  return "untrusted";
+}
+
+// ─── A2A Agent Card ────────────────────────────────────────────────────────
+
+export interface AgentCard {
+  name: string;
+  description: string;
+  url?: string;
+  version: string;
+  capabilities: {
+    memory: boolean;
+    payments: boolean;
+    reputation: boolean;
+  };
+  protocols: string[];
+  tools: string[];
+  contact?: string;
+}
+
+// ─── x402 Settlement ───────────────────────────────────────────────────────
+
+export interface X402Config {
+  /** x402 facilitator URL */
+  facilitatorUrl: string;
+  /** Payment token (e.g. "USDC") */
+  token?: string;
+  /** Chain (e.g. "base", "ethereum") */
+  chain?: string;
+  /** Agent wallet address */
+  walletAddress?: string;
+}
+
 // ─── Auto-scoring keywords ─────────────────────────────────────────────────
 
 const IMPORTANCE_PATTERNS: Array<{ pattern: RegExp; boost: number }> = [
@@ -182,6 +246,10 @@ export class MnemoPayLite extends EventEmitter {
   private _wallet: number = 0;
   private _reputation: number = 0.5;
   private recallEngine: RecallEngine;
+  private _createdAt: Date = new Date();
+  private x402?: X402Config;
+  private persistPath?: string;
+  private persistTimer?: ReturnType<typeof setInterval>;
 
   constructor(agentId: string, decay = 0.05, debug = false, recallConfig?: Partial<RecallEngineConfig>) {
     super();
@@ -189,8 +257,87 @@ export class MnemoPayLite extends EventEmitter {
     this.decay = decay;
     this.debugMode = debug;
     this.recallEngine = new RecallEngine(recallConfig);
-    this.log(`MnemoPayLite initialized (in-memory mode, recall: ${this.recallEngine.strategy})`);
+
+    // Auto-detect persistence: MNEMOPAY_PERSIST_DIR env var or explicit enablePersistence()
+    const persistDir = typeof process !== "undefined" ? process.env?.MNEMOPAY_PERSIST_DIR : undefined;
+    if (persistDir) {
+      this.enablePersistence(persistDir);
+    }
+
+    this.log(`MnemoPayLite initialized (${this.persistPath ? "persistent" : "in-memory"} mode, recall: ${this.recallEngine.strategy})`);
     setTimeout(() => this.emit("ready"), 0);
+  }
+
+  // ── Persistence ────────────────────────────────────────────────────────
+
+  enablePersistence(dir: string): void {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      this.persistPath = path.join(dir, `${this.agentId}.json`);
+      this._loadFromDisk();
+      // Auto-save every 30 seconds
+      this.persistTimer = setInterval(() => this._saveToDisk(), 30_000);
+      this.log(`Persistence enabled: ${this.persistPath}`);
+    } catch (e) {
+      this.log(`Persistence unavailable (browser?): ${e}`);
+    }
+  }
+
+  private _loadFromDisk(): void {
+    if (!this.persistPath) return;
+    try {
+      const fs = require("fs");
+      if (!fs.existsSync(this.persistPath)) return;
+      const raw = JSON.parse(fs.readFileSync(this.persistPath, "utf-8"));
+      // Restore memories
+      if (raw.memories) {
+        for (const m of raw.memories) {
+          m.createdAt = new Date(m.createdAt);
+          m.lastAccessed = new Date(m.lastAccessed);
+          this.memories.set(m.id, m);
+        }
+      }
+      // Restore transactions
+      if (raw.transactions) {
+        for (const t of raw.transactions) {
+          t.createdAt = new Date(t.createdAt);
+          if (t.completedAt) t.completedAt = new Date(t.completedAt);
+          this.transactions.set(t.id, t);
+        }
+      }
+      // Restore state
+      if (raw.wallet !== undefined) this._wallet = raw.wallet;
+      if (raw.reputation !== undefined) this._reputation = raw.reputation;
+      if (raw.createdAt) this._createdAt = new Date(raw.createdAt);
+      if (raw.auditLog) {
+        this.auditLog = raw.auditLog.map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) }));
+      }
+      this.log(`Loaded ${this.memories.size} memories, ${this.transactions.size} transactions from disk`);
+    } catch (e) {
+      this.log(`Failed to load persisted data: ${e}`);
+    }
+  }
+
+  private _saveToDisk(): void {
+    if (!this.persistPath) return;
+    try {
+      const fs = require("fs");
+      const data = JSON.stringify({
+        agentId: this.agentId,
+        wallet: this._wallet,
+        reputation: this._reputation,
+        createdAt: this._createdAt.toISOString(),
+        memories: Array.from(this.memories.values()),
+        transactions: Array.from(this.transactions.values()),
+        auditLog: this.auditLog.slice(-500), // Keep last 500 entries
+        savedAt: new Date().toISOString(),
+      });
+      fs.writeFileSync(this.persistPath, data, "utf-8");
+    } catch (e) {
+      this.log(`Failed to persist data: ${e}`);
+    }
   }
 
   private log(msg: string): void {
@@ -232,6 +379,7 @@ export class MnemoPayLite extends EventEmitter {
     }
 
     this.audit("memory:stored", { id: mem.id, content: content.slice(0, 100), importance: mem.importance });
+    this._saveToDisk();
     this.emit("memory:stored", { id: mem.id, content, importance: mem.importance });
     this.log(`Stored memory: "${content.slice(0, 60)}..." (importance: ${mem.importance.toFixed(2)})`);
     return mem.id;
@@ -364,6 +512,7 @@ export class MnemoPayLite extends EventEmitter {
     }
 
     this.audit("payment:completed", { id: tx.id, amount: tx.amount, reinforcedMemories: reinforced });
+    this._saveToDisk();
     this.emit("payment:completed", { id: tx.id, amount: tx.amount });
     this.log(
       `Settled $${tx.amount.toFixed(2)} → wallet: $${this._wallet.toFixed(2)}, ` +
@@ -416,8 +565,104 @@ export class MnemoPayLite extends EventEmitter {
     return all.slice(0, limit).map((tx) => ({ ...tx }));
   }
 
+  // ── Reputation ──────────────────────────────────────────────────────────
+
+  async reputation(): Promise<ReputationReport> {
+    const txs = Array.from(this.transactions.values());
+    const settled = txs.filter((t) => t.status === "completed");
+    const refunded = txs.filter((t) => t.status === "refunded");
+    const totalCompleted = settled.length + refunded.length;
+    const settlementRate = totalCompleted > 0 ? settled.length / totalCompleted : 0;
+    const totalValueSettled = settled.reduce((sum, t) => sum + t.amount, 0);
+
+    const mems = Array.from(this.memories.values());
+    const avgImportance = mems.length > 0
+      ? mems.reduce((sum, m) => sum + m.importance, 0) / mems.length
+      : 0;
+
+    const ageHours = (Date.now() - this._createdAt.getTime()) / 3_600_000;
+
+    const report: ReputationReport = {
+      agentId: this.agentId,
+      score: this._reputation,
+      tier: reputationTier(this._reputation),
+      settledCount: settled.length,
+      refundCount: refunded.length,
+      settlementRate,
+      totalValueSettled,
+      memoriesCount: this.memories.size,
+      avgMemoryImportance: Math.round(avgImportance * 100) / 100,
+      ageHours: Math.round(ageHours * 10) / 10,
+      generatedAt: new Date(),
+    };
+
+    this.log(`Reputation: ${report.tier} (${report.score.toFixed(2)}), ${report.settledCount} settled, rate: ${(report.settlementRate * 100).toFixed(0)}%`);
+    return report;
+  }
+
+  // ── A2A Agent Card ─────────────────────────────────────────────────────
+
+  agentCard(url?: string, contact?: string): AgentCard {
+    return {
+      name: `MnemoPay Agent (${this.agentId})`,
+      description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
+      url,
+      version: "0.2.0",
+      capabilities: {
+        memory: true,
+        payments: true,
+        reputation: true,
+      },
+      protocols: ["mcp", "a2a"],
+      tools: [
+        "remember", "recall", "forget", "reinforce", "consolidate",
+        "charge", "settle", "refund", "balance", "profile",
+        "reputation", "logs", "history",
+      ],
+      contact,
+    };
+  }
+
+  // ── x402 Settlement ────────────────────────────────────────────────────
+
+  configureX402(config: X402Config): void {
+    this.x402 = config;
+    this.log(`x402 configured: ${config.facilitatorUrl} (${config.token || "USDC"} on ${config.chain || "base"})`);
+  }
+
+  async settleViaX402(txId: string): Promise<Transaction> {
+    if (!this.x402) throw new Error("x402 not configured. Call configureX402() first.");
+
+    const tx = this.transactions.get(txId);
+    if (!tx) throw new Error(`Transaction ${txId} not found`);
+    if (tx.status !== "pending") throw new Error(`Transaction ${txId} is ${tx.status}, not pending`);
+
+    // Submit payment to x402 facilitator
+    const res = await fetch(`${this.x402.facilitatorUrl}/payments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: tx.amount,
+        token: this.x402.token || "USDC",
+        chain: this.x402.chain || "base",
+        from: this.x402.walletAddress,
+        memo: `mnemopay:${tx.id}:${tx.reason}`,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`x402 settlement failed (${res.status}): ${body}`);
+    }
+
+    // On success, settle locally
+    return this.settle(txId);
+  }
+
   async disconnect(): Promise<void> {
-    this.log("Disconnected (in-memory mode, data discarded)");
+    this._saveToDisk();
+    if (this.persistTimer) clearInterval(this.persistTimer);
+    this.log("Disconnected" + (this.persistPath ? " (data saved to disk)" : " (in-memory mode, data discarded)"));
   }
 }
 
@@ -682,6 +927,94 @@ export class MnemoPay extends EventEmitter {
     }));
   }
 
+  // ── Reputation ──────────────────────────────────────────────────────────
+
+  async reputation(): Promise<ReputationReport> {
+    const [prof, txs] = await Promise.all([
+      this.profile(),
+      this.history(1000),
+    ]);
+    const settled = txs.filter((t) => t.status === "completed");
+    const refunded = txs.filter((t) => t.status === "refunded");
+    const totalCompleted = settled.length + refunded.length;
+    const settlementRate = totalCompleted > 0 ? settled.length / totalCompleted : 0;
+    const totalValueSettled = settled.reduce((sum, t) => sum + t.amount, 0);
+
+    return {
+      agentId: this.agentId,
+      score: prof.reputation,
+      tier: reputationTier(prof.reputation),
+      settledCount: settled.length,
+      refundCount: refunded.length,
+      settlementRate,
+      totalValueSettled,
+      memoriesCount: prof.memoriesCount,
+      avgMemoryImportance: 0, // not available via API
+      ageHours: 0, // not tracked server-side yet
+      generatedAt: new Date(),
+    };
+  }
+
+  // ── A2A Agent Card ─────────────────────────────────────────────────────
+
+  agentCard(url?: string, contact?: string): AgentCard {
+    return {
+      name: `MnemoPay Agent (${this.agentId})`,
+      description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
+      url,
+      version: "0.2.0",
+      capabilities: {
+        memory: true,
+        payments: true,
+        reputation: true,
+      },
+      protocols: ["mcp", "a2a"],
+      tools: [
+        "remember", "recall", "forget", "reinforce", "consolidate",
+        "charge", "settle", "refund", "balance", "profile",
+        "reputation", "logs", "history",
+      ],
+      contact,
+    };
+  }
+
+  // ── x402 Settlement ────────────────────────────────────────────────────
+
+  private x402?: X402Config;
+
+  configureX402(config: X402Config): void {
+    this.x402 = config;
+    this.log(`x402 configured: ${config.facilitatorUrl} (${config.token || "USDC"} on ${config.chain || "base"})`);
+  }
+
+  async settleViaX402(txId: string): Promise<Transaction> {
+    if (!this.x402) throw new Error("x402 not configured. Call configureX402() first.");
+
+    // Get transaction details from AgentPay
+    const txData = await this.agentpayFetch(`/api/escrow/${txId}`);
+
+    // Submit to x402 facilitator
+    const res = await fetch(`${this.x402.facilitatorUrl}/payments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: txData.amount,
+        token: this.x402.token || "USDC",
+        chain: this.x402.chain || "base",
+        from: this.x402.walletAddress,
+        memo: `mnemopay:${txId}:${txData.reason || ""}`,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`x402 settlement failed (${res.status}): ${body}`);
+    }
+
+    // On success, settle in AgentPay
+    return this.settle(txId);
+  }
+
   async disconnect(): Promise<void> {
     this.log("Disconnected");
   }
@@ -725,6 +1058,6 @@ export class MnemoPay extends EventEmitter {
 // ─── Re-exports ─────────────────────────────────────────────────────────────
 
 export default MnemoPay;
-export { autoScore, computeScore };
+export { autoScore, computeScore, reputationTier };
 export { RecallEngine, cosineSimilarity, localEmbed, l2Normalize } from "./recall/engine.js";
 export type { RecallStrategy, EmbeddingProvider, RecallEngineConfig, RecallResult } from "./recall/engine.js";
