@@ -6,7 +6,7 @@ description: |
   15 MCP tools: remember, recall, forget, reinforce, consolidate, charge, settle, refund, balance, profile, reputation, logs, history, dispute, fraud_stats.
   4 prompts: recall-and-decide, agent-status-report, session-start, session-end.
   Trigger: "remember", "recall", "charge", "settle", "balance", "mnemopay", "agent memory", "wallet", "reputation"
-version: 1.2.0
+version: 1.3.0
 homepage: https://github.com/mnemopay/mnemopay-sdk
 metadata:
   openclaw:
@@ -22,6 +22,12 @@ metadata:
 Give any AI agent persistent memory and a micropayment wallet. MnemoPay unifies cognitive memory (Mnemosyne) and escrow economics (AgentPay) into a single MCP server. The core innovation: payment outcomes reinforce the memories that led to successful decisions.
 
 ## Setup
+
+Auto-configure Claude Code hooks (session lifecycle, recall injection):
+
+```bash
+npx @mnemopay/sdk setup
+```
 
 Add the MnemoPay MCP server:
 
