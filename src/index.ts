@@ -12,6 +12,7 @@
 
 import { RecallEngine, type RecallStrategy, type EmbeddingProvider, type RecallEngineConfig } from "./recall/engine.js";
 import { FraudGuard, type FraudConfig, type RiskAssessment, type Dispute, type PlatformFeeRecord, type RequestContext } from "./fraud.js";
+import { type PaymentRail, MockRail } from "./rails/index.js";
 
 // ─── Browser-compatible EventEmitter ──────────────────────────────────────
 // Replaces Node's "events" module so MnemoPayLite runs in browsers too.
@@ -119,6 +120,12 @@ export interface Transaction {
   netAmount?: number;
   /** Fraud risk score at time of charge */
   riskScore?: number;
+  /** External payment rail ID (Stripe PaymentIntent, Lightning invoice, etc.) */
+  externalId?: string;
+  /** External payment rail status */
+  externalStatus?: string;
+  /** Counter-party agent ID (required when requireCounterparty is enabled) */
+  counterpartyId?: string;
 }
 
 export interface AgentProfile {
@@ -259,14 +266,20 @@ export class MnemoPayLite extends EventEmitter {
   private persistTimer?: ReturnType<typeof setInterval>;
   /** Fraud detection, rate limiting, dispute resolution, and platform fee */
   readonly fraud: FraudGuard;
+  /** Pluggable payment rail (Stripe, Lightning, etc.). Default: in-memory mock. */
+  readonly paymentRail: PaymentRail;
+  /** When true, settle() requires a different agentId than the charge creator */
+  readonly requireCounterparty: boolean;
 
-  constructor(agentId: string, decay = 0.05, debug = false, recallConfig?: Partial<RecallEngineConfig>, fraudConfig?: Partial<FraudConfig>) {
+  constructor(agentId: string, decay = 0.05, debug = false, recallConfig?: Partial<RecallEngineConfig>, fraudConfig?: Partial<FraudConfig>, paymentRail?: PaymentRail, requireCounterparty = false) {
     super();
     this.agentId = agentId;
     this.decay = decay;
     this.debugMode = debug;
     this.recallEngine = new RecallEngine(recallConfig);
     this.fraud = new FraudGuard(fraudConfig);
+    this.paymentRail = paymentRail ?? new MockRail();
+    this.requireCounterparty = requireCounterparty;
 
     // Auto-detect persistence: MNEMOPAY_PERSIST_DIR env > ~/.mnemopay/data (always on in Node.js)
     // Disabled during tests to ensure clean state
@@ -527,6 +540,9 @@ export class MnemoPayLite extends EventEmitter {
     // Record charge for velocity tracking
     this.fraud.recordCharge(this.agentId, amount, ctx);
 
+    // Create hold on external payment rail
+    const hold = await this.paymentRail.createHold(amount, reason, this.agentId);
+
     const tx: Transaction = {
       id: randomUUID(),
       agentId: this.agentId,
@@ -535,21 +551,40 @@ export class MnemoPayLite extends EventEmitter {
       status: "pending",
       createdAt: new Date(),
       riskScore: risk.score,
+      externalId: hold.externalId,
+      externalStatus: hold.status,
     };
     this.transactions.set(tx.id, tx);
-    this.audit("payment:pending", { id: tx.id, amount, reason, riskScore: risk.score });
+    this.audit("payment:pending", { id: tx.id, amount, reason, riskScore: risk.score, rail: this.paymentRail.name, externalId: hold.externalId });
     this._saveToDisk();
     this.emit("payment:pending", { id: tx.id, amount, reason });
-    this.log(`Charge created: $${amount.toFixed(2)} for "${reason}" (pending, risk: ${risk.score})`);
+    this.log(`Charge created: $${amount.toFixed(2)} for "${reason}" (pending, risk: ${risk.score}, rail: ${this.paymentRail.name})`);
     return { ...tx };
   }
 
-  async settle(txId: string): Promise<Transaction> {
+  async settle(txId: string, counterpartyId?: string): Promise<Transaction> {
     const tx = this.transactions.get(txId);
     if (!tx) throw new Error(`Transaction ${txId} not found`);
     if (tx.status !== "pending") throw new Error(`Transaction ${txId} is ${tx.status}, not pending`);
 
-    // 1. Apply platform fee
+    // Counter-party validation: prevent self-referential trust building
+    if (this.requireCounterparty) {
+      if (!counterpartyId) {
+        throw new Error("Counter-party ID required for settlement (requireCounterparty is enabled)");
+      }
+      if (counterpartyId === tx.agentId) {
+        throw new Error("Counter-party cannot be the same agent that created the charge");
+      }
+      tx.counterpartyId = counterpartyId;
+    }
+
+    // 1. Capture payment on external rail
+    if (tx.externalId) {
+      const capture = await this.paymentRail.capturePayment(tx.externalId, tx.amount);
+      tx.externalStatus = capture.status;
+    }
+
+    // 2. Apply platform fee
     const fee = this.fraud.applyPlatformFee(tx.id, this.agentId, tx.amount);
     tx.platformFee = fee.feeAmount;
     tx.netAmount = fee.netAmount;
@@ -589,6 +624,12 @@ export class MnemoPayLite extends EventEmitter {
     const tx = this.transactions.get(txId);
     if (!tx) throw new Error(`Transaction ${txId} not found`);
     if (tx.status === "refunded") throw new Error(`Transaction ${txId} already refunded`);
+
+    // Reverse on external rail
+    if (tx.externalId) {
+      const reversal = await this.paymentRail.reversePayment(tx.externalId, tx.amount);
+      tx.externalStatus = reversal.status;
+    }
 
     if (tx.status === "completed") {
       // Refund the net amount (platform fee is NOT refunded)
@@ -714,7 +755,7 @@ export class MnemoPayLite extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.2.0",
+      version: "0.6.0",
       capabilities: {
         memory: true,
         payments: true,
@@ -1069,7 +1110,7 @@ export class MnemoPay extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.2.0",
+      version: "0.6.0",
       capabilities: {
         memory: true,
         payments: true,
@@ -1141,6 +1182,10 @@ export class MnemoPay extends EventEmitter {
     scoreWeight?: number;
     vectorWeight?: number;
     fraud?: Partial<FraudConfig>;
+    /** Pluggable payment rail (Stripe, Lightning). Default: in-memory mock. */
+    paymentRail?: PaymentRail;
+    /** Require different agentId for settlement (prevents self-referential trust) */
+    requireCounterparty?: boolean;
   }): MnemoPayLite {
     const recallConfig: Partial<RecallEngineConfig> | undefined = opts?.recall
       ? {
@@ -1151,7 +1196,7 @@ export class MnemoPay extends EventEmitter {
           vectorWeight: opts.vectorWeight,
         }
       : undefined;
-    return new MnemoPayLite(agentId, opts?.decay ?? 0.05, opts?.debug ?? false, recallConfig, opts?.fraud);
+    return new MnemoPayLite(agentId, opts?.decay ?? 0.05, opts?.debug ?? false, recallConfig, opts?.fraud, opts?.paymentRail, opts?.requireCounterparty ?? false);
   }
 
   /**
@@ -1173,4 +1218,6 @@ export { FraudGuard, RateLimiter, DEFAULT_FRAUD_CONFIG, DEFAULT_RATE_LIMIT } fro
 export type { FraudConfig, FraudSignal, RiskAssessment, Dispute, PlatformFeeRecord, RequestContext, RateLimitConfig } from "./fraud.js";
 export { IsolationForest, TransactionGraph, BehaviorProfile } from "./fraud-ml.js";
 export type { CollusionSignal, DriftSignal, BehaviorSnapshot } from "./fraud-ml.js";
+export { MockRail, StripeRail, LightningRail } from "./rails/index.js";
+export type { PaymentRail, PaymentRailResult } from "./rails/index.js";
 export { default as createSandboxServer } from "./mcp/server.js";

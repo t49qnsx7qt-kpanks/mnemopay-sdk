@@ -186,11 +186,13 @@ const TOOLS = [
     name: "settle",
     description:
       "Finalize a pending escrow. Moves funds to wallet, boosts reputation +0.01, " +
-      "and reinforces recently-accessed memories by +0.05 (the feedback loop).",
+      "and reinforces recently-accessed memories by +0.05 (the feedback loop). " +
+      "If requireCounterparty is enabled, a different agent ID must confirm.",
     inputSchema: {
       type: "object" as const,
       properties: {
         txId: { type: "string", description: "Transaction ID from charge" },
+        counterpartyId: { type: "string", description: "Counter-party agent ID (required when requireCounterparty is enabled)" },
       },
       required: ["txId"],
     },
@@ -312,8 +314,8 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
     }
 
     case "settle": {
-      const tx = await agent.settle(args.txId);
-      return JSON.stringify({ txId: tx.id, amount: tx.amount, status: tx.status });
+      const tx = await agent.settle(args.txId, args.counterpartyId);
+      return JSON.stringify({ txId: tx.id, amount: tx.amount, status: tx.status, rail: (agent as any).paymentRail?.name });
     }
 
     case "refund": {
@@ -370,7 +372,7 @@ export async function startServer(): Promise<void> {
   const agent = createAgent();
 
   const server = new Server(
-    { name: "mnemopay", version: "0.1.0" },
+    { name: "mnemopay", version: "0.6.0" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
@@ -620,7 +622,7 @@ export default function createSandboxServer(): Server {
   const agent = MnemoPay.quick("smithery-sandbox");
 
   const server = new Server(
-    { name: "mnemopay", version: "0.4.0" },
+    { name: "mnemopay", version: "0.6.0" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
