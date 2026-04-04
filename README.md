@@ -1,18 +1,70 @@
 # @mnemopay/sdk
 
-**Give any AI agent memory and a wallet in 5 lines.**
+**Session memory for Claude on AWS Bedrock, Google Vertex AI, Anthropic API, and Foundry.**
 
-MnemoPay unifies [Mnemosyne](https://github.com/mnemopay/mnemosyne-engine) (cognitive memory) and [AgentPay](https://github.com/mnemopay/agentpay-roa) (escrow economics) into a single SDK. The core innovation: **payment outcomes reinforce the memories that led to successful decisions**.
+MIT-licensed. Self-hostable. Works in 30 seconds via `npx`.
+
+---
+
+## The Problem
+
+Anthropic's built-in Session Memory and Auto Dream features are **Pro/Max subscription only**. If your team accesses Claude through:
+
+- AWS Bedrock
+- Google Vertex AI
+- Anthropic API directly
+- Foundry or any third-party host
+
+...you get **zero native memory**. Every session starts cold. Context has to be rebuilt by hand, crammed into prompts, or managed with brittle custom code.
+
+MnemoPay is the only MIT-licensed, self-hostable MCP server that gives those deployments persistent session memory — plus an optional micropayment wallet for agent-to-agent transactions.
+
+---
+
+## Quickstart
+
+```bash
+npx @mnemopay/sdk init
+```
+
+That registers MnemoPay as an MCP server. Works with Claude Code, Cursor, Windsurf, or any MCP-compatible client. No Claude Pro required.
+
+Or install as a package dependency:
+
+```bash
+npm install @mnemopay/sdk
+```
 
 ```typescript
 import { MnemoPay } from "@mnemopay/sdk";
 
 const agent = MnemoPay.quick("agent-001");
-await agent.remember("User prefers TypeScript");
+await agent.remember("User prefers TypeScript over Python");
 const memories = await agent.recall();
+// Optional: payment rails
 const tx = await agent.charge(5.00, "Built analytics dashboard");
 await agent.settle(tx.id);
 ```
+
+---
+
+## Why Not the Alternatives?
+
+| | MnemoPay | claude-mem | claude-brain | Anthropic built-in | Minolith |
+|---|---|---|---|---|---|
+| **License** | MIT | AGPL-3.0 | MIT | Proprietary | Paid/closed |
+| **Enterprise-safe** | Yes | **No** (AGPL) | Yes | N/A | Vendor lock-in |
+| **Works on Bedrock/Vertex/API** | Yes | No | No | **No (Pro/Max only)** | Unknown |
+| **MCP — any client** | Yes | Claude Code only | Claude Code only | Claude Code only | No |
+| **Semantic search** | Yes | No | No | Yes | Unknown |
+| **Importance decay** | Yes | No | No | Unknown | Unknown |
+| **Self-hostable** | Yes | Yes | Yes | No | No |
+| **Payment rails** | Yes | No | No | No | No |
+| **Runaway API spend risk** | No | Yes (worker daemon) | Unknown | N/A | Unknown |
+
+**The short version:** claude-mem is AGPL, which means enterprise legal teams will reject it on sight. The Anthropic built-in solution is excellent — but it only works if your team pays for Pro or Max subscriptions. MnemoPay fills the gap for everyone else.
+
+---
 
 ## Two Modes, One API
 
@@ -23,35 +75,7 @@ await agent.settle(tx.id);
 
 Switch by changing one line. No code rewrites.
 
-## Install
-
-```bash
-npm install @mnemopay/sdk
-```
-
-Optional peer dependencies (install only what you use):
-
-```bash
-npm install openai                  # For OpenAI middleware
-npm install @anthropic-ai/sdk       # For Anthropic middleware
-npm install @langchain/langgraph @langchain/core @langchain/openai  # For LangGraph tools
-```
-
-## The Feedback Loop
-
-This is the core differentiator — payment outcomes reinforce memories:
-
-```
-Agent recalls memories → Makes decision → Delivers value → Charges user
-                                                              ↓
-                                                      Payment settles
-                                                              ↓
-                        Memories accessed in the last hour get +0.05 importance
-                                                              ↓
-                                    Agent makes better decisions next time
-```
-
-Over time, memories that lead to successful transactions become dominant in recall, while memories associated with refunds decay faster.
+---
 
 ## API Reference
 
@@ -60,12 +84,12 @@ Over time, memories that lead to successful transactions become dominant in reca
 | Method | Description |
 |--------|-------------|
 | `agent.remember(content, opts?)` | Store a memory. Auto-scored by importance if not specified. |
-| `agent.recall(limit?)` | Recall top memories ranked by importance x recency x frequency. |
+| `agent.recall(limit?)` | Recall top memories ranked by importance × recency × frequency. |
 | `agent.forget(id)` | Delete a memory. |
-| `agent.reinforce(id, boost?)` | Boost a memory's importance. |
+| `agent.reinforce(id, boost?)` | Boost a memory's importance score. |
 | `agent.consolidate()` | Prune stale memories below score threshold. |
 
-### Payment Methods
+### Payment Methods (Optional)
 
 | Method | Description |
 |--------|-------------|
@@ -82,7 +106,29 @@ Over time, memories that lead to successful transactions become dominant in reca
 | `agent.logs(limit?)` | Immutable audit trail of all actions. |
 | `agent.history(limit?)` | Transaction history, most recent first. |
 
+---
+
 ## Provider Middlewares
+
+### Anthropic (invisible memory)
+
+Drop-in wrapper for `@anthropic-ai/sdk`. Works with Bedrock and Vertex clients too — anything that uses the same interface.
+
+```typescript
+import Anthropic from "@anthropic-ai/sdk";
+import { MnemoPay } from "@mnemopay/sdk";
+import { AnthropicMiddleware } from "@mnemopay/sdk/middleware/anthropic";
+
+const agent = MnemoPay.quick("claude-agent");
+const ai = AnthropicMiddleware.wrap(new Anthropic(), agent);
+
+// Memory is auto-injected into context and auto-stored after each response
+const res = await ai.messages.create({
+  model: "claude-opus-4-5",
+  max_tokens: 1024,
+  messages: [{ role: "user", content: "What do you remember?" }],
+});
+```
 
 ### OpenAI (invisible memory)
 
@@ -94,23 +140,13 @@ import { MnemoPayMiddleware } from "@mnemopay/sdk/middleware/openai";
 const agent = MnemoPay.quick("assistant");
 const ai = MnemoPayMiddleware.wrap(new OpenAI(), agent);
 
-// Memory is now invisible — auto-injected and auto-stored
 const res = await ai.chat.completions.create({
   model: "gpt-4o",
   messages: [{ role: "user", content: "What do you remember?" }],
 });
 ```
 
-### Anthropic (invisible memory)
-
-```typescript
-import Anthropic from "@anthropic-ai/sdk";
-import { MnemoPay } from "@mnemopay/sdk";
-import { AnthropicMiddleware } from "@mnemopay/sdk/middleware/anthropic";
-
-const agent = MnemoPay.quick("claude-agent");
-const ai = AnthropicMiddleware.wrap(new Anthropic(), agent);
-```
+---
 
 ## LangGraph Tools
 
@@ -128,22 +164,42 @@ const graph = createReactAgent({
 
 6 tools with full Zod schemas: `recall_memories`, `store_memory`, `reinforce_memory`, `charge_user`, `settle_payment`, `check_balance`.
 
-## Agents Hiring Agents
+---
+
+## The Memory-Payment Feedback Loop
+
+The payment rails are optional, but they unlock a core differentiator: payment outcomes reinforce the memories that led to successful decisions.
+
+```
+Agent recalls memories → Makes decision → Delivers value → Charges user
+                                                              ↓
+                                                      Payment settles
+                                                              ↓
+                        Memories accessed in the last hour get +0.05 importance
+                                                              ↓
+                                    Agent makes better decisions next time
+```
+
+Memories associated with successful transactions rise in recall priority. Memories associated with refunds decay faster. Over time, the agent's judgment improves without any fine-tuning.
+
+### Agents Hiring Agents
 
 ```typescript
 const manager = MnemoPay.quick("manager");
 const coder = MnemoPay.quick("coder");
 
 await manager.remember("coder delivered fast but had 2 bugs last time");
-const memories = await manager.recall(); // Use memory to decide
+const memories = await manager.recall(); // Informs hiring decision
 
 const job = await manager.charge(5.00, "Code sorting algorithm");
 await manager.settle(job.id);
 await manager.remember("coder delivered clean code this time");
-// Next round: manager makes better hiring decisions
+// Next round: manager's recall reflects the updated track record
 ```
 
-## Production Mode
+---
+
+## Production Setup
 
 ```bash
 docker compose up -d  # Starts Mnemosyne + AgentPay + Postgres + Redis
@@ -157,11 +213,21 @@ const agent = MnemoPay.create({
   debug: true,
 });
 
-// Same API — now backed by Hopfield networks, Bayesian trust, AIS fraud detection
+// Same API — backed by Hopfield networks, Bayesian trust, AIS fraud detection
 await agent.remember("Production memory");
 const tx = await agent.charge(10.00, "Premium service");
 await agent.settle(tx.id);
 ```
+
+Optional peer dependencies — install only what you use:
+
+```bash
+npm install openai                  # For OpenAI middleware
+npm install @anthropic-ai/sdk       # For Anthropic middleware
+npm install @langchain/langgraph @langchain/core @langchain/openai  # For LangGraph tools
+```
+
+---
 
 ## Architecture
 
@@ -176,18 +242,54 @@ Mnemosyne API    AgentPay API ←── Separate services (unchanged)
   Redis Streams Bridge ←── Payment outcomes reinforce memories
 ```
 
-The SDK is the developer-facing layer. The backends do the heavy lifting:
 - **Mnemosyne**: Hopfield associative recall, FSRS spaced repetition, Merkle integrity, Dream consolidation
 - **AgentPay**: Bayesian trust (Beta distributions), AIS fraud detection, behavioral economics, escrow
+
+---
+
+## Integration Support
+
+| Platform | Status | Notes |
+|---|---|---|
+| Claude Code | Stable | MCP server via `npx @mnemopay/sdk init` |
+| Cursor | Stable | Same MCP config |
+| Windsurf | Stable | Same MCP config |
+| AWS Bedrock | Stable | Use `AnthropicMiddleware` with Bedrock client |
+| Google Vertex AI | Stable | Use `AnthropicMiddleware` with Vertex client |
+| Anthropic API | Stable | Drop-in with `AnthropicMiddleware` |
+| LangGraph | Stable | 6 native tools with Zod schemas |
+| OpenAI-compatible | Stable | `MnemoPayMiddleware` wrapper |
+| Mastra | In progress | Native MCP — no plugin needed |
+
+---
+
+## Pricing
+
+MnemoPay SDK is free and MIT-licensed. Self-hosting is always free.
+
+For teams that want managed hosting, SLA support, or enterprise onboarding:
+
+| Tier | Price | Includes |
+|---|---|---|
+| **Self-hosted** | Free | Full SDK, unlimited agents, you manage infra |
+| **Team** | $99/month | Managed hosting, up to 10 agents, email support |
+| **Business** | $299/month | Managed hosting, up to 50 agents, priority support, SSO |
+| **Enterprise** | $499+/month | Unlimited agents, SLA, dedicated support, custom deployment |
+
+Contact: [github.com/mnemopay](https://github.com/mnemopay)
+
+---
 
 ## Tests
 
 ```bash
-npm test  # 67 tests covering memory, payments, feedback loop, security, concurrency
+npm test  # 143 tests covering memory, payments, feedback loop, security, concurrency
 ```
+
+---
 
 ## License
 
-MIT
+**MIT** — use it in commercial products, enterprise deployments, forks, anything. No AGPL restrictions.
 
 Built by [J&B Enterprise LLC](https://github.com/mnemopay)
