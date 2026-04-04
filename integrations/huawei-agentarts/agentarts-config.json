@@ -1,0 +1,94 @@
+{
+  "$schema": "https://mcp.anthropic.com/schema/v1",
+  "name": "MnemoPay",
+  "description": "Persistent cognitive memory, micropayments, and fraud-aware trust scoring for AI agents",
+  "version": "0.4.1",
+  "transport": {
+    "type": "sse",
+    "url": "${MNEMOPAY_SSE_URL:-https://mnemopay-mcp.fly.dev/mcp}"
+  },
+  "authentication": {
+    "type": "api_key",
+    "header": "X-API-Key",
+    "key": "${MNEMOPAY_API_KEY}"
+  },
+  "tools": [
+    {
+      "name": "remember",
+      "description": "Store a memory with auto-scored importance. Tags enable filtered recall.",
+      "category": "memory"
+    },
+    {
+      "name": "recall",
+      "description": "Semantic search over memories. Ranked by importance x recency x frequency.",
+      "category": "memory"
+    },
+    {
+      "name": "forget",
+      "description": "Delete a memory by ID.",
+      "category": "memory"
+    },
+    {
+      "name": "reinforce",
+      "description": "Boost memory importance after a positive outcome (+0.01 to +0.5).",
+      "category": "memory"
+    },
+    {
+      "name": "consolidate",
+      "description": "Prune stale memories below decay threshold.",
+      "category": "memory"
+    },
+    {
+      "name": "charge",
+      "description": "Create escrow. Fraud-checked. Max amount = $500 x reputation.",
+      "category": "payments"
+    },
+    {
+      "name": "settle",
+      "description": "Finalize transaction. Boosts reputation +0.01 and reinforces recent memories +0.05.",
+      "category": "payments"
+    },
+    {
+      "name": "refund",
+      "description": "Refund transaction. Docks reputation -0.05.",
+      "category": "payments"
+    },
+    {
+      "name": "balance",
+      "description": "Check agent wallet balance and reputation score.",
+      "category": "payments"
+    },
+    {
+      "name": "profile",
+      "description": "Full agent profile: reputation, wallet, memory count, transaction count.",
+      "category": "observability"
+    },
+    {
+      "name": "reputation",
+      "description": "Detailed trust report: score, tier, settlement rate, total value settled.",
+      "category": "observability"
+    },
+    {
+      "name": "logs",
+      "description": "Immutable audit trail of all agent operations.",
+      "category": "observability"
+    },
+    {
+      "name": "history",
+      "description": "Transaction history with amounts, status, and timestamps.",
+      "category": "observability"
+    }
+  ],
+  "resources": [
+    {
+      "uri": "mnemopay://health",
+      "name": "Agent Health",
+      "description": "Agent profile, wallet, and reputation as JSON"
+    },
+    {
+      "uri": "mnemopay://memories",
+      "name": "Top Memories",
+      "description": "Top 20 memories ranked by composite score"
+    }
+  ]
+}

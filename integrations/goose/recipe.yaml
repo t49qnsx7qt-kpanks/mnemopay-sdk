@@ -1,0 +1,42 @@
+# MnemoPay Recipe for Goose
+# Usage: goose session --recipe recipe.yaml
+
+version: 1
+title: "MnemoPay Agent"
+description: "An agent with persistent memory, micropayments, and trust scoring"
+
+extensions:
+  - type: stdio
+    cmd: npx
+    args: ["-y", "@mnemopay/sdk"]
+    env:
+      MNEMOPAY_AGENT_ID: "goose-agent"
+      MNEMOPAY_MODE: "quick"
+
+instructions: |
+  You have persistent memory and payment capabilities via MnemoPay.
+
+  On session start:
+  1. Use `recall` to check for memories from previous sessions
+  2. Use `profile` to check your current reputation and wallet
+
+  When you learn something important:
+  - Use `remember` to store it (importance is auto-scored, but you can override)
+  - Tag memories for easier retrieval: ["research", "user-preference", "decision"]
+
+  When delivering value:
+  - Use `charge` to create escrow for work delivered
+  - After confirmation, use `settle` to finalize (this boosts your reputation)
+  - Use `reinforce` on memories that led to successful outcomes
+
+  Memory hygiene:
+  - Periodically use `consolidate` to prune stale memories
+  - Use `forget` to remove incorrect information immediately
+  - Use `reinforce` when a memory proves useful again
+
+  Trust rules:
+  - Your max charge = $500 x your reputation score
+  - New agents start at 0.5 reputation (can charge up to $250)
+  - Each settlement: +0.01 reputation
+  - Each refund: -0.05 reputation
+  - Every charge is fraud-checked (velocity, anomaly, reputation gating)
