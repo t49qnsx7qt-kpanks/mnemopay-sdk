@@ -1,6 +1,6 @@
 {
   "name": "@mnemopay/sdk",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Give any AI agent memory and a wallet in 5 lines. Unified SDK for Mnemosyne (cognitive memory) + AgentPay (escrow economics).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -39,7 +39,8 @@
     }
   },
   "bin": {
-    "mnemopay-mcp": "dist/mcp/server.js"
+    "mnemopay-mcp": "dist/mcp/server.js",
+    "mnemopay-setup": "dist/cli/setup.js"
   },
   "files": [
     "dist",
