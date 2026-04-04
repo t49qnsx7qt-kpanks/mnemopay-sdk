@@ -13,6 +13,7 @@
 import { RecallEngine, type RecallStrategy, type EmbeddingProvider, type RecallEngineConfig } from "./recall/engine.js";
 import { FraudGuard, type FraudConfig, type RiskAssessment, type Dispute, type PlatformFeeRecord, type RequestContext } from "./fraud.js";
 import { type PaymentRail, MockRail } from "./rails/index.js";
+import { type StorageAdapter, JSONFileStorage } from "./storage/sqlite.js";
 
 // ─── Browser-compatible EventEmitter ──────────────────────────────────────
 // Replaces Node's "events" module so MnemoPayLite runs in browsers too.
@@ -264,6 +265,7 @@ export class MnemoPayLite extends EventEmitter {
   private x402?: X402Config;
   private persistPath?: string;
   private persistTimer?: ReturnType<typeof setInterval>;
+  private storageAdapter?: StorageAdapter;
   /** Fraud detection, rate limiting, dispute resolution, and platform fee */
   readonly fraud: FraudGuard;
   /** Pluggable payment rail (Stripe, Lightning, etc.). Default: in-memory mock. */
@@ -271,7 +273,7 @@ export class MnemoPayLite extends EventEmitter {
   /** When true, settle() requires a different agentId than the charge creator */
   readonly requireCounterparty: boolean;
 
-  constructor(agentId: string, decay = 0.05, debug = false, recallConfig?: Partial<RecallEngineConfig>, fraudConfig?: Partial<FraudConfig>, paymentRail?: PaymentRail, requireCounterparty = false) {
+  constructor(agentId: string, decay = 0.05, debug = false, recallConfig?: Partial<RecallEngineConfig>, fraudConfig?: Partial<FraudConfig>, paymentRail?: PaymentRail, requireCounterparty = false, storage?: StorageAdapter) {
     super();
     this.agentId = agentId;
     this.decay = decay;
@@ -281,18 +283,25 @@ export class MnemoPayLite extends EventEmitter {
     this.paymentRail = paymentRail ?? new MockRail();
     this.requireCounterparty = requireCounterparty;
 
-    // Auto-detect persistence: MNEMOPAY_PERSIST_DIR env > ~/.mnemopay/data (always on in Node.js)
-    // Disabled during tests to ensure clean state
-    const isTest = typeof process !== "undefined" && (process.env?.NODE_ENV === "test" || process.env?.VITEST);
-    const persistDir = !isTest && typeof process !== "undefined"
-      ? process.env?.MNEMOPAY_PERSIST_DIR ||
-        (() => { try { return require("path").join(require("os").homedir(), ".mnemopay", "data"); } catch { return undefined; } })()
-      : undefined;
-    if (persistDir) {
-      this.enablePersistence(persistDir);
+    // Use provided storage adapter, or auto-detect persistence
+    if (storage) {
+      this.storageAdapter = storage;
+      this._loadFromStorage();
+    } else {
+      // Auto-detect persistence: MNEMOPAY_PERSIST_DIR env > ~/.mnemopay/data (always on in Node.js)
+      // Disabled during tests to ensure clean state
+      const isTest = typeof process !== "undefined" && (process.env?.NODE_ENV === "test" || process.env?.VITEST);
+      const persistDir = !isTest && typeof process !== "undefined"
+        ? process.env?.MNEMOPAY_PERSIST_DIR ||
+          (() => { try { return require("path").join(require("os").homedir(), ".mnemopay", "data"); } catch { return undefined; } })()
+        : undefined;
+      if (persistDir) {
+        this.enablePersistence(persistDir);
+      }
     }
 
-    this.log(`MnemoPayLite initialized (${this.persistPath ? "persistent" : "in-memory"} mode, recall: ${this.recallEngine.strategy})`);
+    const storageMode = this.storageAdapter ? this.storageAdapter.constructor.name : (this.persistPath ? "json-file" : "in-memory");
+    this.log(`MnemoPayLite initialized (${storageMode}, recall: ${this.recallEngine.strategy}, rail: ${this.paymentRail.name})`);
     setTimeout(() => this.emit("ready"), 0);
   }
 
@@ -363,7 +372,93 @@ export class MnemoPayLite extends EventEmitter {
     }
   }
 
+  private _saveToStorage(): void {
+    if (!this.storageAdapter) return;
+    try {
+      this.storageAdapter.save({
+        agentId: this.agentId,
+        wallet: this._wallet,
+        reputation: this._reputation,
+        createdAt: this._createdAt.toISOString(),
+        memories: Array.from(this.memories.values()).map(m => ({
+          ...m,
+          createdAt: m.createdAt.toISOString(),
+          lastAccessed: m.lastAccessed.toISOString(),
+          tags: JSON.stringify(m.tags),
+        })) as any,
+        transactions: Array.from(this.transactions.values()).map(t => ({
+          ...t,
+          createdAt: t.createdAt.toISOString(),
+          completedAt: t.completedAt?.toISOString(),
+        })) as any,
+        auditLog: this.auditLog.slice(-500).map(a => ({
+          ...a,
+          details: JSON.stringify(a.details),
+          createdAt: a.createdAt.toISOString(),
+        })) as any,
+        fraudGuard: this.fraud.serialize(),
+      });
+    } catch (e) {
+      this.log(`Failed to save to storage: ${e}`);
+    }
+  }
+
+  private _loadFromStorage(): void {
+    if (!this.storageAdapter) return;
+    try {
+      const state = this.storageAdapter.load(this.agentId);
+      if (!state) return;
+
+      if (state.wallet !== undefined) this._wallet = state.wallet;
+      if (state.reputation !== undefined) this._reputation = state.reputation;
+      if (state.createdAt) this._createdAt = new Date(state.createdAt);
+
+      for (const m of state.memories) {
+        this.memories.set(m.id, {
+          ...m,
+          createdAt: new Date(m.createdAt),
+          lastAccessed: new Date(m.lastAccessed),
+          tags: typeof m.tags === "string" ? JSON.parse(m.tags) : m.tags,
+        } as any);
+      }
+
+      for (const t of state.transactions) {
+        this.transactions.set(t.id, {
+          ...t,
+          createdAt: new Date(t.createdAt),
+          completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
+        } as any);
+      }
+
+      if (state.auditLog) {
+        this.auditLog = state.auditLog.map(a => ({
+          ...a,
+          details: typeof a.details === "string" ? JSON.parse(a.details) : a.details,
+          createdAt: new Date(a.createdAt),
+        })) as any;
+      }
+
+      if (state.fraudGuard) {
+        try {
+          const restoredGuard = FraudGuard.deserialize(state.fraudGuard, this.fraud.config);
+          (this as any).fraud = restoredGuard;
+        } catch (e) {
+          this.log(`Failed to restore fraud guard: ${e}`);
+        }
+      }
+
+      this.log(`Loaded ${this.memories.size} memories, ${this.transactions.size} transactions from storage`);
+    } catch (e) {
+      this.log(`Failed to load from storage: ${e}`);
+    }
+  }
+
   private _saveToDisk(): void {
+    // Use storage adapter if available
+    if (this.storageAdapter) {
+      this._saveToStorage();
+      return;
+    }
     if (!this.persistPath) return;
     try {
       const fs = require("fs");
@@ -378,7 +473,10 @@ export class MnemoPayLite extends EventEmitter {
         fraudGuard: this.fraud.serialize(),
         savedAt: new Date().toISOString(),
       });
-      fs.writeFileSync(this.persistPath, data, "utf-8");
+      // Atomic write
+      const tmpPath = this.persistPath + ".tmp";
+      fs.writeFileSync(tmpPath, data, "utf-8");
+      fs.renameSync(tmpPath, this.persistPath);
     } catch (e) {
       this.log(`Failed to persist data: ${e}`);
     }
@@ -810,7 +908,8 @@ export class MnemoPayLite extends EventEmitter {
   async disconnect(): Promise<void> {
     this._saveToDisk();
     if (this.persistTimer) clearInterval(this.persistTimer);
-    this.log("Disconnected" + (this.persistPath ? " (data saved to disk)" : " (in-memory mode, data discarded)"));
+    if (this.storageAdapter) this.storageAdapter.close();
+    this.log("Disconnected" + (this.storageAdapter || this.persistPath ? " (data saved)" : " (in-memory, data discarded)"));
   }
 }
 
@@ -1186,6 +1285,8 @@ export class MnemoPay extends EventEmitter {
     paymentRail?: PaymentRail;
     /** Require different agentId for settlement (prevents self-referential trust) */
     requireCounterparty?: boolean;
+    /** Storage adapter: SQLiteStorage, JSONFileStorage, or custom. Default: auto-detect JSON file. */
+    storage?: StorageAdapter;
   }): MnemoPayLite {
     const recallConfig: Partial<RecallEngineConfig> | undefined = opts?.recall
       ? {
@@ -1196,7 +1297,7 @@ export class MnemoPay extends EventEmitter {
           vectorWeight: opts.vectorWeight,
         }
       : undefined;
-    return new MnemoPayLite(agentId, opts?.decay ?? 0.05, opts?.debug ?? false, recallConfig, opts?.fraud, opts?.paymentRail, opts?.requireCounterparty ?? false);
+    return new MnemoPayLite(agentId, opts?.decay ?? 0.05, opts?.debug ?? false, recallConfig, opts?.fraud, opts?.paymentRail, opts?.requireCounterparty ?? false, opts?.storage);
   }
 
   /**
@@ -1220,4 +1321,6 @@ export { IsolationForest, TransactionGraph, BehaviorProfile } from "./fraud-ml.j
 export type { CollusionSignal, DriftSignal, BehaviorSnapshot } from "./fraud-ml.js";
 export { MockRail, StripeRail, LightningRail } from "./rails/index.js";
 export type { PaymentRail, PaymentRailResult } from "./rails/index.js";
+export { SQLiteStorage, JSONFileStorage } from "./storage/sqlite.js";
+export type { StorageAdapter, PersistedState } from "./storage/sqlite.js";
 export { default as createSandboxServer } from "./mcp/server.js";

@@ -1,6 +1,6 @@
 {
   "name": "@mnemopay/sdk",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Give any AI agent memory and a wallet in 5 lines. Unified SDK for Mnemosyne (cognitive memory) + AgentPay (escrow economics).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -32,6 +32,10 @@
     "./rails": {
       "import": "./dist/rails/index.js",
       "types": "./dist/rails/index.d.ts"
+    },
+    "./storage": {
+      "import": "./dist/storage/sqlite.js",
+      "types": "./dist/storage/sqlite.d.ts"
     }
   },
   "bin": {
@@ -79,7 +83,8 @@
     "@langchain/openai": ">=0.1.0",
     "openai": ">=4.0.0",
     "zod": ">=3.22.0",
-    "stripe": ">=14.0.0"
+    "stripe": ">=14.0.0",
+    "better-sqlite3": ">=11.0.0"
   },
   "peerDependenciesMeta": {
     "openai": {
@@ -101,6 +106,9 @@
       "optional": true
     },
     "stripe": {
+      "optional": true
+    },
+    "better-sqlite3": {
       "optional": true
     }
   },
