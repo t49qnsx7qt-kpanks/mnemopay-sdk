@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MnemoPay — Give Your AI Agents Real Superpowers</title>
+  <meta name="description" content="Memory + Payments + Identity for AI agents. Double-entry ledger, escrow, fraud detection, multi-agent commerce. One SDK.">
+  <meta property="og:title" content="MnemoPay — AI Agent Superpowers">
+  <meta property="og:description" content="Give your AI agents memory, payments, identity, and fraud protection. 330+ tests. Production-ready.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --border: #1e1e2e;
+      --text: #e4e4ef;
+      --muted: #8888a0;
+      --accent: #6c5ce7;
+      --accent2: #00cec9;
+      --green: #00b894;
+      --orange: #fdcb6e;
+      --code-bg: #1a1a2e;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    a { color: var(--accent2); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+    /* Nav */
+    nav {
+      border-bottom: 1px solid var(--border);
+      padding: 16px 0;
+      position: sticky; top: 0; background: var(--bg); z-index: 100;
+    }
+    nav .container { display: flex; justify-content: space-between; align-items: center; }
+    nav .logo { font-size: 1.3rem; font-weight: 700; color: var(--text); }
+    nav .logo span { color: var(--accent); }
+    nav .links { display: flex; gap: 24px; align-items: center; }
+    nav .links a { color: var(--muted); font-size: 0.9rem; }
+    nav .links a:hover { color: var(--text); text-decoration: none; }
+    .btn {
+      display: inline-block; padding: 10px 24px; border-radius: 8px;
+      font-weight: 600; font-size: 0.9rem; transition: all 0.2s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #5a4bd6; text-decoration: none; }
+    .btn-ghost { border: 1px solid var(--border); color: var(--text); }
+    .btn-ghost:hover { border-color: var(--accent); text-decoration: none; }
+
+    /* Hero */
+    .hero {
+      padding: 100px 0 80px;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 20px;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent) 50%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 1.25rem;
+      color: var(--muted);
+      max-width: 700px;
+      margin: 0 auto 40px;
+    }
+    .hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .install-cmd {
+      display: inline-flex; align-items: center; gap: 12px;
+      background: var(--code-bg); border: 1px solid var(--border);
+      padding: 12px 20px; border-radius: 8px; font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.95rem; color: var(--accent2); cursor: pointer;
+    }
+    .install-cmd:hover { border-color: var(--accent); }
+    .install-cmd .copy { color: var(--muted); font-size: 0.8rem; }
+
+    /* Stats bar */
+    .stats {
+      display: flex; justify-content: center; gap: 48px;
+      padding: 40px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .stat { text-align: center; }
+    .stat .num { font-size: 2rem; font-weight: 800; color: var(--accent2); }
+    .stat .label { font-size: 0.85rem; color: var(--muted); }
+
+    /* Code example */
+    .code-section {
+      padding: 80px 0;
+    }
+    .code-section h2 {
+      text-align: center; font-size: 2rem; margin-bottom: 12px;
+    }
+    .code-section > p {
+      text-align: center; color: var(--muted); margin-bottom: 40px;
+    }
+    pre {
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px 28px; overflow-x: auto;
+      font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9rem;
+      line-height: 1.7; max-width: 750px; margin: 0 auto;
+    }
+    .kw { color: #c792ea; }
+    .str { color: #c3e88d; }
+    .fn { color: #82aaff; }
+    .cm { color: #546e7a; }
+    .num { color: #f78c6c; }
+    .aw { color: #c792ea; }
+
+    /* Features grid */
+    .features {
+      padding: 80px 0;
+    }
+    .features h2 { text-align: center; font-size: 2rem; margin-bottom: 48px; }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+    .feature {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 28px;
+    }
+    .feature h3 { font-size: 1.1rem; margin-bottom: 8px; }
+    .feature h3 .icon { margin-right: 8px; }
+    .feature p { color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
+
+    /* Pricing */
+    .pricing {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+    .pricing h2 { text-align: center; font-size: 2rem; margin-bottom: 12px; }
+    .pricing > p { text-align: center; color: var(--muted); margin-bottom: 48px; }
+    .pricing-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px; max-width: 900px; margin: 0 auto;
+    }
+    .price-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 32px; text-align: center;
+    }
+    .price-card.featured { border-color: var(--accent); }
+    .price-card h3 { font-size: 1.1rem; margin-bottom: 8px; }
+    .price-card .rate { font-size: 2.5rem; font-weight: 800; color: var(--accent2); }
+    .price-card .rate small { font-size: 1rem; color: var(--muted); }
+    .price-card .vol { color: var(--muted); font-size: 0.9rem; margin: 8px 0 20px; }
+    .price-card ul { text-align: left; list-style: none; }
+    .price-card ul li { padding: 6px 0; font-size: 0.9rem; color: var(--muted); }
+    .price-card ul li::before { content: "\2713 "; color: var(--green); font-weight: bold; }
+
+    /* Rails */
+    .rails { padding: 80px 0; border-top: 1px solid var(--border); }
+    .rails h2 { text-align: center; font-size: 2rem; margin-bottom: 48px; }
+    .rails-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px; max-width: 900px; margin: 0 auto;
+    }
+    .rail-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 28px; text-align: center;
+    }
+    .rail-card h3 { font-size: 1.2rem; margin-bottom: 6px; }
+    .rail-card .region { color: var(--accent2); font-size: 0.85rem; margin-bottom: 12px; }
+    .rail-card p { color: var(--muted); font-size: 0.9rem; }
+
+    /* CTA */
+    .cta {
+      padding: 100px 0; text-align: center;
+      border-top: 1px solid var(--border);
+    }
+    .cta h2 { font-size: 2.5rem; margin-bottom: 16px; }
+    .cta p { color: var(--muted); font-size: 1.1rem; margin-bottom: 32px; }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 0; text-align: center;
+      color: var(--muted); font-size: 0.85rem;
+    }
+
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.2rem; }
+      .stats { gap: 24px; }
+      .hero-actions { flex-direction: column; align-items: center; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <div class="logo">Mnemo<span>Pay</span></div>
+      <div class="links">
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="https://github.com/mnemopay/mnemopay-sdk">GitHub</a>
+        <a href="https://www.npmjs.com/package/@mnemopay/sdk" class="btn btn-primary">Get Started</a>
+      </div>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="container">
+      <h1>Give your AI agents real superpowers</h1>
+      <p>Memory + Payments + Identity in one SDK. Your agent remembers every interaction, handles real money, builds reputation, and trades with other agents. Ledger always balanced.</p>
+      <div class="hero-actions">
+        <div class="install-cmd" onclick="navigator.clipboard.writeText('npm install @mnemopay/sdk')">
+          <span>npm install @mnemopay/sdk</span>
+          <span class="copy">copy</span>
+        </div>
+        <a href="https://github.com/mnemopay/mnemopay-sdk" class="btn btn-ghost">View on GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="stats">
+    <div class="stat"><div class="num">330+</div><div class="label">Tests passing</div></div>
+    <div class="stat"><div class="num">3</div><div class="label">Payment rails</div></div>
+    <div class="stat"><div class="num">1.9%</div><div class="label">Platform fee</div></div>
+    <div class="stat"><div class="num">0</div><div class="label">Penny drift</div></div>
+  </section>
+
+  <section class="code-section">
+    <div class="container">
+      <h2>5 lines. Full superpowers.</h2>
+      <p>One import. One agent. Memory, payments, identity, fraud detection — all included.</p>
+      <pre><code><span class="kw">import</span> MnemoPay <span class="kw">from</span> <span class="str">"@mnemopay/sdk"</span>;
+
+<span class="kw">const</span> agent = MnemoPay.<span class="fn">quick</span>(<span class="str">"my-agent"</span>);
+
+<span class="aw">await</span> agent.<span class="fn">remember</span>(<span class="str">"User prefers monthly billing at $25/mo"</span>);
+<span class="kw">const</span> tx = <span class="aw">await</span> agent.<span class="fn">charge</span>(<span class="num">25</span>, <span class="str">"Monthly API access"</span>);
+<span class="aw">await</span> agent.<span class="fn">settle</span>(tx.id);
+<span class="cm">// Agent now has memory, money, and reputation. Ledger balanced.</span></code></pre>
+    </div>
+  </section>
+
+  <section class="features" id="features">
+    <div class="container">
+      <h2>Everything your agent needs</h2>
+      <div class="features-grid">
+        <div class="feature">
+          <h3><span class="icon">&#129504;</span> Cognitive Memory</h3>
+          <p>Neuroscience-backed memory system. Ebbinghaus decay, Hebbian reinforcement, automatic consolidation. Memories get stronger with use, fade when forgotten.</p>
+        </div>
+        <div class="feature">
+          <h3><span class="icon">&#128176;</span> Real Payments</h3>
+          <p>Charge, escrow, settle, refund. Double-entry ledger that always balances to zero. Penny-precise across 1,000-cycle stress tests. Real money through real rails.</p>
+        </div>
+        <div class="feature">
+          <h3><span class="icon">&#128737;</span> Agent Identity</h3>
+          <p>KYA (Know Your Agent) compliance. Cryptographic keypairs, capability tokens, scoped permissions, spend limits, counterparty whitelists, instant kill switch.</p>
+        </div>
+        <div class="feature">
+          <h3><span class="icon">&#128270;</span> Fraud Detection</h3>
+          <p>Velocity checks, anomaly detection, geo-enhanced risk scoring with trust dampening. OFAC sanctions hard-block. Optional ML with Isolation Forest and behavioral fingerprinting.</p>
+        </div>
+        <div class="feature">
+          <h3><span class="icon">&#129309;</span> Multi-Agent Commerce</h3>
+          <p>One method: net.transact(buyer, seller, amount, reason). Both agents remember the deal. Tested with 100 agents, 500 deals, 10-step supply chains.</p>
+        </div>
+        <div class="feature">
+          <h3><span class="icon">&#127757;</span> Global Payment Rails</h3>
+          <p>Paystack (Africa: NGN, GHS, ZAR, KES), Stripe (global: cards), Lightning Network (BTC micropayments). Plug in any rail — same API.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="rails">
+    <div class="container">
+      <h2>Real money. Real rails.</h2>
+      <div class="rails-grid">
+        <div class="rail-card">
+          <h3>Paystack</h3>
+          <div class="region">Africa</div>
+          <p>NGN, GHS, ZAR, KES. Checkout, saved cards, bank transfers, webhook verification. 23 Nigerian banks pre-mapped.</p>
+        </div>
+        <div class="rail-card">
+          <h3>Stripe</h3>
+          <div class="region">Global</div>
+          <p>USD, EUR, GBP. Card payments with manual capture for true escrow. PaymentIntents API.</p>
+        </div>
+        <div class="rail-card">
+          <h3>Lightning</h3>
+          <div class="region">Crypto</div>
+          <p>Instant BTC micropayments via LND. HODL invoices for escrow. Sub-cent transaction costs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="pricing" id="pricing">
+    <div class="container">
+      <h2>Simple, volume-based pricing</h2>
+      <p>Higher volume = lower fees. Automatically applied per agent.</p>
+      <div class="pricing-grid">
+        <div class="price-card">
+          <h3>Standard</h3>
+          <div class="rate">1.9%<small> / txn</small></div>
+          <div class="vol">&lt; $10,000/month</div>
+          <ul>
+            <li>All features included</li>
+            <li>Unlimited agents</li>
+            <li>All payment rails</li>
+            <li>Fraud detection</li>
+            <li>MCP server</li>
+          </ul>
+        </div>
+        <div class="price-card featured">
+          <h3>Growth</h3>
+          <div class="rate">1.5%<small> / txn</small></div>
+          <div class="vol">$10,000 - $100,000/month</div>
+          <ul>
+            <li>Everything in Standard</li>
+            <li>Volume discount auto-applied</li>
+            <li>Priority support</li>
+            <li>Custom corridors</li>
+            <li>Geo trust profiles</li>
+          </ul>
+        </div>
+        <div class="price-card">
+          <h3>Scale</h3>
+          <div class="rate">1.0%<small> / txn</small></div>
+          <div class="vol">$100,000+/month</div>
+          <ul>
+            <li>Everything in Growth</li>
+            <li>Lowest fee tier</li>
+            <li>ML fraud detection</li>
+            <li>Custom integrations</li>
+            <li>SLA guarantee</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="container">
+      <h2>Start building in 30 seconds</h2>
+      <p>One install. One import. Your agent gets memory, money, and reputation.</p>
+      <div class="hero-actions">
+        <a href="https://www.npmjs.com/package/@mnemopay/sdk" class="btn btn-primary">npm install @mnemopay/sdk</a>
+        <a href="https://github.com/mnemopay/mnemopay-sdk" class="btn btn-ghost">Read the docs</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <p>MnemoPay &copy; 2026. MIT Licensed. Built by Jerry Omiagbo.</p>
+    </div>
+  </footer>
+</body>
+</html>
