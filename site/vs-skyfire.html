@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MnemoPay vs Skyfire — AI Agent Payments Comparison (2026)</title>
-  <meta name="description" content="Compare MnemoPay vs Skyfire for AI agent infrastructure. Skyfire raised $9.5M for payments + identity. MnemoPay adds memory, ledger, fraud detection, and multi-agent commerce. Open source. Free to start.">
+  <meta name="description" content="Compare MnemoPay vs Skyfire for AI agent infrastructure. Skyfire raised $9.5M for payments + identity. MnemoPay adds memory, ledger, fraud detection, and escrow-protected multi-agent transactions. Open source. Free to start.">
   <meta property="og:title" content="MnemoPay vs Skyfire — Which AI Agent SDK Should You Choose?">
   <meta property="og:description" content="Skyfire: $9.5M raised. Payments + Identity. MnemoPay: $0 raised. Memory + Payments + Identity + Fraud + Ledger + Multi-Agent. Full comparison.">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
@@ -57,7 +57,7 @@
           <tr class="hl"><td>Double-Entry Ledger</td><td class="y">&#10003;</td><td class="n">&#10007;</td></tr>
           <tr class="hl"><td>Agent Identity (KYA)</td><td class="y">&#10003;</td><td class="y">&#10003;</td></tr>
           <tr class="hl"><td>Fraud Detection</td><td class="y">&#10003;</td><td class="n">&#10007;</td></tr>
-          <tr class="hl"><td>Multi-Agent Commerce</td><td class="y">&#10003;</td><td class="n">&#10007;</td></tr>
+          <tr class="hl"><td>Escrow-Protected Multi-Agent Transactions</td><td class="y">&#10003;</td><td class="n">&#10007;</td></tr>
           <tr><td>Funding</td><td>$0 (bootstrap)</td><td>$9.5M</td></tr>
           <tr><td>Source Code</td><td>Open (MIT)</td><td>Closed-source</td></tr>
           <tr><td>Deployment</td><td>Self-hosted / local</td><td>Hosted API only</td></tr>
@@ -73,7 +73,7 @@
       <h2>Payments: How They Compare</h2>
       <p>Both SDKs enable AI agents to send and receive payments, but the architecture is fundamentally different.</p>
       <p><strong>Skyfire</strong> built a dedicated agent-to-agent payment network with its own settlement layer. It focuses on making machine-to-machine payments seamless through a hosted API, with identity verification baked into the payment flow. Their $9.5M in funding has gone toward building out this payment infrastructure.</p>
-      <p><strong>MnemoPay</strong> takes a broader approach. Payments are one of six integrated layers alongside memory, ledger, identity, fraud detection, and multi-agent commerce. Instead of a proprietary network, MnemoPay connects to existing payment rails (Stripe, Paystack, Lightning) so agents can transact with the real financial system. Everything runs locally in your process with no hosted API dependency.</p>
+      <p><strong>MnemoPay</strong> takes a broader approach. Payments are one of six integrated layers alongside memory, ledger, identity, fraud detection, and escrow-protected multi-agent transactions. Instead of a proprietary network, MnemoPay connects to existing payment rails (Stripe, Paystack, Lightning) so agents can transact with the real financial system. Everything runs locally in your process with no hosted API dependency.</p>
 
       <h2>Where Skyfire Wins</h2>
       <ul>
@@ -89,7 +89,7 @@
         <li>Cognitive memory — Skyfire has no memory layer at all</li>
         <li>Double-entry ledger for auditable financial records</li>
         <li>Geo-enhanced fraud detection with OFAC sanctions screening</li>
-        <li>Multi-agent commerce with shared memory context</li>
+        <li>Escrow-protected multi-agent transactions with shared memory context</li>
         <li>Open source (MIT) — inspect, fork, and self-host</li>
         <li>No vendor lock-in — connects to standard payment rails</li>
         <li>Memory + payments = Agent FICO credit scoring (unique to MnemoPay)</li>
@@ -110,7 +110,7 @@
         <li>You need auditable financial records with a double-entry ledger</li>
         <li>You want to connect to existing payment rails (Stripe, Paystack, Lightning)</li>
         <li>You need open-source code you can inspect and self-host</li>
-        <li>You're building agent marketplaces or multi-agent commerce</li>
+        <li>You're building multi-agent systems with escrow-protected transactions</li>
       </ul>
 
       <div class="verdict">
