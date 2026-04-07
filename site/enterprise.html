@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MnemoPay Enterprise — AI Agent Banking Infrastructure for Teams</title>
+  <meta name="description" content="Give your AI agent fleet memory, payments, identity, and fraud detection. SOC 2 ready. Double-entry ledger. Volume pricing from 1.0%. Trusted by agent platforms.">
+  <meta property="og:title" content="MnemoPay Enterprise — Agent Banking for Your Platform">
+  <meta property="og:description" content="Memory + Payments + Identity + Fraud + Ledger + Multi-Agent. One SDK. Volume pricing. Enterprise SLA.">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#07070d;--surface:#0e0e18;--border:#1c1c30;--text:#e8e8f0;--muted:#7a7a95;--accent:#6c5ce7;--accent2:#00cec9;--green:#00b894;--gradient:linear-gradient(135deg,#6c5ce7,#00cec9); }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.7}
+    a{color:var(--accent2);text-decoration:none}
+    .container{max-width:900px;margin:0 auto;padding:0 24px}
+    nav{border-bottom:1px solid var(--border);padding:14px 0;position:sticky;top:0;background:rgba(7,7,13,0.95);backdrop-filter:blur(12px);z-index:100}
+    nav .container{display:flex;justify-content:space-between;align-items:center}
+    nav .logo{font-size:1.2rem;font-weight:800} nav .logo span{background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .btn{display:inline-block;padding:12px 28px;border-radius:8px;font-weight:600;font-size:.9rem;background:var(--gradient);color:#fff;border:none;cursor:pointer}
+    .btn-outline{background:transparent;border:1px solid var(--accent);color:var(--accent2)}
+
+    .hero{padding:80px 0 60px;text-align:center}
+    .hero h1{font-size:2.6rem;font-weight:800;line-height:1.15;margin-bottom:16px;letter-spacing:-.5px}
+    .hero h1 span{background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .hero p{color:var(--muted);font-size:1.1rem;max-width:600px;margin:0 auto 32px}
+    .hero-badges{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:32px}
+    .badge{background:var(--surface);border:1px solid var(--border);padding:6px 14px;border-radius:20px;font-size:.8rem;color:var(--muted)}
+
+    .section{padding:60px 0;border-top:1px solid var(--border)}
+    h2{font-size:1.6rem;font-weight:700;margin-bottom:24px}
+    h3{font-size:1.1rem;font-weight:600;margin-bottom:8px}
+    p{margin-bottom:16px;font-size:.95rem}
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px;margin:24px 0}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px}
+    .card h3{color:var(--accent2)}
+    .card p{color:var(--muted);font-size:.88rem;margin:0}
+
+    .use-cases{list-style:none;padding:0}
+    .use-cases li{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:12px}
+    .use-cases li strong{color:var(--accent2)}
+    .use-cases li p{color:var(--muted);margin:4px 0 0;font-size:.88rem}
+
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;text-align:center;margin:32px 0}
+    .stat-num{font-size:2rem;font-weight:800;background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .stat-label{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+
+    .pricing-table{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:24px 0}
+    .pricing-table th,.pricing-table td{padding:12px 20px;text-align:left;font-size:.9rem;border-bottom:1px solid var(--border)}
+    .pricing-table th{background:#141422;color:var(--muted);font-weight:600;text-transform:uppercase;font-size:.72rem;letter-spacing:.5px}
+    .pricing-table tr:last-child td{border-bottom:none}
+
+    .cta-section{text-align:center;padding:60px 0;border-top:1px solid var(--border)}
+    .cta-section h2{margin-bottom:12px}
+    .cta-section p{color:var(--muted);margin-bottom:24px}
+    .cta-buttons{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+
+    footer{border-top:1px solid var(--border);padding:24px 0;text-align:center;color:var(--muted);font-size:.8rem}
+
+    @media(max-width:600px){
+      .hero h1{font-size:1.8rem}
+      .stats{grid-template-columns:repeat(2,1fr)}
+    }
+  </style>
+</head>
+<body>
+  <nav><div class="container"><div class="logo">Mnemo<span>Pay</span> Enterprise</div><a href="index.html" class="btn">Get Started</a></div></nav>
+
+  <div class="hero">
+    <div class="container">
+      <h1>Agent banking infrastructure<br>for <span>your platform</span></h1>
+      <p>Give your AI agent fleet memory, payments, identity, and fraud detection. One SDK integration. Volume pricing. Enterprise support.</p>
+      <div class="hero-badges">
+        <span class="badge">378 Tests</span>
+        <span class="badge">Zero Penny Drift</span>
+        <span class="badge">2,600+ tx/sec</span>
+        <span class="badge">MIT Licensed</span>
+        <span class="badge">Self-Hosted</span>
+      </div>
+      <a href="mailto:jeremiah@getbizsuite.com?subject=MnemoPay Enterprise Inquiry" class="btn">Talk to Us</a>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="container">
+      <h2>Built for agent platforms, not weekend projects</h2>
+      <div class="stats">
+        <div><div class="stat-num">6</div><div class="stat-label">Integrated layers</div></div>
+        <div><div class="stat-num">43K+</div><div class="stat-label">Fraud checks/sec</div></div>
+        <div><div class="stat-num">$0</div><div class="stat-label">Infra cost</div></div>
+        <div><div class="stat-num">18mo</div><div class="stat-label">To replicate</div></div>
+      </div>
+      <div class="grid">
+        <div class="card"><h3>Cognitive Memory</h3><p>Ebbinghaus decay + Hebbian reinforcement. Memories strengthen from successful transactions. Not a key-value store.</p></div>
+        <div class="card"><h3>Double-Entry Ledger</h3><p>Luca Pacioli's system. Every debit has a credit. 1,000 random transactions stress-tested. Zero penny drift.</p></div>
+        <div class="card"><h3>Escrow Payments</h3><p>Charge, hold, settle, refund. Pluggable rails: Paystack, Stripe, Lightning. Same agent API.</p></div>
+        <div class="card"><h3>KYA Identity</h3><p>Know Your Agent compliance. Cryptographic keypairs, capability tokens, scoped permissions, spend limits.</p></div>
+        <div class="card"><h3>Fraud Detection</h3><p>Velocity checks, anomaly scoring, geo-enhanced risk with trust dampening. OFAC sanctions hard-block.</p></div>
+        <div class="card"><h3>Multi-Agent Commerce</h3><p>One method call: buyer pays, seller receives, both remember. Shared ledger, individual reputations.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="container">
+      <h2>Enterprise use cases</h2>
+      <ul class="use-cases">
+        <li>
+          <strong>Agent Platform Operators</strong>
+          <p>You run hundreds or thousands of AI agents. Each needs a wallet, memory, and identity. MnemoPay gives every agent financial infrastructure without building it yourself. Multi-agent commerce lets agents trade services on your platform.</p>
+        </li>
+        <li>
+          <strong>Fintech / Banking</strong>
+          <p>Your compliance team needs audit trails. MnemoPay's double-entry ledger and KYA identity system provides the financial rigor your regulators expect. Every transaction is tracked with debit+credit pairs. The ledger always balances.</p>
+        </li>
+        <li>
+          <strong>AI SaaS Companies</strong>
+          <p>Your AI product needs to charge users, manage subscriptions, and remember customer context across sessions. MnemoPay handles payments + memory in one integration instead of stitching together Stripe + a vector DB + custom escrow logic.</p>
+        </li>
+        <li>
+          <strong>Marketplace Builders</strong>
+          <p>Building an agent marketplace where AI agents buy and sell services? MnemoPay's multi-agent network handles escrow, settlement, reputation, and fraud detection. Both sides of every deal are tracked and remembered.</p>
+        </li>
+        <li>
+          <strong>Enterprise AI Teams</strong>
+          <p>Your internal agent fleet handles procurement, vendor management, or customer service. Give each agent a spend limit, capability tokens, and an audit trail. Revoke permissions instantly with the kill switch.</p>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="container">
+      <h2>Volume pricing</h2>
+      <table class="pricing-table" width="100%">
+        <thead><tr><th>Tier</th><th>Monthly Volume</th><th>Platform Fee</th><th>Support</th></tr></thead>
+        <tbody>
+          <tr><td>Starter</td><td>$0 - $10K</td><td>1.9%</td><td>Community</td></tr>
+          <tr><td>Growth</td><td>$10K - $100K</td><td>1.5%</td><td>Email (48h SLA)</td></tr>
+          <tr><td>Enterprise</td><td>$100K+</td><td>1.0%</td><td>Dedicated (4h SLA)</td></tr>
+          <tr><td>Custom</td><td>$1M+</td><td>Negotiable</td><td>Dedicated + on-call</td></tr>
+        </tbody>
+      </table>
+      <p style="color:var(--muted);font-size:.85rem;">All tiers include all 6 layers. No feature gating. Volume is cumulative across all agents on your account.</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="container">
+      <h2>Why enterprises choose MnemoPay</h2>
+      <div class="grid">
+        <div class="card"><h3>Self-hosted</h3><p>Runs entirely in your infrastructure. No data leaves your network. No vendor lock-in. MIT licensed.</p></div>
+        <div class="card"><h3>No cloud dependency</h3><p>Zero external API calls for core features. Memory, ledger, fraud, identity — all local. Add payment rails when you're ready.</p></div>
+        <div class="card"><h3>Audit-ready</h3><p>Double-entry ledger with complete audit trail. Every financial operation tracked. Ledger verification on demand.</p></div>
+        <div class="card"><h3>Competitive moat</h3><p>18 months to replicate all 6 layers. 378 tests. Competitors with $87M+ in funding only built 1-2 layers each.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cta-section">
+    <div class="container">
+      <h2>Ready to give your agents financial infrastructure?</h2>
+      <p>Book a 15-minute technical walkthrough. We'll show you how MnemoPay integrates with your platform.</p>
+      <div class="cta-buttons">
+        <a href="mailto:jeremiah@getbizsuite.com?subject=MnemoPay Enterprise Demo" class="btn">Schedule Demo</a>
+        <a href="index.html#pricing" class="btn btn-outline">View Pricing</a>
+      </div>
+    </div>
+  </div>
+
+  <footer><div class="container">MnemoPay &copy; 2026 — MIT Licensed — Built by Jerry Omiagbo</div></footer>
+</body>
+</html>

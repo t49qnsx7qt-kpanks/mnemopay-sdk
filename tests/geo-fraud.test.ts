@@ -313,7 +313,7 @@ describe("Geo Fraud — Combined Signals", () => {
 describe("Geo Fraud — MnemoPay Integration", () => {
   it("agent can transact normally with geo context", async () => {
     const agent = MnemoPay.quick("geo-agent", {
-      fraud: { enableGeoCheck: true },
+      fraud: { enableGeoCheck: true, settlementHoldMinutes: 0, disputeWindowMinutes: 0 },
     });
 
     // Normal transaction with geo context — should work fine
@@ -326,7 +326,7 @@ describe("Geo Fraud — MnemoPay Integration", () => {
 
   it("agent traveling between countries can still transact", async () => {
     const agent = MnemoPay.quick("travel-agent", {
-      fraud: { enableGeoCheck: true },
+      fraud: { enableGeoCheck: true, settlementHoldMinutes: 0, disputeWindowMinutes: 0 },
     });
 
     // Nigeria

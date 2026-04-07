@@ -13,7 +13,7 @@ import type { FraudConfig } from "../src/index.js";
 
 describe("Platform Fee", () => {
   it("should deduct 1.9% fee on settle (default)", async () => {
-    const agent = MnemoPay.quick("fee-test");
+    const agent = MnemoPay.quick("fee-test", { fraud: { settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(100, "Service delivered");
     const settled = await agent.settle(tx.id);
 
@@ -25,7 +25,7 @@ describe("Platform Fee", () => {
   });
 
   it("should apply custom fee rate", async () => {
-    const agent = MnemoPay.quick("fee-custom", { fraud: { platformFeeRate: 0.05 } });
+    const agent = MnemoPay.quick("fee-custom", { fraud: { platformFeeRate: 0.05, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(200, "Premium service");
     const settled = await agent.settle(tx.id);
 
@@ -34,7 +34,7 @@ describe("Platform Fee", () => {
   });
 
   it("should handle zero fee rate", async () => {
-    const agent = MnemoPay.quick("fee-zero", { fraud: { platformFeeRate: 0 } });
+    const agent = MnemoPay.quick("fee-zero", { fraud: { platformFeeRate: 0, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(50, "Free tier");
     const settled = await agent.settle(tx.id);
 
@@ -46,7 +46,7 @@ describe("Platform Fee", () => {
   });
 
   it("should track platform fees in fraud guard stats", async () => {
-    const agent = MnemoPay.quick("fee-stats");
+    const agent = MnemoPay.quick("fee-stats", { fraud: { settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx1 = await agent.charge(100, "A");
     await agent.settle(tx1.id);
     const tx2 = await agent.charge(100, "B");
@@ -60,6 +60,8 @@ describe("Platform Fee", () => {
     const agent = MnemoPay.quick("fee-tiers", {
       fraud: {
         platformFeeRate: 0.019,
+        settlementHoldMinutes: 0,
+        disputeWindowMinutes: 0,
         feeTiers: [
           { minVolume: 0, rate: 0.019 },
           { minVolume: 100, rate: 0.015 },
@@ -101,7 +103,7 @@ describe("Platform Fee", () => {
   });
 
   it("should NOT refund platform fee on refund", async () => {
-    const agent = MnemoPay.quick("fee-refund", { fraud: { platformFeeRate: 0.1 } });
+    const agent = MnemoPay.quick("fee-refund", { fraud: { platformFeeRate: 0.1, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(100, "Will refund");
     await agent.settle(tx.id); // wallet = 90 (100 - 10% fee)
     await agent.refund(tx.id); // wallet = 0 (refund net amount of 90)
@@ -166,6 +168,8 @@ describe("Velocity Checks", () => {
         platformFeeRate: 0,
         maxChargesPerMinute: 100,
         blockThreshold: 0.4,
+        settlementHoldMinutes: 0,
+        disputeWindowMinutes: 0,
       },
     });
 
@@ -324,7 +328,7 @@ describe("Agent Blocking", () => {
 
 describe("Dispute Resolution", () => {
   it("should file a dispute against settled transaction", async () => {
-    const agent = MnemoPay.quick("dispute-test", { fraud: { platformFeeRate: 0 } });
+    const agent = MnemoPay.quick("dispute-test", { fraud: { platformFeeRate: 0, settlementHoldMinutes: 0, disputeWindowMinutes: 1440 } });
     const tx = await agent.charge(50, "Service");
     await agent.settle(tx.id);
 
@@ -338,7 +342,7 @@ describe("Dispute Resolution", () => {
   });
 
   it("should resolve dispute with refund", async () => {
-    const agent = MnemoPay.quick("dispute-refund", { fraud: { platformFeeRate: 0 } });
+    const agent = MnemoPay.quick("dispute-refund", { fraud: { platformFeeRate: 0, settlementHoldMinutes: 0, disputeWindowMinutes: 1440 } });
     const tx = await agent.charge(100, "Service");
     await agent.settle(tx.id);
 
@@ -354,7 +358,7 @@ describe("Dispute Resolution", () => {
   });
 
   it("should resolve dispute by upholding", async () => {
-    const agent = MnemoPay.quick("dispute-uphold", { fraud: { platformFeeRate: 0 } });
+    const agent = MnemoPay.quick("dispute-uphold", { fraud: { platformFeeRate: 0, settlementHoldMinutes: 0, disputeWindowMinutes: 1440 } });
     const tx = await agent.charge(100, "Good service");
     await agent.settle(tx.id);
 
@@ -374,7 +378,7 @@ describe("Dispute Resolution", () => {
   });
 
   it("should not allow duplicate disputes", async () => {
-    const agent = MnemoPay.quick("dispute-dup", { fraud: { platformFeeRate: 0 } });
+    const agent = MnemoPay.quick("dispute-dup", { fraud: { platformFeeRate: 0, settlementHoldMinutes: 0, disputeWindowMinutes: 1440 } });
     const tx = await agent.charge(50, "Service");
     await agent.settle(tx.id);
 
@@ -384,7 +388,7 @@ describe("Dispute Resolution", () => {
   });
 
   it("should track open disputes in stats", async () => {
-    const agent = MnemoPay.quick("dispute-stats", { fraud: { platformFeeRate: 0 } });
+    const agent = MnemoPay.quick("dispute-stats", { fraud: { platformFeeRate: 0, settlementHoldMinutes: 0, disputeWindowMinutes: 1440 } });
     const tx = await agent.charge(50, "Service");
     await agent.settle(tx.id);
     await agent.dispute(tx.id, "Issue");
@@ -528,7 +532,7 @@ describe("Fraud + Payment Integration", () => {
   });
 
   it("should include fee breakdown in audit log", async () => {
-    const agent = MnemoPay.quick("fee-audit", { fraud: { platformFeeRate: 0.1 } });
+    const agent = MnemoPay.quick("fee-audit", { fraud: { platformFeeRate: 0.1, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(100, "Audited");
     await agent.settle(tx.id);
 
@@ -553,7 +557,7 @@ describe("Fraud + Payment Integration", () => {
   });
 
   it("should handle full lifecycle: charge → settle with fee → dispute → resolve", async () => {
-    const agent = MnemoPay.quick("lifecycle", { fraud: { platformFeeRate: 0.019 } });
+    const agent = MnemoPay.quick("lifecycle", { fraud: { platformFeeRate: 0.019, settlementHoldMinutes: 0, disputeWindowMinutes: 1440 } });
 
     // 1. Charge
     const tx = await agent.charge(100, "Full lifecycle test");
@@ -600,6 +604,8 @@ describe("Stress: Fraud Under Load", () => {
         maxPendingTransactions: 1000,
         blockThreshold: 0.95,
         flagThreshold: 0.9,
+        settlementHoldMinutes: 0,
+        disputeWindowMinutes: 0,
       },
     });
 
@@ -661,6 +667,8 @@ describe("Stress: Fraud Under Load", () => {
         maxPendingTransactions: 100000,
         blockThreshold: 1.01,  // disable blocking — this test is about ML training
         flagThreshold: 1.01,
+        settlementHoldMinutes: 0,
+        disputeWindowMinutes: 0,
       },
     });
 

@@ -13,6 +13,8 @@ import type { FraudConfig } from "../src/index.js";
 /** Fraud config that disables fees and raises all limits — for backward-compatible tests */
 const NO_FRAUD: Partial<FraudConfig> = {
   platformFeeRate: 0,
+  settlementHoldMinutes: 0,
+  disputeWindowMinutes: 0,
   maxChargesPerMinute: 100000,
   maxChargesPerHour: 1000000,
   maxChargesPerDay: 10000000,

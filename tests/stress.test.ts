@@ -19,7 +19,7 @@ import { IdentityRegistry } from "../src/identity.js";
 
 describe("Financial Precision — No Money Lost", () => {
   it("1000 charge→settle cycles: ledger always balanced, fees always correct", async () => {
-    const agent = MnemoPay.quick("precision-1000", { fraud: { platformFeeRate: 0.019, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000 } });
+    const agent = MnemoPay.quick("precision-1000", { fraud: { platformFeeRate: 0.019, riskScoreThreshold: 1.0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     let totalFees = 0;
     let totalNet = 0;
     let totalGross = 0;
@@ -49,7 +49,7 @@ describe("Financial Precision — No Money Lost", () => {
   }, 30000);
 
   it("penny amounts: $0.01 charges work correctly", async () => {
-    const agent = MnemoPay.quick("penny-test", { fraud: { platformFeeRate: 0.019, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000 } });
+    const agent = MnemoPay.quick("penny-test", { fraud: { platformFeeRate: 0.019, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
 
     for (let i = 0; i < 100; i++) {
       const tx = await agent.charge(0.01, `Penny ${i}`);
@@ -66,7 +66,7 @@ describe("Financial Precision — No Money Lost", () => {
   });
 
   it("large amounts: $250 charges (max at default rep) work correctly", async () => {
-    const agent = MnemoPay.quick("large-test", { fraud: { platformFeeRate: 0.019 } });
+    const agent = MnemoPay.quick("large-test", { fraud: { platformFeeRate: 0.019, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
 
     const tx = await agent.charge(250, "Max charge");
     const settled = await agent.settle(tx.id);
@@ -84,6 +84,8 @@ describe("Financial Precision — No Money Lost", () => {
       fraud: {
         platformFeeRate: 0.019,
         maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000,
+        settlementHoldMinutes: 0,
+        disputeWindowMinutes: 0,
         feeTiers: [
           { minVolume: 0, rate: 0.019 },
           { minVolume: 200, rate: 0.015 },
@@ -178,7 +180,7 @@ describe("Input Validation — Reject Bad Data", () => {
 describe("Full Lifecycle Stress", () => {
   it("charge→settle→refund cycles stay balanced (reputation-aware)", async () => {
     const agent = MnemoPay.quick("lifecycle-refund", {
-      fraud: { platformFeeRate: 0, blockThreshold: 2.0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 10000000 },
+      fraud: { platformFeeRate: 0, blockThreshold: 2.0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 10000000, settlementHoldMinutes: 0, disputeWindowMinutes: 0 },
     });
 
     // Rep starts at 0.5, each refund costs -0.05, settle gives +0.01
@@ -209,7 +211,7 @@ describe("Full Lifecycle Stress", () => {
 
   it("mixed operations: charge, settle, refund, dispute in random order", async () => {
     const agent = MnemoPay.quick("mixed-ops", {
-      fraud: { platformFeeRate: 0.019, blockThreshold: 2.0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 10000000 },
+      fraud: { platformFeeRate: 0.019, blockThreshold: 2.0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 10000000, settlementHoldMinutes: 0, disputeWindowMinutes: 0 },
     });
 
     const pendingTxs: string[] = [];
@@ -253,7 +255,7 @@ describe("Full Lifecycle Stress", () => {
 
 describe("Network Stress", () => {
   it("100 agents, 500 deals, all balanced", async () => {
-    const net = new MnemoPayNetwork({ fraud: { platformFeeRate: 0.019, blockThreshold: 2.0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000 } });
+    const net = new MnemoPayNetwork({ fraud: { platformFeeRate: 0.019, blockThreshold: 2.0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
 
     // Register 100 agents
     for (let i = 0; i < 100; i++) {
@@ -283,7 +285,7 @@ describe("Network Stress", () => {
   }, 60000);
 
   it("supply chain: 10-step chain of transactions", async () => {
-    const net = new MnemoPayNetwork({ fraud: { platformFeeRate: 0.019 } });
+    const net = new MnemoPayNetwork({ fraud: { platformFeeRate: 0.019, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
 
     for (let i = 0; i < 10; i++) {
       net.register(`step-${i}`, "supply-chain", `step${i}@co.com`);
@@ -305,7 +307,7 @@ describe("Network Stress", () => {
   });
 
   it("marketplace: 1 seller handles 200 buyers", async () => {
-    const net = new MnemoPayNetwork({ fraud: { platformFeeRate: 0.019 } });
+    const net = new MnemoPayNetwork({ fraud: { platformFeeRate: 0.019, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     net.register("shop", "merchant", "shop@co.com", { displayName: "The Shop" });
 
     for (let i = 0; i < 200; i++) {
@@ -388,7 +390,7 @@ describe("Serialization Roundtrips", () => {
 
 describe("Money-Losing Edge Cases", () => {
   it("0.1 + 0.2 = 0.3 (classic float trap)", async () => {
-    const agent = MnemoPay.quick("float-trap", { fraud: { platformFeeRate: 0 } });
+    const agent = MnemoPay.quick("float-trap", { fraud: { platformFeeRate: 0, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx1 = await agent.charge(0.1, "Part 1");
     await agent.settle(tx1.id);
     const tx2 = await agent.charge(0.2, "Part 2");
@@ -400,7 +402,7 @@ describe("Money-Losing Edge Cases", () => {
   });
 
   it("repeated $0.33 charges dont drift", async () => {
-    const agent = MnemoPay.quick("thirds", { fraud: { platformFeeRate: 0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000 } });
+    const agent = MnemoPay.quick("thirds", { fraud: { platformFeeRate: 0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
 
     for (let i = 0; i < 100; i++) {
       const tx = await agent.charge(0.33, "Third");
@@ -412,7 +414,7 @@ describe("Money-Losing Edge Cases", () => {
   });
 
   it("settle then refund returns exact net amount", async () => {
-    const agent = MnemoPay.quick("exact-refund", { fraud: { platformFeeRate: 0.019 } });
+    const agent = MnemoPay.quick("exact-refund", { fraud: { platformFeeRate: 0.019, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(77.77, "Exact amount");
     const settled = await agent.settle(tx.id, "counterparty-refund-test");
 
@@ -425,14 +427,14 @@ describe("Money-Losing Edge Cases", () => {
   });
 
   it("double-settle is blocked", async () => {
-    const agent = MnemoPay.quick("double-settle");
+    const agent = MnemoPay.quick("double-settle", { fraud: { settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(50, "Once only");
     await agent.settle(tx.id);
     await expect(agent.settle(tx.id)).rejects.toThrow("not pending");
   });
 
   it("double-refund is blocked", async () => {
-    const agent = MnemoPay.quick("double-refund");
+    const agent = MnemoPay.quick("double-refund", { fraud: { settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(50, "Once only");
     await agent.settle(tx.id, "counterparty-double-refund");
     await agent.refund(tx.id);
@@ -451,7 +453,7 @@ describe("Money-Losing Edge Cases", () => {
   });
 
   it("1.9% fee on $1.00 = $0.02 (rounded up from $0.019)", async () => {
-    const agent = MnemoPay.quick("small-fee", { fraud: { platformFeeRate: 0.019 } });
+    const agent = MnemoPay.quick("small-fee", { fraud: { platformFeeRate: 0.019, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(1, "Dollar test");
     const settled = await agent.settle(tx.id);
     expect(settled.platformFee).toBe(0.02);
@@ -460,7 +462,7 @@ describe("Money-Losing Edge Cases", () => {
   });
 
   it("1.9% fee on $99.99 is precise", async () => {
-    const agent = MnemoPay.quick("precise-fee", { fraud: { platformFeeRate: 0.019 } });
+    const agent = MnemoPay.quick("precise-fee", { fraud: { platformFeeRate: 0.019, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     const tx = await agent.charge(99.99, "Precision test");
     const settled = await agent.settle(tx.id);
     expect(settled.platformFee).toBe(1.9); // 99.99 * 0.019 = 1.89981 → rounds to 1.9
@@ -475,7 +477,7 @@ describe("Money-Losing Edge Cases", () => {
 describe("Parallel Operation Safety", () => {
   it("multiple agents operating simultaneously stay independent", async () => {
     const agents = Array.from({ length: 20 }, (_, i) =>
-      MnemoPay.quick(`parallel-${i}`, { fraud: { platformFeeRate: 0.019 } })
+      MnemoPay.quick(`parallel-${i}`, { fraud: { platformFeeRate: 0.019, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } })
     );
 
     // All agents charge and settle in parallel

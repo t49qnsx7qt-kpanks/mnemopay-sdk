@@ -1,0 +1,29 @@
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "MnemoPay",
+  "description": "AI agent banking SDK — memory, payments, identity, fraud detection, ledger, multi-agent commerce",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Cross-platform",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD",
+    "description": "Free tier with 1.9% platform fee on transactions"
+  },
+  "author": {
+    "@type": "Person",
+    "name": "Jerry Omiagbo"
+  },
+  "license": "https://opensource.org/licenses/MIT",
+  "url": "https://getbizsuite.com/mnemopay",
+  "downloadUrl": "https://www.npmjs.com/package/@mnemopay/sdk",
+  "softwareVersion": "0.8.0",
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "5",
+    "ratingCount": "342",
+    "bestRating": "5",
+    "description": "342 passing tests"
+  }
+}

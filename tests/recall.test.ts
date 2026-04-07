@@ -256,7 +256,7 @@ describe("MnemoPayLite with Vector Recall", () => {
   });
 
   it("feedback loop should work with vector recall", async () => {
-    const agent = MnemoPay.quick("feedback-vector", { recall: "vector" });
+    const agent = MnemoPay.quick("feedback-vector", { recall: "vector", fraud: { settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     await agent.remember("Strategy: focus on TypeScript SDK", { importance: 0.5 });
 
     // Recall semantically

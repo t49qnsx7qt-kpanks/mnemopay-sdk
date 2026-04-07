@@ -268,6 +268,85 @@ const TOOLS = [
       "open disputes, and total platform fees collected.",
     inputSchema: { type: "object" as const, properties: {} },
   },
+  // ── Commerce tools ───────────────────────────────────────────────────
+  {
+    name: "shop_set_mandate",
+    description:
+      "Set a shopping mandate — defines what the agent can buy. " +
+      "Specify budget, allowed categories, merchant restrictions, and per-item limits. " +
+      "MUST be called before any shopping. The mandate protects the user's money.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        budget: { type: "number", minimum: 0.01, description: "Total budget in USD" },
+        maxPerItem: { type: "number", description: "Max spend per item (defaults to budget)" },
+        categories: { type: "array", items: { type: "string" }, description: "Allowed categories (empty = any)" },
+        blockedCategories: { type: "array", items: { type: "string" }, description: "Blocked categories" },
+        allowedMerchants: { type: "array", items: { type: "string" }, description: "Allowed merchant domains" },
+        approvalThreshold: { type: "number", description: "Purchases above this amount require user confirmation" },
+        issuedBy: { type: "string", description: "Who authorized this mandate (user name or ID)" },
+      },
+      required: ["budget", "issuedBy"],
+    },
+  },
+  {
+    name: "shop_search",
+    description:
+      "Search for products within the current shopping mandate. " +
+      "Returns products filtered by budget, category, and merchant restrictions. " +
+      "Uses agent memory to consider past preferences.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "What to search for (e.g. 'USB-C cable under $15')" },
+        maxPrice: { type: "number", description: "Maximum price filter" },
+        category: { type: "string", description: "Category filter" },
+        sortBy: { type: "string", enum: ["price_asc", "price_desc", "rating", "relevance"], description: "Sort order" },
+        limit: { type: "number", minimum: 1, maximum: 20, description: "Max results (default: 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "shop_buy",
+    description:
+      "Purchase a product. Holds funds in escrow — money is NOT released " +
+      "until delivery is confirmed. If the purchase fails, escrow is automatically refunded. " +
+      "Call shop_search first to find products.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        productId: { type: "string", description: "Product ID from search results" },
+        deliveryInstructions: { type: "string", description: "Shipping address or delivery notes" },
+      },
+      required: ["productId"],
+    },
+  },
+  {
+    name: "shop_confirm_delivery",
+    description:
+      "Confirm that a purchased item was delivered. This releases the escrow " +
+      "and pays the merchant. Only call when the user confirms they received the item.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orderId: { type: "string", description: "Order ID to confirm delivery for" },
+      },
+      required: ["orderId"],
+    },
+  },
+  {
+    name: "shop_orders",
+    description:
+      "List all shopping orders and spending summary. Shows order status, " +
+      "remaining budget, and purchase history.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        status: { type: "string", description: "Filter by status: purchased, delivered, cancelled" },
+      },
+    },
+  },
 ];
 
 // ─── Tool execution ─────────────────────────────────────────────────────────
@@ -361,9 +440,102 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
       return JSON.stringify(stats, null, 2);
     }
 
+    // ── Commerce tools ───────────────────────────────────────────────────
+
+    case "shop_set_mandate": {
+      const commerce = await getCommerceEngine(agent);
+      commerce.setMandate({
+        budget: args.budget,
+        maxPerItem: args.maxPerItem,
+        categories: args.categories,
+        blockedCategories: args.blockedCategories,
+        allowedMerchants: args.allowedMerchants,
+        approvalThreshold: args.approvalThreshold,
+        issuedBy: args.issuedBy,
+      });
+      return JSON.stringify({
+        status: "mandate_set",
+        budget: args.budget,
+        remainingBudget: commerce.remainingBudget,
+        categories: args.categories ?? "any",
+      });
+    }
+
+    case "shop_search": {
+      const commerce = await getCommerceEngine(agent);
+      const results = await commerce.search(args.query, {
+        maxPrice: args.maxPrice,
+        category: args.category,
+        sortBy: args.sortBy,
+        limit: args.limit,
+      });
+      if (results.length === 0) return "No products found matching your criteria.";
+      return results.map((p: any, i: number) =>
+        `${i + 1}. ${p.title} — $${p.price.toFixed(2)} from ${p.merchant}` +
+        (p.rating ? ` (${p.rating}★, ${p.reviewCount} reviews)` : "") +
+        (p.freeShipping ? " [Free shipping]" : "") +
+        `\n   ID: ${p.productId}`
+      ).join("\n\n") + `\n\nRemaining budget: $${commerce.remainingBudget.toFixed(2)}`;
+    }
+
+    case "shop_buy": {
+      const commerce = await getCommerceEngine(agent);
+      // Look up the product by ID from a fresh search
+      const product = await commerce["provider"].getProduct(args.productId);
+      if (!product) throw new Error(`Product not found: ${args.productId}`);
+      const order = await commerce.purchase(product, args.deliveryInstructions);
+      if (order.status === "cancelled") {
+        return `Order cancelled: ${order.failureReason}`;
+      }
+      return JSON.stringify({
+        orderId: order.id,
+        product: order.product.title,
+        price: order.product.price,
+        status: order.status,
+        escrowTxId: order.txId,
+        message: "Funds held in escrow. Will be released when you confirm delivery.",
+        remainingBudget: commerce.remainingBudget,
+      });
+    }
+
+    case "shop_confirm_delivery": {
+      const commerce = await getCommerceEngine(agent);
+      const order = await commerce.confirmDelivery(args.orderId);
+      return JSON.stringify({
+        orderId: order.id,
+        product: order.product.title,
+        status: order.status,
+        message: "Delivery confirmed. Escrow released. Merchant paid.",
+      });
+    }
+
+    case "shop_orders": {
+      const commerce = await getCommerceEngine(agent);
+      const orders = commerce.listOrders(args.status);
+      const summary = commerce.spendingSummary();
+      if (orders.length === 0) return "No orders yet.";
+      const list = orders.map((o: any) =>
+        `• ${o.product.title} — $${o.product.price.toFixed(2)} [${o.status}]` +
+        (o.trackingUrl ? ` Track: ${o.trackingUrl}` : "")
+      ).join("\n");
+      return `${list}\n\nSpent: $${summary.totalSpent.toFixed(2)} | Remaining: $${summary.remainingBudget.toFixed(2)} | Orders: ${summary.orderCount}`;
+    }
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
+}
+
+// ── Commerce singleton ──────────────────────────────────────────────────────
+
+let _commerceEngine: any = null;
+
+async function getCommerceEngine(agent: Agent): Promise<any> {
+  if (!_commerceEngine) {
+    const { CommerceEngine } = await import("../commerce.js");
+    _commerceEngine = new CommerceEngine(agent);
+  }
+  return _commerceEngine;
 }
 
 // ─── Server setup ───────────────────────────────────────────────────────────
@@ -372,7 +544,7 @@ export async function startServer(): Promise<void> {
   const agent = createAgent();
 
   const server = new Server(
-    { name: "mnemopay", version: "0.7.1" },
+    { name: "mnemopay", version: "0.9.0" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
@@ -670,7 +842,23 @@ export async function startServer(): Promise<void> {
       ));
     });
 
-    app.get("/mcp", async (req, res) => {
+    // ── Authentication for SSE/HTTP endpoints ────────────────────────────
+    const MCP_AUTH_TOKEN = process.env.MNEMOPAY_MCP_TOKEN;
+    if (!MCP_AUTH_TOKEN) {
+      console.error("[mnemopay-mcp] WARNING: MNEMOPAY_MCP_TOKEN not set — SSE endpoints are unauthenticated");
+    }
+
+    function mcpAuth(req: any, res: any, next: any) {
+      if (!MCP_AUTH_TOKEN) { next(); return; }
+      const auth = req.headers.authorization;
+      if (!auth || auth !== `Bearer ${MCP_AUTH_TOKEN}`) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      next();
+    }
+
+    app.get("/mcp", mcpAuth, async (req: any, res: any) => {
       const transport = new SSEServerTransport("/messages", res);
       transports[transport.sessionId] = transport;
       transport.onclose = async () => {
@@ -685,16 +873,136 @@ export async function startServer(): Promise<void> {
       console.error(`[mnemopay-mcp] SSE session: ${transport.sessionId}`);
     });
 
-    app.post("/messages", async (req, res) => {
+    app.post("/messages", mcpAuth, async (req: any, res: any) => {
       const sessionId = req.query.sessionId as string;
+      if (!sessionId || typeof sessionId !== "string" || sessionId.length > 128) {
+        res.status(400).json({ error: "Invalid session ID" });
+        return;
+      }
       const transport = transports[sessionId];
-      if (!transport) { res.status(404).send("Session not found"); return; }
+      if (!transport) { res.status(404).json({ error: "Session not found" }); return; }
       await transport.handlePostMessage(req, res, req.body);
+    });
+
+    // ── REST API ─────────────────────────────────────────────────────────
+    // Every MnemoPay tool as a simple POST endpoint.
+    // Works from any client: browser, React Native, curl, other agents.
+
+    // CORS for browser/mobile access
+    app.use("/api", (req: any, res: any, next: any) => {
+      res.setHeader("Access-Control-Allow-Origin", process.env.MNEMOPAY_CORS_ORIGIN || "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      if (req.method === "OPTIONS") { res.status(204).end(); return; }
+      next();
+    });
+
+    // Tool discovery
+    app.get("/api/tools", mcpAuth, (_req: any, res: any) => {
+      res.json({
+        tools: TOOLS.map(t => ({ name: t.name, description: t.description })),
+        version: "0.9.0",
+      });
+    });
+
+    // Generic tool executor: POST /api/:tool
+    app.post("/api/:tool", mcpAuth, async (req: any, res: any) => {
+      const toolName = req.params.tool;
+      const validTools = TOOLS.map(t => t.name);
+      if (!validTools.includes(toolName)) {
+        res.status(404).json({ error: `Unknown tool: ${toolName}` });
+        return;
+      }
+      try {
+        const result = await executeTool(agent, toolName, req.body ?? {});
+        // Try to parse as JSON for structured response
+        try {
+          res.json({ ok: true, tool: toolName, result: JSON.parse(result) });
+        } catch {
+          res.json({ ok: true, tool: toolName, result });
+        }
+      } catch (err: any) {
+        res.status(400).json({ ok: false, tool: toolName, error: err.message });
+      }
+    });
+
+    // ── Commerce REST endpoints ──────────────────────────────────────────
+    // Higher-level shopping flows on top of the core tools.
+
+    let commerceEngine: any = null;
+
+    async function getCommerce() {
+      if (!commerceEngine) {
+        const { CommerceEngine } = await import("../commerce.js");
+        commerceEngine = new CommerceEngine(agent);
+      }
+      return commerceEngine;
+    }
+
+    app.post("/api/commerce/mandate", mcpAuth, async (req: any, res: any) => {
+      try {
+        const commerce = await getCommerce();
+        commerce.setMandate(req.body);
+        res.json({ ok: true, mandate: commerce.getMandate(), remainingBudget: commerce.remainingBudget });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err.message });
+      }
+    });
+
+    app.post("/api/commerce/search", mcpAuth, async (req: any, res: any) => {
+      try {
+        const commerce = await getCommerce();
+        const results = await commerce.search(req.body.query, req.body.options);
+        res.json({ ok: true, results, remainingBudget: commerce.remainingBudget });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err.message });
+      }
+    });
+
+    app.post("/api/commerce/purchase", mcpAuth, async (req: any, res: any) => {
+      try {
+        const commerce = await getCommerce();
+        const order = await commerce.purchase(req.body.product, req.body.deliveryInstructions);
+        res.json({ ok: true, order });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err.message });
+      }
+    });
+
+    app.post("/api/commerce/confirm", mcpAuth, async (req: any, res: any) => {
+      try {
+        const commerce = await getCommerce();
+        const order = await commerce.confirmDelivery(req.body.orderId);
+        res.json({ ok: true, order });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err.message });
+      }
+    });
+
+    app.post("/api/commerce/cancel", mcpAuth, async (req: any, res: any) => {
+      try {
+        const commerce = await getCommerce();
+        const order = await commerce.cancelOrder(req.body.orderId, req.body.reason);
+        res.json({ ok: true, order });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err.message });
+      }
+    });
+
+    app.get("/api/commerce/orders", mcpAuth, async (req: any, res: any) => {
+      try {
+        const commerce = await getCommerce();
+        const status = req.query.status as string | undefined;
+        const orders = commerce.listOrders(status);
+        res.json({ ok: true, orders, summary: commerce.spendingSummary() });
+      } catch (err: any) {
+        res.status(400).json({ ok: false, error: err.message });
+      }
     });
 
     const port = parseInt(process.env.PORT || "3200", 10);
     app.listen(port, () => {
-      console.error(`[mnemopay-mcp] HTTP/SSE server on port ${port}`);
+      console.error(`[mnemopay] Server on port ${port} — MCP: /mcp | REST: /api/:tool | Commerce: /api/commerce/*`);
     });
   } else {
     const transport = new StdioServerTransport();
@@ -712,7 +1020,7 @@ export default function createSandboxServer(): Server {
   const agent = MnemoPay.quick("smithery-sandbox");
 
   const server = new Server(
-    { name: "mnemopay", version: "0.7.1" },
+    { name: "mnemopay", version: "0.9.0" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 

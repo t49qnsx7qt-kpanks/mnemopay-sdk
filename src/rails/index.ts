@@ -167,7 +167,17 @@ export class LightningRail implements PaymentRail {
    * @param btcPriceUsd — BTC price in USD for conversion (updated externally)
    */
   constructor(lndRestUrl: string, macaroon: string, btcPriceUsd = 60000) {
-    this.baseUrl = lndRestUrl.replace(/\/$/, "");
+    // Validate URL to prevent SSRF
+    let parsed: URL;
+    try {
+      parsed = new URL(lndRestUrl);
+    } catch {
+      throw new Error("Invalid LND REST URL");
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("LND URL must use http or https protocol");
+    }
+    this.baseUrl = `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/$/, "")}`;
     this.macaroon = macaroon;
     this.btcPriceUsd = btcPriceUsd;
   }
@@ -191,8 +201,8 @@ export class LightningRail implements PaymentRail {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`LND API error (${res.status}): ${text}`);
+      // Sanitize error — don't leak raw LND response body
+      throw new Error(`LND API error (${res.status})`);
     }
     return res.json();
   }

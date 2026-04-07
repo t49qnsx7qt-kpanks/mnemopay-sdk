@@ -1,7 +1,7 @@
 {
   "name": "@mnemopay/sdk",
-  "version": "0.8.0",
-  "description": "Give your AI agents real superpowers. Memory + Payments + Identity in one SDK. Double-entry ledger, escrow, fraud detection, multi-agent commerce.",
+  "version": "0.9.0",
+  "description": "AI agent banking SDK — memory, payments, identity, and autonomous shopping for AI agents. Escrow-protected commerce, shopping mandates, double-entry ledger, fraud detection, KYA compliance. 378 tests.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -36,11 +36,16 @@
     "./storage": {
       "import": "./dist/storage/sqlite.js",
       "types": "./dist/storage/sqlite.d.ts"
+    },
+    "./client": {
+      "import": "./dist/client.js",
+      "types": "./dist/client.d.ts"
     }
   },
   "bin": {
     "mnemopay-mcp": "dist/mcp/server.js",
-    "mnemopay-setup": "dist/cli/setup.js"
+    "mnemopay-setup": "dist/cli/setup.js",
+    "mnemopay-dashboard": "dist/cli/dashboard.js"
   },
   "files": [
     "dist",
@@ -56,11 +61,16 @@
   },
   "keywords": [
     "ai-agent",
-    "agent-memory",
-    "agent-wallet",
     "agent-payments",
-    "agent-identity",
+    "agent-memory",
     "agent-banking",
+    "agent-identity",
+    "agent-wallet",
+    "agent-fico",
+    "ai-wallet",
+    "llm-payments",
+    "agentic-commerce",
+    "mcp-payments",
     "payment",
     "escrow",
     "double-entry-ledger",
@@ -72,6 +82,8 @@
     "stripe",
     "lightning",
     "cognitive-memory",
+    "kya",
+    "know-your-agent",
     "reputation",
     "agent-sdk",
     "ai-memory",
@@ -81,7 +93,10 @@
     "anthropic",
     "claude",
     "langchain",
-    "langgraph"
+    "langgraph",
+    "agent-credit-score",
+    "fintech",
+    "agent-escrow"
   ],
   "author": "Jerry Omiagbo <jeremiah@getbizsuite.com>",
   "license": "MIT",

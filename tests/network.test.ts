@@ -5,7 +5,7 @@ describe("MnemoPayNetwork — Multi-Agent Transactions", () => {
   let net: MnemoPayNetwork;
 
   beforeEach(() => {
-    net = new MnemoPayNetwork({ fraud: { platformFeeRate: 0.019 } });
+    net = new MnemoPayNetwork({ fraud: { platformFeeRate: 0.019, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
   });
 
   // ── Registration ──────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ describe("MnemoPayNetwork — Multi-Agent Transactions", () => {
 
     it("enforces token spend limits", async () => {
       // Register with strict limits
-      const strictNet = new MnemoPayNetwork({ fraud: { platformFeeRate: 0 } });
+      const strictNet = new MnemoPayNetwork({ fraud: { platformFeeRate: 0, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
       strictNet.register("limited-buyer", "o", "e@e.com", {
         permissions: ["charge", "settle", "remember", "recall"],
         maxAmount: 50,

@@ -100,33 +100,26 @@ export interface IdentityVerification {
 
 // ─── Crypto Utilities ───────────────────────────────────────────────────────
 
-function generateKeyPair(): { publicKey: string; privateKey: string } {
-  // Use Web Crypto API for browser compatibility
-  // For production: use ECDSA P-256 or Ed25519
-  // For now: generate deterministic-length hex keys using crypto.randomUUID
-  const privateBytes = new Uint8Array(32);
-  crypto.getRandomValues(privateBytes);
-  const privateKey = Array.from(privateBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+import { createHmac, randomBytes } from "crypto";
 
-  // Derive "public key" — in production this would be ECDSA point derivation
-  const publicBytes = new Uint8Array(32);
-  crypto.getRandomValues(publicBytes);
-  const publicKey = Array.from(publicBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+function generateKeyPair(): { publicKey: string; privateKey: string } {
+  // 32 random bytes for private key
+  const privateKeyBuf = randomBytes(32);
+  const privateKey = privateKeyBuf.toString("hex");
+
+  // Derive public key deterministically from private key via HMAC-SHA256
+  const publicKey = createHmac("sha256", privateKeyBuf)
+    .update("mnemopay-v1-public-key-derivation")
+    .digest("hex");
 
   return { publicKey, privateKey };
 }
 
-function signMessage(message: string, _privateKey: string): string {
-  // Simplified HMAC-like signature for now
-  // Production: use actual ECDSA signing
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message + _privateKey);
-  let hash = 0x811c9dc5;
-  for (const byte of data) {
-    hash ^= byte;
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0") + Date.now().toString(16);
+function signMessage(message: string, privateKey: string): string {
+  // HMAC-SHA256 signature using the agent's private key
+  return createHmac("sha256", Buffer.from(privateKey, "hex"))
+    .update(message)
+    .digest("hex");
 }
 
 // ─── Identity Registry ──────────────────────────────────────────────────────

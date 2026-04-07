@@ -465,8 +465,8 @@ export class PaystackRail implements PaymentRail {
       const json: any = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const msg = json.message || json.error || `Paystack API error (${res.status})`;
-        throw new Error(`Paystack ${method} ${path} failed: ${msg}`);
+        const msg = json.message || json.error || "Request failed";
+        throw new Error(`Paystack error: ${msg}`);
       }
 
       return json;

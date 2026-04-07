@@ -114,7 +114,7 @@ export interface Transaction {
   agentId: string;
   amount: number;
   reason: string;
-  status: "pending" | "completed" | "refunded" | "disputed";
+  status: "pending" | "completed" | "refunded" | "disputed" | "expired";
   createdAt: Date;
   completedAt?: Date;
   /** Platform fee deducted on settlement */
@@ -129,6 +129,8 @@ export interface Transaction {
   externalStatus?: string;
   /** Counter-party agent ID (required when requireCounterparty is enabled) */
   counterpartyId?: string;
+  /** Idempotency key for payment rail calls */
+  idempotencyKey?: string;
 }
 
 export interface AgentProfile {
@@ -268,6 +270,10 @@ export class MnemoPayLite extends EventEmitter {
   private persistPath?: string;
   private persistTimer?: ReturnType<typeof setInterval>;
   private storageAdapter?: StorageAdapter;
+  /** Guard against concurrent double-settle on the same transaction */
+  private _settlingTxIds: Set<string> = new Set();
+  /** Guard against concurrent wallet mutations */
+  private _walletLock: Promise<void> = Promise.resolve();
   /** Fraud detection, rate limiting, dispute resolution, and platform fee */
   readonly fraud: FraudGuard;
   /** Pluggable payment rail (Stripe, Lightning, etc.). Default: in-memory mock. */
@@ -635,6 +641,43 @@ export class MnemoPayLite extends EventEmitter {
 
   // ── Payment Methods ─────────────────────────────────────────────────────
 
+  /**
+   * Expire pending transactions older than the escrow timeout.
+   * Default: 24 hours (1440 minutes, matching disputeWindowMinutes).
+   * Releases escrowed funds back to the agent.
+   */
+  async expireStaleEscrows(maxAgeMinutes?: number): Promise<number> {
+    const timeout = (maxAgeMinutes ?? this.fraud.config.disputeWindowMinutes) * 60_000;
+    const now = Date.now();
+    let expired = 0;
+
+    for (const tx of this.transactions.values()) {
+      if (tx.status !== "pending") continue;
+      if (now - tx.createdAt.getTime() < timeout) continue;
+
+      // Release escrow on external rail
+      if (tx.externalId) {
+        try {
+          await this.paymentRail.reversePayment(tx.externalId, tx.amount);
+        } catch (e) {
+          this.log(`Failed to reverse expired escrow ${tx.id}: ${e}`);
+        }
+      }
+
+      // Release escrow in ledger
+      this.ledger.recordCancellation(this.agentId, tx.amount, tx.id);
+      tx.status = "expired";
+      expired++;
+      this.audit("escrow:expired", { id: tx.id, amount: tx.amount, ageMinutes: Math.floor((now - tx.createdAt.getTime()) / 60_000) });
+    }
+
+    if (expired > 0) {
+      this._saveToDisk();
+      this.log(`Expired ${expired} stale escrow(s)`);
+    }
+    return expired;
+  }
+
   async charge(amount: number, reason: string, ctx?: RequestContext): Promise<Transaction> {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error("Amount must be a positive finite number");
     // Round to 2 decimals to prevent floating point dust
@@ -667,6 +710,9 @@ export class MnemoPayLite extends EventEmitter {
     // Record charge for velocity tracking
     this.fraud.recordCharge(this.agentId, amount, ctx);
 
+    // Generate idempotency key for payment rail calls
+    const idempotencyKey = `charge_${this.agentId}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+
     // Create hold on external payment rail
     const hold = await this.paymentRail.createHold(amount, reason, this.agentId);
 
@@ -680,6 +726,7 @@ export class MnemoPayLite extends EventEmitter {
       riskScore: risk.score,
       externalId: hold.externalId,
       externalStatus: hold.status,
+      idempotencyKey,
     };
     this.transactions.set(tx.id, tx);
 
@@ -698,74 +745,111 @@ export class MnemoPayLite extends EventEmitter {
     const tx = this.transactions.get(txId);
     if (!tx) throw new Error(`Transaction ${txId} not found`);
     if (tx.status !== "pending") throw new Error(`Transaction ${txId} is ${tx.status}, not pending`);
+    // Prevent concurrent double-settle
+    if (this._settlingTxIds.has(txId)) throw new Error(`Transaction ${txId} is already being settled`);
+    this._settlingTxIds.add(txId);
 
     // Counter-party validation: prevent self-referential trust building
     if (this.requireCounterparty) {
       if (!counterpartyId) {
+        this._settlingTxIds.delete(txId);
         throw new Error("Counter-party ID required for settlement (requireCounterparty is enabled)");
       }
       if (counterpartyId === tx.agentId) {
+        this._settlingTxIds.delete(txId);
         throw new Error("Counter-party cannot be the same agent that created the charge");
       }
       tx.counterpartyId = counterpartyId;
     }
 
-    // 1. Capture payment on external rail
-    if (tx.externalId) {
-      const capture = await this.paymentRail.capturePayment(tx.externalId, tx.amount);
-      tx.externalStatus = capture.status;
-    }
-
-    // 2. Apply platform fee
-    const fee = this.fraud.applyPlatformFee(tx.id, this.agentId, tx.amount);
-    tx.platformFee = fee.feeAmount;
-    tx.netAmount = fee.netAmount;
-
-    // 2. Move NET funds to wallet (after fee)
-    tx.status = "completed";
-    tx.completedAt = new Date();
-    this._wallet += fee.netAmount;
-
-    // Ledger: escrow → float → revenue (fee) + counterparty/agent (net)
-    this.ledger.recordSettlement(
-      this.agentId, tx.id, tx.amount,
-      fee.feeAmount, fee.netAmount, tx.counterpartyId,
-    );
-
-    // 3. Boost reputation
-    this._reputation = Math.min(this._reputation + 0.01, 1.0);
-
-    // 4. Reinforce recently-accessed memories (feedback loop)
-    const oneHourAgo = Date.now() - 3_600_000;
-    let reinforced = 0;
-    for (const mem of this.memories.values()) {
-      if (mem.lastAccessed.getTime() > oneHourAgo) {
-        mem.importance = Math.min(mem.importance + 0.05, 1.0);
-        reinforced++;
+    try {
+      // 1. Enforce settlement hold period
+      const holdMs = this.fraud.config.settlementHoldMinutes * 60_000;
+      const elapsed = Date.now() - tx.createdAt.getTime();
+      if (holdMs > 0 && elapsed < holdMs) {
+        const remainMin = Math.ceil((holdMs - elapsed) / 60_000);
+        throw new Error(
+          `Settlement hold: ${remainMin} minute(s) remaining. ` +
+          `Charge must be held for ${this.fraud.config.settlementHoldMinutes} minutes before settlement.`
+        );
       }
+
+      // 2. Capture payment on external rail
+      if (tx.externalId) {
+        const capture = await this.paymentRail.capturePayment(tx.externalId, tx.amount);
+        tx.externalStatus = capture.status;
+      }
+
+      // 3. Apply platform fee
+      const fee = this.fraud.applyPlatformFee(tx.id, this.agentId, tx.amount);
+      tx.platformFee = fee.feeAmount;
+      tx.netAmount = fee.netAmount;
+
+      // 4. Move NET funds to wallet (atomic via sequential lock)
+      const prevLock = this._walletLock;
+      this._walletLock = prevLock.then(() => {
+        tx.status = "completed";
+        tx.completedAt = new Date();
+        this._wallet += fee.netAmount;
+      });
+      await this._walletLock;
+
+      // Ledger: escrow → float → revenue (fee) + counterparty/agent (net)
+      this.ledger.recordSettlement(
+        this.agentId, tx.id, tx.amount,
+        fee.feeAmount, fee.netAmount, tx.counterpartyId,
+      );
+
+      // 4. Boost reputation
+      this._reputation = Math.min(this._reputation + 0.01, 1.0);
+
+      // 5. Reinforce recently-accessed memories (feedback loop)
+      const oneHourAgo = Date.now() - 3_600_000;
+      let reinforced = 0;
+      for (const mem of this.memories.values()) {
+        if (mem.lastAccessed.getTime() > oneHourAgo) {
+          mem.importance = Math.min(mem.importance + 0.05, 1.0);
+          reinforced++;
+        }
+      }
+
+      // Touch identity (update last active)
+      this.identity.touch(this.agentId);
+
+      this.audit("payment:completed", {
+        id: tx.id, grossAmount: tx.amount, platformFee: fee.feeAmount,
+        netAmount: fee.netAmount, feeRate: fee.feeRate,
+        reinforcedMemories: reinforced,
+      });
+      this._saveToDisk();
+      this.emit("payment:completed", { id: tx.id, amount: fee.netAmount, fee: fee.feeAmount });
+      this.log(
+        `Settled $${tx.amount.toFixed(2)} (fee: $${fee.feeAmount.toFixed(2)}, net: $${fee.netAmount.toFixed(2)}) → ` +
+        `wallet: $${this._wallet.toFixed(2)}, reputation: ${this._reputation.toFixed(2)}, reinforced: ${reinforced} memories`
+      );
+      return { ...tx };
+    } finally {
+      this._settlingTxIds.delete(txId);
     }
-
-    // Touch identity (update last active)
-    this.identity.touch(this.agentId);
-
-    this.audit("payment:completed", {
-      id: tx.id, grossAmount: tx.amount, platformFee: fee.feeAmount,
-      netAmount: fee.netAmount, feeRate: fee.feeRate,
-      reinforcedMemories: reinforced,
-    });
-    this._saveToDisk();
-    this.emit("payment:completed", { id: tx.id, amount: fee.netAmount, fee: fee.feeAmount });
-    this.log(
-      `Settled $${tx.amount.toFixed(2)} (fee: $${fee.feeAmount.toFixed(2)}, net: $${fee.netAmount.toFixed(2)}) → ` +
-      `wallet: $${this._wallet.toFixed(2)}, reputation: ${this._reputation.toFixed(2)}, reinforced: ${reinforced} memories`
-    );
-    return { ...tx };
   }
 
   async refund(txId: string): Promise<Transaction> {
     const tx = this.transactions.get(txId);
     if (!tx) throw new Error(`Transaction ${txId} not found`);
     if (tx.status === "refunded") throw new Error(`Transaction ${txId} already refunded`);
+    if (tx.status === "expired") throw new Error(`Transaction ${txId} has expired and cannot be refunded`);
+
+    // Enforce dispute window: completed transactions can only be refunded within the window
+    if (tx.status === "completed" && tx.completedAt) {
+      const windowMs = this.fraud.config.disputeWindowMinutes * 60_000;
+      const elapsed = Date.now() - tx.completedAt.getTime();
+      if (windowMs > 0 && elapsed > windowMs) {
+        throw new Error(
+          `Refund window expired. Transaction was settled ${Math.floor(elapsed / 60_000)} minutes ago. ` +
+          `Refund window is ${this.fraud.config.disputeWindowMinutes} minutes.`
+        );
+      }
+    }
 
     // Reverse on external rail
     if (tx.externalId) {
@@ -1428,4 +1512,6 @@ export { IdentityRegistry } from "./identity.js";
 export type { AgentIdentity, CapabilityToken, Permission, IdentityVerification, KYARecord } from "./identity.js";
 export { MnemoPayNetwork } from "./network.js";
 export type { NetworkAgent, DealResult, NetworkStats, NetworkConfig } from "./network.js";
+export { CommerceEngine, MockCommerceProvider } from "./commerce.js";
+export type { ShoppingMandate, ProductResult, PurchaseOrder, CommerceProvider, SearchOptions, ApprovalCallback } from "./commerce.js";
 export { default as createSandboxServer } from "./mcp/server.js";
