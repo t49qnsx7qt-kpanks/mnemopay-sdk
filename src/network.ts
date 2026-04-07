@@ -90,6 +90,8 @@ export class MnemoPayNetwork {
   private deals: DealResult[] = [];
   private _totalVolume = 0;
   private _totalFees = 0;
+  /** Transaction lock: prevents concurrent deals involving the same buyer */
+  private _dealLocks: Set<string> = new Set();
 
   /** Shared identity registry — all agents on this network share it */
   readonly identity: IdentityRegistry;
@@ -223,6 +225,15 @@ export class MnemoPayNetwork {
     if (!seller) throw new Error(`Seller agent '${sellerId}' not registered on network`);
     if (buyerId === sellerId) throw new Error("Buyer and seller cannot be the same agent");
 
+    // Transaction lock: prevent concurrent deals from same buyer (race condition guard)
+    const lockKey = `deal:${buyerId}`;
+    if (this._dealLocks.has(lockKey)) {
+      throw new Error(`Buyer '${buyerId}' has a deal in progress — wait for it to complete`);
+    }
+    this._dealLocks.add(lockKey);
+
+    try {
+
     // Validate buyer's token allows this charge
     if (buyer.token) {
       const validation = this.identity.validateToken(buyer.token.id, "charge", amount, sellerId);
@@ -286,6 +297,10 @@ export class MnemoPayNetwork {
 
     this.log(`Deal ${dealId}: ${buyerId} → ${sellerId}, $${amount} (fee: $${fee}, net: $${net})`);
     return deal;
+
+    } finally {
+      this._dealLocks.delete(lockKey);
+    }
   }
 
   /**

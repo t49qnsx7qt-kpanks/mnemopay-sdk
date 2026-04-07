@@ -177,6 +177,21 @@ export class LightningRail implements PaymentRail {
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
       throw new Error("LND URL must use http or https protocol");
     }
+    // SSRF protection: block private/internal network targets
+    const host = parsed.hostname.toLowerCase();
+    const ssrfBlocked = [
+      "localhost", "127.0.0.1", "0.0.0.0", "[::1]", "[::0]",
+      "169.254.169.254", // Cloud metadata (AWS/GCP/Azure)
+      "metadata.google.internal",
+    ];
+    if (ssrfBlocked.includes(host) ||
+        host.endsWith(".internal") ||
+        host.endsWith(".local") ||
+        /^10\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+        /^192\.168\./.test(host)) {
+      throw new Error("LND URL must not target private/internal network addresses");
+    }
     this.baseUrl = `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/$/, "")}`;
     this.macaroon = macaroon;
     this.btcPriceUsd = btcPriceUsd;

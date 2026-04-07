@@ -94,9 +94,17 @@ export class Ledger {
 
   constructor(existingEntries?: LedgerEntry[]) {
     if (existingEntries) {
-      this.entries = [...existingEntries];
-      this.seq = existingEntries.length > 0
-        ? Math.max(...existingEntries.map(e => e.seq)) + 1
+      // Validate every entry on load — reject corrupted data
+      this.entries = existingEntries.map(e => {
+        const debit = Number(e.debit);
+        const credit = Number(e.credit);
+        if (!Number.isFinite(debit) || debit < 0) throw new Error(`Ledger entry ${e.id}: debit must be a non-negative finite number`);
+        if (!Number.isFinite(credit) || credit < 0) throw new Error(`Ledger entry ${e.id}: credit must be a non-negative finite number`);
+        if (!Number.isFinite(e.seq) || e.seq < 0) throw new Error(`Ledger entry ${e.id}: seq must be a non-negative number`);
+        return { ...e, debit, credit };
+      });
+      this.seq = this.entries.length > 0
+        ? Math.max(...this.entries.map(e => e.seq)) + 1
         : 0;
     }
   }

@@ -102,8 +102,10 @@ export class PaystackRail implements PaymentRail {
   private readonly timeoutMs: number;
   private readonly channels?: string[];
 
-  /** Reference-based idempotency guard — tracks processed references */
-  private processedRefs: Set<string> = new Set();
+  /** Reference-based idempotency guard with time-bounded eviction */
+  private processedRefs: Map<string, number> = new Map(); // ref → timestamp
+  private static readonly MAX_PROCESSED_REFS = 10_000;
+  private static readonly REF_TTL_MS = 24 * 60 * 60_000; // 24h
 
   constructor(secretKey: string, config?: PaystackConfig) {
     if (!secretKey || typeof secretKey !== "string") {
@@ -208,6 +210,8 @@ export class PaystackRail implements PaymentRail {
     }
 
     // Idempotency: check if already processed
+    // Evict expired refs before check
+    this._evictExpiredRefs();
     if (this.processedRefs.has(externalId)) {
       // Re-verify to return current state
       const response = await this.request("GET", `/transaction/verify/${encodeURIComponent(externalId)}`);
@@ -227,7 +231,7 @@ export class PaystackRail implements PaymentRail {
     }
 
     // Mark as processed (idempotency guard)
-    this.processedRefs.add(externalId);
+    this.processedRefs.set(externalId, Date.now());
 
     return this.mapVerifyResponse(response, externalId);
   }
@@ -477,6 +481,22 @@ export class PaystackRail implements PaymentRail {
       throw err;
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  /** Evict expired refs to prevent unbounded memory growth */
+  private _evictExpiredRefs(): void {
+    if (this.processedRefs.size <= PaystackRail.MAX_PROCESSED_REFS / 2) return;
+    const cutoff = Date.now() - PaystackRail.REF_TTL_MS;
+    for (const [ref, ts] of this.processedRefs) {
+      if (ts < cutoff) this.processedRefs.delete(ref);
+    }
+    // Hard cap: LRU eviction if still too many
+    if (this.processedRefs.size > PaystackRail.MAX_PROCESSED_REFS) {
+      const sorted = Array.from(this.processedRefs.entries()).sort((a, b) => a[1] - b[1]);
+      for (const [ref] of sorted.slice(0, sorted.length - PaystackRail.MAX_PROCESSED_REFS)) {
+        this.processedRefs.delete(ref);
+      }
     }
   }
 }

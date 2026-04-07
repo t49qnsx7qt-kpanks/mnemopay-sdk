@@ -1006,7 +1006,26 @@ export class FraudGuard {
         guard.blockedAgents = new Set(data.blockedAgents);
       }
       if (data.geoProfiles) {
-        guard.geoProfiles = new Map(data.geoProfiles);
+        guard.geoProfiles = new Map(
+          (data.geoProfiles as [string, GeoProfile][]).map(([k, v]) => [
+            k,
+            {
+              ...v,
+              trustScore: Math.max(0, Math.min(1, Number(v.trustScore) || 0)),
+              totalTxCount: Math.max(0, Math.floor(Number(v.totalTxCount) || 0)),
+              countryChanges: Array.isArray(v.countryChanges)
+                ? v.countryChanges.filter((t: unknown) => typeof t === "number" && Number.isFinite(t))
+                : [],
+              countryCounts: v.countryCounts && typeof v.countryCounts === "object"
+                ? Object.fromEntries(
+                    Object.entries(v.countryCounts).filter(
+                      ([, c]) => typeof c === "number" && Number.isFinite(c as number) && (c as number) >= 0,
+                    ),
+                  )
+                : {},
+            },
+          ]),
+        );
       }
       if (guard.config.ml && data.isolationForest) {
         (guard as any).isolationForest = IsolationForest.deserialize(data.isolationForest);

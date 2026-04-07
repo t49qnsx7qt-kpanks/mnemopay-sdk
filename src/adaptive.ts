@@ -34,20 +34,38 @@ export interface AdaptiveConfig {
   enabled: boolean;
   /** Minimum observations before adapting (default: 10) */
   minObservations: number;
-  /** Maximum parameter change per cycle (0.2 = 20%) */
+  /** Maximum parameter change per cycle (0.2 = 20%) — used for AIMD increase */
   maxDeltaPercent: number;
+  /** Multiplicative decrease factor for tightening (0.5 = halve on anomaly) */
+  decreaseFactor: number;
+  /** Additive increase per healthy cycle (0.02 = +2%) */
+  increaseFactor: number;
   /** Minimum cycle interval in minutes (default: 60) */
   cycleIntervalMinutes: number;
   /** Lock specific parameters from adaptation */
   lockedParams: string[];
+  /** Minimum days of consistent behavior for trust tier upgrade */
+  minTrustDurationDays: number;
+  /** Consecutive worsening cycles before circuit breaker trips */
+  circuitBreakerThreshold: number;
+  /** PSI threshold for severe drift detection (halt adaptation) */
+  psiHaltThreshold: number;
+  /** PSI threshold for moderate drift (log warning) */
+  psiWarnThreshold: number;
 }
 
 export const DEFAULT_ADAPTIVE_CONFIG: AdaptiveConfig = {
   enabled: true,
   minObservations: 10,
   maxDeltaPercent: 0.2,
+  decreaseFactor: 0.5,    // halve on anomaly (multiplicative decrease)
+  increaseFactor: 0.02,   // +2% per healthy cycle (additive increase)
   cycleIntervalMinutes: 60,
   lockedParams: [],
+  minTrustDurationDays: 14,
+  circuitBreakerThreshold: 3,
+  psiHaltThreshold: 0.25,
+  psiWarnThreshold: 0.1,
 };
 
 export interface AgentInsight {
@@ -167,6 +185,16 @@ export class AdaptiveEngine {
   /** Manual overrides set by admin — these are never auto-changed */
   private adminOverrides: Map<string, number> = new Map();
   private eventCounter = 0;
+  /** Circuit breaker: consecutive cycles where metrics worsened */
+  private consecutiveWorseningCycles = 0;
+  /** Circuit breaker: is the engine halted? */
+  private circuitBreakerTripped = false;
+  /** Snapshot of key metrics from previous cycle (for regression detection) */
+  private previousCycleMetrics: { settlementRate: number; systemHealth: number } | null = null;
+  /** PSI: distribution snapshot from previous cycle for drift detection */
+  private previousDistribution: Map<string, number> | null = null;
+  /** Track first event timestamp per agent for trust duration calculation */
+  private agentFirstSeen: Map<string, number> = new Map();
 
   constructor(config?: Partial<AdaptiveConfig>) {
     this.config = { ...DEFAULT_ADAPTIVE_CONFIG, ...config };
@@ -180,6 +208,10 @@ export class AdaptiveEngine {
   observe(event: AdaptiveEvent): void {
     this.events.push(event);
     this.eventCounter++;
+    // Track first-seen timestamp for trust duration calculation
+    if (!this.agentFirstSeen.has(event.agentId)) {
+      this.agentFirstSeen.set(event.agentId, event.timestamp);
+    }
     // Rolling window: keep last 50K events to bound memory usage
     if (this.events.length > 50_000) {
       this.events = this.events.slice(-25_000);
@@ -215,11 +247,17 @@ export class AdaptiveEngine {
       ? Math.min(memRecalls.length / memStores.length, 1.0)
       : 0;
 
-    // Risk tier determination
+    // Risk tier determination — velocity-aware trust
+    // Anti-gaming: require BOTH sufficient observations AND time duration.
+    // A burst of 10 clean settlements in 1 hour should NOT earn "trusted".
     let riskTier: AgentInsight["riskTier"] = "standard";
+    const firstSeen = this.agentFirstSeen.get(agentId) ?? Date.now();
+    const agentAgeDays = (Date.now() - firstSeen) / 86_400_000;
+    const meetsTimeDuration = agentAgeDays >= this.config.minTrustDurationDays;
+
     if (disputes.length > 0 || fraudBlocks.length > 2) {
       riskTier = disputes.length >= 3 ? "restricted" : "elevated";
-    } else if (settlementRate > 0.9 && settles.length >= 10) {
+    } else if (settlementRate > 0.9 && settles.length >= 10 && meetsTimeDuration) {
       riskTier = "trusted";
     }
 
@@ -328,13 +366,23 @@ export class AdaptiveEngine {
   // ── Adaptive Optimization ──────────────────────────────────────────────
 
   /**
-   * Run an adaptation cycle. Analyzes all data, proposes parameter changes,
-   * validates against secure bounds, and returns what was (or would be) changed.
+   * Run an adaptation cycle. Uses asymmetric AIMD:
+   *   - Additive Increase: slow, gradual loosening on sustained good metrics
+   *   - Multiplicative Decrease: fast, aggressive tightening on anomalies
    *
-   * Returns proposed adaptations. Call applyAdaptations() to commit them.
+   * Includes circuit breaker (halt after N consecutive worsening cycles)
+   * and PSI drift detection (halt if input distribution shifts too much).
    */
   runCycle(): AdaptationRecord[] {
     if (!this.config.enabled) return [];
+
+    // Circuit breaker: if tripped, refuse to adapt until manually reset
+    if (this.circuitBreakerTripped) {
+      return [this.createRecord("_circuit_breaker", 0, 0,
+        `Circuit breaker tripped after ${this.config.circuitBreakerThreshold} consecutive worsening cycles. Call resetCircuitBreaker() to resume.`,
+        { consecutiveWorsening: this.consecutiveWorseningCycles },
+      )];
+    }
 
     // Enforce minimum cycle interval
     const now = Date.now();
@@ -350,18 +398,63 @@ export class AdaptiveEngine {
     const metrics = this.computeMetrics();
     const proposals: AdaptationRecord[] = [];
 
-    // ── Adapt fee rate based on platform settlement rate ──────────────
-    if (!this.isLocked("feeRate")) {
-      const currentRate = 0.019; // default
-      let targetRate = currentRate;
-
-      // If settlement rate is high (> 90%), reward with lower fees
-      if (metrics.platformSettlementRate > 0.9 && metrics.totalAgents >= 5) {
-        targetRate = currentRate * 0.95; // 5% reduction
+    // ── PSI Drift Detection ──────────────────────────────────────────
+    const currentDist = this.computeEventDistribution();
+    if (this.previousDistribution) {
+      const psi = this.computePSI(this.previousDistribution, currentDist);
+      if (psi > this.config.psiHaltThreshold) {
+        proposals.push(this.createRecord("_psi_drift", psi, this.config.psiHaltThreshold,
+          `Severe distribution drift detected (PSI=${psi.toFixed(3)} > ${this.config.psiHaltThreshold}). Adaptation halted this cycle.`,
+          { psi, threshold: this.config.psiHaltThreshold },
+        ));
+        this.previousDistribution = currentDist;
+        this.adaptations.push(...proposals);
+        return proposals;
       }
-      // If dispute rate is high, increase fees to cover risk
-      if (metrics.disputedAgents / Math.max(metrics.totalAgents, 1) > 0.1) {
-        targetRate = currentRate * 1.05; // 5% increase
+      if (psi > this.config.psiWarnThreshold) {
+        proposals.push(this.createRecord("_psi_warning", psi, this.config.psiWarnThreshold,
+          `Moderate distribution drift (PSI=${psi.toFixed(3)}). Adapting with caution.`,
+          { psi, threshold: this.config.psiWarnThreshold },
+        ));
+      }
+    }
+    this.previousDistribution = currentDist;
+
+    // ── Circuit Breaker: check if previous cycle's adaptations worsened metrics ──
+    if (this.previousCycleMetrics) {
+      const worsened =
+        metrics.platformSettlementRate < this.previousCycleMetrics.settlementRate - 0.02 ||
+        metrics.systemHealth < this.previousCycleMetrics.systemHealth - 3;
+      if (worsened) {
+        this.consecutiveWorseningCycles++;
+        if (this.consecutiveWorseningCycles >= this.config.circuitBreakerThreshold) {
+          this.circuitBreakerTripped = true;
+          proposals.push(this.createRecord("_circuit_breaker", this.consecutiveWorseningCycles, this.config.circuitBreakerThreshold,
+            `Circuit breaker TRIPPED: ${this.consecutiveWorseningCycles} consecutive cycles worsened metrics.`,
+            { prevSettlement: this.previousCycleMetrics.settlementRate, currentSettlement: metrics.platformSettlementRate },
+          ));
+          this.previousCycleMetrics = { settlementRate: metrics.platformSettlementRate, systemHealth: metrics.systemHealth };
+          this.adaptations.push(...proposals);
+          return proposals;
+        }
+      } else {
+        this.consecutiveWorseningCycles = 0; // Reset on healthy cycle
+      }
+    }
+    this.previousCycleMetrics = { settlementRate: metrics.platformSettlementRate, systemHealth: metrics.systemHealth };
+
+    // ── Asymmetric AIMD: Adapt fee rate ──────────────────────────────
+    if (!this.isLocked("feeRate")) {
+      const currentRate = this.getEffectiveValue("feeRate", 0.019);
+      let targetRate = currentRate;
+      const disputeRatio = metrics.disputedAgents / Math.max(metrics.totalAgents, 1);
+
+      if (disputeRatio > 0.1) {
+        // MULTIPLICATIVE DECREASE: fast tighten (increase fees to cover risk)
+        targetRate = currentRate * (1 + this.config.decreaseFactor);
+      } else if (metrics.platformSettlementRate > 0.9 && metrics.totalAgents >= 5) {
+        // ADDITIVE INCREASE: slow loosen (decrease fees as reward)
+        targetRate = currentRate - (currentRate * this.config.increaseFactor);
       }
 
       targetRate = this.clamp(targetRate, SECURE_BOUNDS.feeRate.min, SECURE_BOUNDS.feeRate.max);
@@ -369,26 +462,25 @@ export class AdaptiveEngine {
 
       if (Math.abs(targetRate - currentRate) > 0.0001) {
         proposals.push(this.createRecord("feeRate", currentRate, targetRate,
-          metrics.platformSettlementRate > 0.9
-            ? "High platform settlement rate — rewarding ecosystem"
-            : "Elevated dispute rate — increasing to cover risk",
-          { settlementRate: metrics.platformSettlementRate, disputeRatio: metrics.disputedAgents / Math.max(metrics.totalAgents, 1) }
+          disputeRatio > 0.1
+            ? "AIMD multiplicative decrease: elevated disputes — increasing fees"
+            : "AIMD additive increase: healthy ecosystem — rewarding with lower fees",
+          { settlementRate: metrics.platformSettlementRate, disputeRatio }
         ));
       }
     }
 
-    // ── Adapt risk thresholds based on fraud patterns ─────────────────
+    // ── Asymmetric AIMD: Adapt risk thresholds ───────────────────────
     if (!this.isLocked("blockThreshold")) {
-      const currentBlock = 0.75;
+      const currentBlock = this.getEffectiveValue("blockThreshold", 0.75);
       let targetBlock = currentBlock;
 
-      // If fraud detection is catching too many (> 10% of charges), system may be too aggressive
       if (metrics.fraudDetectionRate > 0.10) {
-        targetBlock = currentBlock * 1.03; // loosen slightly
-      }
-      // If zero fraud but many agents, may be too loose
-      if (metrics.fraudDetectionRate < 0.001 && metrics.totalAgents > 20) {
-        targetBlock = currentBlock * 0.98; // tighten slightly
+        // ADDITIVE INCREASE: slowly loosen (reduce false positives)
+        targetBlock = currentBlock + (currentBlock * this.config.increaseFactor);
+      } else if (metrics.fraudDetectionRate < 0.001 && metrics.totalAgents > 20) {
+        // MULTIPLICATIVE DECREASE: fast tighten (more safety)
+        targetBlock = currentBlock * (1 - this.config.decreaseFactor * 0.1);
       }
 
       targetBlock = this.clamp(targetBlock, SECURE_BOUNDS.blockThreshold.min, SECURE_BOUNDS.blockThreshold.max);
@@ -397,20 +489,66 @@ export class AdaptiveEngine {
       if (Math.abs(targetBlock - currentBlock) > 0.001) {
         proposals.push(this.createRecord("blockThreshold", currentBlock, targetBlock,
           metrics.fraudDetectionRate > 0.10
-            ? "Fraud detection too aggressive — loosening to reduce false positives"
-            : "Low fraud detection with many agents — tightening for safety",
+            ? "AIMD additive: loosening to reduce false positives"
+            : "AIMD multiplicative: tightening for safety",
           { fraudRate: metrics.fraudDetectionRate, totalAgents: metrics.totalAgents }
         ));
       }
     }
 
     this.adaptations.push(...proposals);
-    // Cap adaptation history at 1000 records
     if (this.adaptations.length > 1000) {
       this.adaptations = this.adaptations.slice(-500);
     }
 
     return proposals;
+  }
+
+  // ── Circuit Breaker Controls ──────────────────────────────────────
+
+  /** Reset the circuit breaker, allowing adaptation to resume. */
+  resetCircuitBreaker(): void {
+    this.circuitBreakerTripped = false;
+    this.consecutiveWorseningCycles = 0;
+  }
+
+  /** Check if circuit breaker is currently tripped. */
+  get isCircuitBreakerTripped(): boolean {
+    return this.circuitBreakerTripped;
+  }
+
+  // ── PSI (Population Stability Index) ──────────────────────────────
+
+  /**
+   * Compute the event type distribution for drift detection.
+   */
+  private computeEventDistribution(): Map<string, number> {
+    const dist = new Map<string, number>();
+    const total = this.events.length || 1;
+    for (const e of this.events) {
+      dist.set(e.type, (dist.get(e.type) ?? 0) + 1);
+    }
+    // Normalize to proportions
+    for (const [key, val] of dist) {
+      dist.set(key, val / total);
+    }
+    return dist;
+  }
+
+  /**
+   * Compute Population Stability Index between two distributions.
+   * PSI > 0.1 = moderate drift, > 0.25 = severe drift.
+   */
+  private computePSI(prev: Map<string, number>, current: Map<string, number>): number {
+    const allKeys = new Set([...prev.keys(), ...current.keys()]);
+    let psi = 0;
+    const epsilon = 0.0001; // prevent log(0)
+    for (const key of allKeys) {
+      const p = Math.max(prev.get(key) ?? 0, epsilon);
+      const q = Math.max(current.get(key) ?? 0, epsilon);
+      psi += (q - p) * Math.log(q / p);
+    }
+    return Math.abs(psi);
   }
 
   // ── Admin Controls ─────────────────────────────────────────────────────
@@ -475,6 +613,11 @@ export class AdaptiveEngine {
     return SECURE_BOUNDS;
   }
 
+  /** Backdate an agent's first-seen timestamp (for testing or data migration) */
+  setAgentFirstSeen(agentId: string, timestamp: number): void {
+    this.agentFirstSeen.set(agentId, timestamp);
+  }
+
   // ── Serialization ──────────────────────────────────────────────────────
 
   serialize(): {
@@ -483,13 +626,19 @@ export class AdaptiveEngine {
     adaptations: AdaptationRecord[];
     overrides: [string, number][];
     eventCount: number;
+    circuitBreakerTripped: boolean;
+    consecutiveWorsening: number;
+    agentFirstSeen: [string, number][];
   } {
     return {
       config: this.config,
       insights: Array.from(this.insights.entries()),
-      adaptations: this.adaptations.slice(-200), // Keep recent history
+      adaptations: this.adaptations.slice(-200),
       overrides: Array.from(this.adminOverrides.entries()),
       eventCount: this.eventCounter,
+      circuitBreakerTripped: this.circuitBreakerTripped,
+      consecutiveWorsening: this.consecutiveWorseningCycles,
+      agentFirstSeen: Array.from(this.agentFirstSeen.entries()),
     };
   }
 
@@ -507,6 +656,13 @@ export class AdaptiveEngine {
       engine.adminOverrides.set(key, val);
     }
     engine.eventCounter = data.eventCount ?? 0;
+    engine.circuitBreakerTripped = data.circuitBreakerTripped ?? false;
+    engine.consecutiveWorseningCycles = data.consecutiveWorsening ?? 0;
+    if (data.agentFirstSeen) {
+      for (const [id, ts] of data.agentFirstSeen) {
+        engine.agentFirstSeen.set(id, ts);
+      }
+    }
     return engine;
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "@mnemopay/sdk",
-  "version": "0.9.2",
-  "description": "AI agent banking SDK — memory, payments, identity, escrow commerce, adaptive engine. SSRF protection, audit hash chains, token GC, deserialization validation, 554 tests.",
+  "version": "0.9.3",
+  "description": "AI agent banking SDK — memory, payments, identity, escrow commerce, adaptive engine. Asymmetric AIMD, anti-gaming, circuit breaker, PSI drift detection, full SSRF protection, 566+ tests.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

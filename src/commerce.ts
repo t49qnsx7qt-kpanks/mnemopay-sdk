@@ -243,7 +243,7 @@ export class MockCommerceProvider implements CommerceProvider {
 // ─── Commerce Engine ────────────────────────────────────────────────────────
 
 export class CommerceEngine {
-  private agent: any; // MnemoPayLite — avoid circular import
+  private agent: any; // MnemoPayLite — uses any to avoid circular import
   private provider: CommerceProvider;
   private mandate: ShoppingMandate | null = null;
   private orders: Map<string, PurchaseOrder> = new Map();
@@ -254,6 +254,11 @@ export class CommerceEngine {
   private purchaseLimiter = new CommerceRateLimiter(5, 60_000);  // 5 purchases/min
 
   constructor(agent: any, provider?: CommerceProvider) {
+    // Runtime validation: agent must implement required MnemoPayLite interface
+    if (!agent || typeof agent.charge !== "function" || typeof agent.settle !== "function" ||
+        typeof agent.refund !== "function" || typeof agent.agentId !== "string") {
+      throw new Error("CommerceEngine requires a valid MnemoPayLite agent with charge/settle/refund/agentId");
+    }
     this.agent = agent;
     this.provider = provider ?? new MockCommerceProvider();
   }

@@ -570,7 +570,7 @@ export async function startServer(): Promise<void> {
   const agent = createAgent();
 
   const server = new Server(
-    { name: "mnemopay", version: "0.9.1" },
+    { name: "mnemopay", version: "0.9.3" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
@@ -604,6 +604,7 @@ export async function startServer(): Promise<void> {
     } catch (err: any) {
       // Security: sanitize error messages — never leak internal state
       const safeMessage = (err.message || "Unknown error")
+        .replace(/[\r\n]/g, " ")               // prevent header injection
         .replace(/\/[^\s]+/g, "[path]")        // strip file paths
         .replace(/[a-f0-9-]{36}/gi, "[id]")    // strip UUIDs
         .replace(/\$[\d.]+/g, "[amount]")       // strip dollar amounts from errors
@@ -938,9 +939,13 @@ export async function startServer(): Promise<void> {
 
     // CORS for browser/mobile access
     app.use("/api", (req: any, res: any, next: any) => {
-      res.setHeader("Access-Control-Allow-Origin", process.env.MNEMOPAY_CORS_ORIGIN || "*");
+      // CORS: restrict to configured origins only. Default blocks cross-origin to prevent CSRF on payment APIs.
+      const allowedOrigin = process.env.MNEMOPAY_CORS_ORIGIN || "";
+      res.setHeader("Access-Control-Allow-Origin", allowedOrigin || "null");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("X-Frame-Options", "DENY");
       if (req.method === "OPTIONS") { res.status(204).end(); return; }
       next();
     });
@@ -949,7 +954,7 @@ export async function startServer(): Promise<void> {
     app.get("/api/tools", mcpAuth, (_req: any, res: any) => {
       res.json({
         tools: TOOLS.map(t => ({ name: t.name, description: t.description })),
-        version: "0.9.1",
+        version: "0.9.3",
       });
     });
 
@@ -1068,7 +1073,7 @@ export default function createSandboxServer(): Server {
   const agent = MnemoPay.quick("smithery-sandbox");
 
   const server = new Server(
-    { name: "mnemopay", version: "0.9.1" },
+    { name: "mnemopay", version: "0.9.3" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 

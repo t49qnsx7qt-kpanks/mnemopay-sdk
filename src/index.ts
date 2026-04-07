@@ -1225,7 +1225,7 @@ export class MnemoPayLite extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.9.2",
+      version: "0.9.3",
       capabilities: {
         memory: true,
         payments: true,
@@ -1638,7 +1638,7 @@ export class MnemoPay extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.9.2",
+      version: "0.9.3",
       capabilities: {
         memory: true,
         payments: true,
