@@ -88,6 +88,7 @@ export type Permission =
   | "transfer"        // Agent-to-agent transfers
   | "subscribe"       // Create recurring payments
   | "credit"          // Access credit lines
+  | "sign"            // Sign messages (inter-agent verification)
   | "admin";          // Full administrative access
 
 export interface IdentityVerification {
@@ -100,7 +101,7 @@ export interface IdentityVerification {
 
 // ─── Crypto Utilities ───────────────────────────────────────────────────────
 
-import { createHmac, randomBytes } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 
 function generateKeyPair(): { publicKey: string; privateKey: string } {
   // 32 random bytes for private key
@@ -122,11 +123,54 @@ function signMessage(message: string, privateKey: string): string {
     .digest("hex");
 }
 
+/**
+ * Constant-time HMAC signature verification.
+ * Prevents timing side-channel attacks where an attacker measures response
+ * time to brute-force signatures byte by byte.
+ */
+function verifySignature(message: string, signature: string, publicKey: string): boolean {
+  try {
+    // Recompute expected signature from the public key (which is the HMAC of the private key)
+    // For verification, we compare the provided signature against one we compute
+    const expected = createHmac("sha256", Buffer.from(publicKey, "hex"))
+      .update(message)
+      .digest("hex");
+    const sigBuf = Buffer.from(signature, "hex");
+    const expBuf = Buffer.from(expected, "hex");
+    if (sigBuf.length !== expBuf.length) return false;
+    return timingSafeEqual(sigBuf, expBuf);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Constant-time string comparison for tokens/secrets.
+ * Prevents timing attacks on Bearer token, API key, or token ID comparisons.
+ */
+export function constantTimeEqual(a: string, b: string): boolean {
+  try {
+    const aBuf = Buffer.from(a, "utf-8");
+    const bBuf = Buffer.from(b, "utf-8");
+    if (aBuf.length !== bBuf.length) return false;
+    return timingSafeEqual(aBuf, bBuf);
+  } catch {
+    return false;
+  }
+}
+
+// ─── Replay Protection ────────────────────────────────────────────────────
+
+const NONCE_WINDOW_MS = 5 * 60_000; // 5-minute window for nonce validity
+const MAX_NONCES = 10_000;          // Max nonces to track (prevents memory exhaustion)
+
 // ─── Identity Registry ──────────────────────────────────────────────────────
 
 export class IdentityRegistry {
   private identities: Map<string, AgentIdentity> = new Map();
   private tokens: Map<string, CapabilityToken> = new Map();
+  /** Used nonces for replay protection — tracks {nonce → timestamp} */
+  private usedNonces: Map<string, number> = new Map();
   private agentTokens: Map<string, Set<string>> = new Map(); // agentId → token IDs
 
   /**
@@ -369,21 +413,93 @@ export class IdentityRegistry {
 
   /**
    * Sign a message with an agent's private key (for inter-agent verification).
+   * Includes nonce + timestamp for replay protection.
+   * Returns: "nonce:timestamp:signature"
    */
-  sign(agentId: string, message: string): string {
+  sign(agentId: string, message: string, tokenId?: string): string {
     const identity = this.identities.get(agentId);
     if (!identity) throw new Error(`Unknown agent: ${agentId}`);
-    return signMessage(message, identity.privateKey);
+    // Require a valid capability token with "sign" permission if tokens exist for this agent
+    if (tokenId) {
+      const validation = this.validateToken(tokenId, "sign", 0, undefined);
+      if (!validation.valid) throw new Error(`Sign permission denied: ${validation.reason}`);
+    } else if (this.agentTokens.has(agentId) && this.agentTokens.get(agentId)!.size > 0) {
+      throw new Error("Token required: agent has capability tokens — provide tokenId to sign");
+    }
+    // Replay protection: embed nonce + timestamp into the signed payload
+    const nonce = randomBytes(16).toString("hex");
+    const timestamp = Date.now().toString();
+    const payload = `${nonce}:${timestamp}:${message}`;
+    const signature = signMessage(payload, identity.privateKey);
+    return `${nonce}:${timestamp}:${signature}`;
+  }
+
+  /**
+   * Verify a signed message. Checks:
+   *   1. Signature is cryptographically valid (constant-time comparison)
+   *   2. Timestamp is within the replay window (5 minutes)
+   *   3. Nonce has not been used before (prevents replay attacks)
+   */
+  verifySignedMessage(agentId: string, message: string, signedPayload: string): { valid: boolean; reason?: string } {
+    const identity = this.identities.get(agentId);
+    if (!identity) return { valid: false, reason: "Unknown agent" };
+
+    const parts = signedPayload.split(":");
+    if (parts.length < 3) return { valid: false, reason: "Invalid signature format" };
+    const nonce = parts[0];
+    const timestamp = parts[1];
+    const signature = parts.slice(2).join(":");
+
+    // Check timestamp freshness (prevent replay of old messages)
+    const ts = parseInt(timestamp, 10);
+    if (isNaN(ts)) return { valid: false, reason: "Invalid timestamp" };
+    const age = Date.now() - ts;
+    if (age > NONCE_WINDOW_MS) return { valid: false, reason: "Signature expired (older than 5 minutes)" };
+    if (age < -30_000) return { valid: false, reason: "Signature from the future" }; // 30s clock skew tolerance
+
+    // Check nonce hasn't been used (prevents replay within the window)
+    if (this.usedNonces.has(nonce)) return { valid: false, reason: "Nonce already used (replay detected)" };
+
+    // Verify signature (constant-time)
+    const payload = `${nonce}:${timestamp}:${message}`;
+    const expected = signMessage(payload, identity.privateKey);
+    const sigBuf = Buffer.from(signature, "hex");
+    const expBuf = Buffer.from(expected, "hex");
+    if (sigBuf.length !== expBuf.length) return { valid: false, reason: "Invalid signature" };
+    if (!timingSafeEqual(sigBuf, expBuf)) return { valid: false, reason: "Invalid signature" };
+
+    // Record nonce to prevent replay
+    this.usedNonces.set(nonce, Date.now());
+    this._pruneNonces();
+
+    return { valid: true };
+  }
+
+  /**
+   * Prune expired nonces to prevent memory exhaustion.
+   */
+  private _pruneNonces(): void {
+    if (this.usedNonces.size <= MAX_NONCES / 2) return;
+    const cutoff = Date.now() - NONCE_WINDOW_MS;
+    for (const [nonce, ts] of this.usedNonces) {
+      if (ts < cutoff) this.usedNonces.delete(nonce);
+    }
+    // Hard cap: if still too many, drop oldest
+    if (this.usedNonces.size > MAX_NONCES) {
+      const sorted = Array.from(this.usedNonces.entries()).sort((a, b) => a[1] - b[1]);
+      const toRemove = sorted.slice(0, sorted.length - MAX_NONCES);
+      for (const [nonce] of toRemove) this.usedNonces.delete(nonce);
+    }
   }
 
   // ── Serialization ────────────────────────────────────────────────────────
 
   serialize(): {
-    identities: AgentIdentity[];
+    identities: Omit<AgentIdentity, "privateKey">[];
     tokens: CapabilityToken[];
   } {
     return {
-      identities: Array.from(this.identities.values()),
+      identities: Array.from(this.identities.values()).map(({ privateKey, ...safe }) => safe),
       tokens: Array.from(this.tokens.values()),
     };
   }

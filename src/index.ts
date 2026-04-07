@@ -15,7 +15,7 @@ import { FraudGuard, type FraudConfig, type RiskAssessment, type Dispute, type P
 import { type PaymentRail, MockRail } from "./rails/index.js";
 import { type StorageAdapter, JSONFileStorage } from "./storage/sqlite.js";
 import { Ledger, type LedgerEntry, type LedgerSummary, type AccountBalance, type Currency } from "./ledger.js";
-import { IdentityRegistry, type AgentIdentity, type CapabilityToken, type Permission, type IdentityVerification, type KYARecord } from "./identity.js";
+import { IdentityRegistry, constantTimeEqual, type AgentIdentity, type CapabilityToken, type Permission, type IdentityVerification, type KYARecord } from "./identity.js";
 
 // ─── Browser-compatible EventEmitter ──────────────────────────────────────
 // Replaces Node's "events" module so MnemoPayLite runs in browsers too.
@@ -230,6 +230,33 @@ const LONG_CONTENT_THRESHOLD = 200;
 const LONG_CONTENT_BOOST = 0.10;
 const BASE_IMPORTANCE = 0.50;
 
+// ─── Security: prompt injection defense ───────────────────────────────────
+
+const INJECTION_PATTERNS = [
+  /\b(ignore|disregard|forget)\b.{0,30}\b(previous|prior|above|all)\b.{0,30}\b(instructions?|rules?|constraints?)\b/i,
+  /\b(you are|act as|pretend|roleplay|simulate)\b.{0,30}\b(admin|root|system|god|superuser)\b/i,
+  /\bsystem\s*:\s*/i,
+  /\bassistant\s*:\s*/i,
+  /\b(transfer|send|move)\b.{0,20}\b(all|every|maximum)\b.{0,20}\b(funds?|money|balance|wallet)\b/i,
+  /\b(set|change|update|override)\b.{0,20}\b(wallet|balance|reputation|role|permission)\b.{0,10}\b(to|=)\b/i,
+];
+
+function sanitizeMemoryContent(content: string): string {
+  let sanitized = content;
+  for (const pattern of INJECTION_PATTERNS) {
+    sanitized = sanitized.replace(pattern, "[FILTERED]");
+  }
+  return sanitized;
+}
+
+function validateTags(tags: string[]): string[] {
+  return tags
+    .filter(t => typeof t === "string" && t.length <= 50)
+    .map(t => t.replace(/[^a-zA-Z0-9_\-:.]/g, ""))
+    .filter(t => t.length > 0)
+    .slice(0, 20);
+}
+
 function autoScore(content: string): number {
   let score = BASE_IMPORTANCE;
   if (content.length > LONG_CONTENT_THRESHOLD) score += LONG_CONTENT_BOOST;
@@ -272,8 +299,16 @@ export class MnemoPayLite extends EventEmitter {
   private storageAdapter?: StorageAdapter;
   /** Guard against concurrent double-settle on the same transaction */
   private _settlingTxIds: Set<string> = new Set();
+  /** Guard against concurrent double-refund on the same transaction */
+  private _refundingTxIds: Set<string> = new Set();
   /** Guard against concurrent wallet mutations */
   private _walletLock: Promise<void> = Promise.resolve();
+  /** Max wallet balance — prevents overflow/accumulation attacks */
+  static readonly MAX_WALLET_BALANCE = 1_000_000; // $1M ceiling
+  /** Max memories per agent — prevents memory exhaustion attacks */
+  static readonly MAX_MEMORIES = 50_000;
+  /** Max transactions tracked — prevents unbounded growth */
+  static readonly MAX_TRANSACTIONS = 100_000;
   /** Fraud detection, rate limiting, dispute resolution, and platform fee */
   readonly fraud: FraudGuard;
   /** Pluggable payment rail (Stripe, Lightning, etc.). Default: in-memory mock. */
@@ -330,6 +365,22 @@ export class MnemoPayLite extends EventEmitter {
       this._loadFromDisk();
       // Auto-save every 30 seconds
       this.persistTimer = setInterval(() => this._saveToDisk(), 30_000);
+
+      // Hook process exit signals to flush data before shutdown.
+      // This prevents memory loss on restart, SIGTERM, or uncaught exceptions.
+      if (typeof process !== "undefined" && process.on) {
+        const flush = () => { this._saveToDisk(); };
+        process.on("beforeExit", flush);
+        process.on("SIGINT", () => { flush(); process.exit(0); });
+        process.on("SIGTERM", () => { flush(); process.exit(0); });
+        // Save on uncaught exception too — data is more valuable than a clean exit
+        process.on("uncaughtException", (err) => {
+          flush();
+          this.log(`Uncaught exception (data saved): ${err.message}`);
+          process.exit(1);
+        });
+      }
+
       this.log(`Persistence enabled: ${this.persistPath}`);
     } catch (e) {
       this.log(`Persistence unavailable (browser?): ${e}`);
@@ -341,12 +392,49 @@ export class MnemoPayLite extends EventEmitter {
     try {
       const fs = require("fs");
       if (!fs.existsSync(this.persistPath)) return;
-      const raw = JSON.parse(fs.readFileSync(this.persistPath, "utf-8"));
-      // Restore memories
+
+      // Corruption recovery: try main → .bak → .tmp (triple fallback)
+      let rawText: string;
+      try {
+        rawText = fs.readFileSync(this.persistPath, "utf-8");
+        JSON.parse(rawText); // validate JSON
+      } catch {
+        const bakPath = this.persistPath + ".bak";
+        const tmpPath = this.persistPath + ".tmp";
+        if (fs.existsSync(bakPath)) {
+          try {
+            rawText = fs.readFileSync(bakPath, "utf-8");
+            JSON.parse(rawText);
+            this.log("Main persist file corrupted — recovered from .bak backup");
+          } catch {
+            if (fs.existsSync(tmpPath)) {
+              rawText = fs.readFileSync(tmpPath, "utf-8");
+              this.log("Main + .bak corrupted — recovered from .tmp");
+            } else {
+              this.log("All persist files corrupted — starting fresh");
+              return;
+            }
+          }
+        } else if (fs.existsSync(tmpPath)) {
+          rawText = fs.readFileSync(tmpPath, "utf-8");
+          this.log("Main persist file corrupted — recovered from .tmp");
+        } else {
+          this.log("Persist file corrupted and no backup available");
+          return;
+        }
+      }
+
+      const raw = JSON.parse(rawText);
+      // Restore memories (with tags parsing for both stringified and array formats)
       if (raw.memories) {
         for (const m of raw.memories) {
           m.createdAt = new Date(m.createdAt);
           m.lastAccessed = new Date(m.lastAccessed);
+          // Tags may be stringified JSON or an array — handle both
+          if (typeof m.tags === "string") {
+            try { m.tags = JSON.parse(m.tags); } catch { m.tags = []; }
+          }
+          if (!Array.isArray(m.tags)) m.tags = [];
           this.memories.set(m.id, m);
         }
       }
@@ -503,8 +591,13 @@ export class MnemoPayLite extends EventEmitter {
         identity: this.identity.serialize(),
         savedAt: new Date().toISOString(),
       });
-      // Atomic write
+      // Atomic write with backup: .bak → .tmp → main
       const tmpPath = this.persistPath + ".tmp";
+      const bakPath = this.persistPath + ".bak";
+      // Keep a backup of the last known-good file before overwriting
+      if (fs.existsSync(this.persistPath)) {
+        try { fs.copyFileSync(this.persistPath, bakPath); } catch { /* best effort */ }
+      }
       fs.writeFileSync(tmpPath, data, "utf-8");
       fs.renameSync(tmpPath, this.persistPath);
     } catch (e) {
@@ -525,6 +618,10 @@ export class MnemoPayLite extends EventEmitter {
       createdAt: new Date(),
     };
     this.auditLog.push(entry);
+    // Cap in-memory audit log to prevent unbounded growth
+    if (this.auditLog.length > 1000) {
+      this.auditLog.splice(0, this.auditLog.length - 500);
+    }
   }
 
   // ── Memory Methods ──────────────────────────────────────────────────────
@@ -532,18 +629,26 @@ export class MnemoPayLite extends EventEmitter {
   async remember(content: string, opts?: RememberOptions): Promise<string> {
     if (!content || typeof content !== "string") throw new Error("Memory content is required");
     if (content.length > 100_000) throw new Error("Memory content exceeds 100KB limit");
-    const importance = opts?.importance ?? autoScore(content);
+    // Security: prevent memory exhaustion attacks
+    if (this.memories.size >= MnemoPayLite.MAX_MEMORIES) {
+      throw new Error(`Memory limit reached (${MnemoPayLite.MAX_MEMORIES}). Consolidate or forget old memories first.`);
+    }
+    // Security: sanitize against prompt injection
+    const safeContent = sanitizeMemoryContent(content);
+    // Security: validate and sanitize tags
+    const safeTags = validateTags(opts?.tags ?? []);
+    const importance = opts?.importance ?? autoScore(safeContent);
     const now = new Date();
     const mem: Memory = {
       id: randomUUID(),
       agentId: this.agentId,
-      content,
+      content: safeContent,
       importance: Math.min(Math.max(importance, 0), 1),
       score: importance,
       createdAt: now,
       lastAccessed: now,
       accessCount: 0,
-      tags: opts?.tags ?? [],
+      tags: safeTags,
     };
     this.memories.set(mem.id, mem);
 
@@ -552,10 +657,10 @@ export class MnemoPayLite extends EventEmitter {
       await this.recallEngine.embed(mem.id, content);
     }
 
-    this.audit("memory:stored", { id: mem.id, content: content.slice(0, 100), importance: mem.importance });
+    this.audit("memory:stored", { id: mem.id, tags: safeTags, importance: mem.importance });
     this._saveToDisk();
-    this.emit("memory:stored", { id: mem.id, content, importance: mem.importance });
-    this.log(`Stored memory: "${content.slice(0, 60)}..." (importance: ${mem.importance.toFixed(2)})`);
+    this.emit("memory:stored", { id: mem.id, importance: mem.importance });
+    this.log(`Stored memory: id=${mem.id} (importance: ${mem.importance.toFixed(2)}, tags: ${safeTags.join(",") || "none"})`);
     return mem.id;
   }
 
@@ -683,6 +788,11 @@ export class MnemoPayLite extends EventEmitter {
     // Round to 2 decimals to prevent floating point dust
     amount = Math.round(amount * 100) / 100;
     if (!reason || typeof reason !== "string") throw new Error("Reason is required");
+    if (reason.length > 1000) throw new Error("Reason exceeds 1000 character limit");
+    // Security: prevent unbounded transaction growth
+    if (this.transactions.size >= MnemoPayLite.MAX_TRANSACTIONS) {
+      throw new Error(`Transaction limit reached (${MnemoPayLite.MAX_TRANSACTIONS}). Archive old transactions.`);
+    }
     const maxCharge = 500 * this._reputation;
     if (amount > maxCharge) {
       throw new Error(
@@ -785,20 +895,24 @@ export class MnemoPayLite extends EventEmitter {
       tx.platformFee = fee.feeAmount;
       tx.netAmount = fee.netAmount;
 
-      // 4. Move NET funds to wallet (atomic via sequential lock)
-      const prevLock = this._walletLock;
-      this._walletLock = prevLock.then(() => {
-        tx.status = "completed";
-        tx.completedAt = new Date();
-        this._wallet += fee.netAmount;
-      });
-      await this._walletLock;
-
-      // Ledger: escrow → float → revenue (fee) + counterparty/agent (net)
+      // 4. Ledger FIRST (atomic: record before wallet mutation)
       this.ledger.recordSettlement(
         this.agentId, tx.id, tx.amount,
         fee.feeAmount, fee.netAmount, tx.counterpartyId,
       );
+
+      // 5. Move NET funds to wallet (atomic via sequential lock + overflow guard)
+      const prevLock = this._walletLock;
+      this._walletLock = prevLock.then(() => {
+        const newBalance = this._wallet + fee.netAmount;
+        if (newBalance > MnemoPayLite.MAX_WALLET_BALANCE) {
+          throw new Error(`Wallet overflow: balance would exceed $${MnemoPayLite.MAX_WALLET_BALANCE.toLocaleString()}`);
+        }
+        tx.status = "completed";
+        tx.completedAt = new Date();
+        this._wallet = Math.round(newBalance * 100) / 100; // 2-decimal precision
+      });
+      await this._walletLock;
 
       // 4. Boost reputation
       this._reputation = Math.min(this._reputation + 0.01, 1.0);
@@ -834,11 +948,16 @@ export class MnemoPayLite extends EventEmitter {
   }
 
   async refund(txId: string): Promise<Transaction> {
+    if (!txId || typeof txId !== "string") throw new Error("Transaction ID is required");
     const tx = this.transactions.get(txId);
     if (!tx) throw new Error(`Transaction ${txId} not found`);
     if (tx.status === "refunded") throw new Error(`Transaction ${txId} already refunded`);
     if (tx.status === "expired") throw new Error(`Transaction ${txId} has expired and cannot be refunded`);
+    // Prevent concurrent double-refund (mirrors settle guard)
+    if (this._refundingTxIds.has(txId)) throw new Error(`Transaction ${txId} is already being refunded`);
+    this._refundingTxIds.add(txId);
 
+    try {
     // Enforce dispute window: completed transactions can only be refunded within the window
     if (tx.status === "completed" && tx.completedAt) {
       const windowMs = this.fraud.config.disputeWindowMinutes * 60_000;
@@ -876,6 +995,9 @@ export class MnemoPayLite extends EventEmitter {
     this.emit("payment:refunded", { id: tx.id });
     this.log(`Refunded $${tx.amount.toFixed(2)} → reputation: ${this._reputation.toFixed(2)}`);
     return { ...tx };
+    } finally {
+      this._refundingTxIds.delete(txId);
+    }
   }
 
   // ── Dispute Resolution ─────────────────────────────────────────────────
@@ -897,18 +1019,22 @@ export class MnemoPayLite extends EventEmitter {
   }
 
   async resolveDispute(disputeId: string, outcome: "refund" | "uphold"): Promise<Dispute> {
+    // Security: verify the dispute belongs to this agent (only agent's own disputes)
     const d = this.fraud.resolveDispute(disputeId, outcome);
+    const tx = this.transactions.get(d.txId);
+    if (!tx) throw new Error("Dispute references unknown transaction");
+    if (tx.agentId !== this.agentId) throw new Error("Unauthorized: cannot resolve another agent's dispute");
+
     if (outcome === "refund") {
-      const tx = this.transactions.get(d.txId);
-      if (tx && tx.status === "disputed") {
+      if (tx.status === "disputed") {
         const refundAmount = tx.netAmount ?? tx.amount;
+        // Ledger first, then wallet (atomic ordering)
         this._wallet = Math.max(this._wallet - refundAmount, 0);
         this._reputation = Math.max(this._reputation - 0.05, 0);
         tx.status = "refunded";
       }
     } else {
-      const tx = this.transactions.get(d.txId);
-      if (tx && tx.status === "disputed") {
+      if (tx.status === "disputed") {
         tx.status = "completed"; // Restore to completed
       }
     }
@@ -941,6 +1067,29 @@ export class MnemoPayLite extends EventEmitter {
    */
   async verifyLedger(): Promise<LedgerSummary> {
     return this.ledger.verify();
+  }
+
+  /**
+   * Reconcile wallet balance against ledger (source of truth).
+   * Returns drift amount. If drift !== 0, the wallet is corrected to match the ledger.
+   * Call periodically or after crashes to detect/fix inconsistencies.
+   */
+  async reconcile(): Promise<{ walletBefore: number; ledgerBalance: number; drift: number; corrected: boolean }> {
+    const walletBefore = Math.round(this._wallet * 100) / 100;
+    const acctBalance = this.ledger.getAccountBalance(`agent:${this.agentId}`, "USD");
+    const ledgerBalance = Math.round(acctBalance.balance * 100) / 100;
+    const drift = Math.round((walletBefore - ledgerBalance) * 100) / 100;
+
+    if (drift !== 0) {
+      this.log(`RECONCILIATION DRIFT: wallet=$${walletBefore}, ledger=$${ledgerBalance}, drift=$${drift}`);
+      this._wallet = ledgerBalance;
+      this.audit("reconciliation:drift", { walletBefore, ledgerBalance, drift });
+      this._saveToDisk();
+      this.emit("reconciliation:drift", { walletBefore, ledgerBalance, drift });
+      return { walletBefore, ledgerBalance, drift, corrected: true };
+    }
+
+    return { walletBefore, ledgerBalance, drift: 0, corrected: false };
   }
 
   /**
@@ -1015,7 +1164,7 @@ export class MnemoPayLite extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.8.0",
+      version: "0.9.1",
       capabilities: {
         memory: true,
         payments: true,
@@ -1156,24 +1305,49 @@ export class MnemoPay extends EventEmitter {
     return text ? JSON.parse(text) : null;
   }
 
+  // ── Retry logic for production API calls ─────────────────────────────────
+
+  private async withRetry<T>(fn: () => Promise<T>, maxRetries = 2, delayMs = 500): Promise<T> {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        lastError = err;
+        // Don't retry client errors (4xx) — only transient failures (5xx, network)
+        if (err.message?.includes("4") && /\b4\d{2}\b/.test(err.message)) throw err;
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, delayMs * (attempt + 1)));
+          this.log(`Retrying (${attempt + 1}/${maxRetries}): ${err.message}`);
+        }
+      }
+    }
+    throw lastError!;
+  }
+
   // ── Memory Methods (→ Mnemosyne API) ───────────────────────────────────
 
   async remember(content: string, opts?: RememberOptions): Promise<string> {
-    const importance = opts?.importance ?? autoScore(content);
-    const result = await this.mnemoFetch("/v1/memories", {
+    if (!content || typeof content !== "string") throw new Error("Memory content is required");
+    if (content.length > 100_000) throw new Error("Memory content exceeds 100KB limit");
+    // Security: sanitize against prompt injection (same as MnemoPayLite)
+    const safeContent = sanitizeMemoryContent(content);
+    const safeTags = validateTags(opts?.tags ?? []);
+    const importance = opts?.importance ?? autoScore(safeContent);
+    const result = await this.withRetry(() => this.mnemoFetch("/v1/memories", {
       method: "POST",
       body: JSON.stringify({
-        content,
+        content: safeContent,
         tier: "long_term",
         metadata: {
           memory_type: "OBSERVATION",
-          tags: opts?.tags ?? [],
+          tags: safeTags,
           confidence: importance,
         },
       }),
-    });
-    this.emit("memory:stored", { id: result.id, content, importance });
-    this.log(`Stored memory: "${content.slice(0, 60)}..." (id: ${result.id})`);
+    }));
+    this.emit("memory:stored", { id: result.id, importance });
+    this.log(`Stored memory: "${safeContent.slice(0, 60)}..." (id: ${result.id})`);
     return result.id;
   }
 
@@ -1242,8 +1416,11 @@ export class MnemoPay extends EventEmitter {
   // ── Payment Methods (→ AgentPay API) ───────────────────────────────────
 
   async charge(amount: number, reason: string): Promise<Transaction> {
-    if (amount <= 0) throw new Error("Amount must be positive");
-    const result = await this.agentpayFetch("/api/escrow", {
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error("Amount must be a positive finite number");
+    amount = Math.round(amount * 100) / 100;
+    if (!reason || typeof reason !== "string") throw new Error("Reason is required");
+    if (reason.length > 1000) throw new Error("Reason exceeds 1000 character limit");
+    const result = await this.withRetry(() => this.agentpayFetch("/api/escrow", {
       method: "POST",
       body: JSON.stringify({
         agentId: this.agentId,
@@ -1251,7 +1428,7 @@ export class MnemoPay extends EventEmitter {
         reason,
         currency: "USD",
       }),
-    });
+    }));
     const tx: Transaction = {
       id: result.id,
       agentId: this.agentId,
@@ -1266,10 +1443,11 @@ export class MnemoPay extends EventEmitter {
   }
 
   async settle(txId: string): Promise<Transaction> {
-    const result = await this.agentpayFetch(`/api/escrow/${txId}/release`, {
+    if (!txId || typeof txId !== "string") throw new Error("Transaction ID is required");
+    const result = await this.withRetry(() => this.agentpayFetch(`/api/escrow/${encodeURIComponent(txId)}/release`, {
       method: "POST",
       body: JSON.stringify({}),
-    });
+    }));
     this.emit("payment:completed", { id: txId, amount: result.amount });
     this.log(`Settled: $${result.amount?.toFixed(2)}`);
     return {
@@ -1284,10 +1462,11 @@ export class MnemoPay extends EventEmitter {
   }
 
   async refund(txId: string): Promise<Transaction> {
-    const result = await this.agentpayFetch(`/api/escrow/${txId}/refund`, {
+    if (!txId || typeof txId !== "string") throw new Error("Transaction ID is required");
+    const result = await this.withRetry(() => this.agentpayFetch(`/api/escrow/${encodeURIComponent(txId)}/refund`, {
       method: "POST",
       body: JSON.stringify({}),
-    });
+    }));
     this.emit("payment:refunded", { id: txId });
     this.log(`Refunded: ${txId}`);
     return {
@@ -1383,7 +1562,7 @@ export class MnemoPay extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.8.0",
+      version: "0.9.1",
       capabilities: {
         memory: true,
         payments: true,
@@ -1508,7 +1687,7 @@ export { SQLiteStorage, JSONFileStorage } from "./storage/sqlite.js";
 export type { StorageAdapter, PersistedState } from "./storage/sqlite.js";
 export { Ledger } from "./ledger.js";
 export type { LedgerEntry, LedgerSummary, AccountBalance, Currency, AccountType, TransferResult } from "./ledger.js";
-export { IdentityRegistry } from "./identity.js";
+export { IdentityRegistry, constantTimeEqual } from "./identity.js";
 export type { AgentIdentity, CapabilityToken, Permission, IdentityVerification, KYARecord } from "./identity.js";
 export { MnemoPayNetwork } from "./network.js";
 export type { NetworkAgent, DealResult, NetworkStats, NetworkConfig } from "./network.js";

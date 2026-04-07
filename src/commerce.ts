@@ -31,6 +31,26 @@
  *   await commerce.confirmDelivery(order.id);
  */
 
+import crypto from "node:crypto";
+
+// ─── Security: Rate limiter for commerce operations ────────────────────────
+
+class CommerceRateLimiter {
+  private timestamps: number[] = [];
+  constructor(
+    private maxOps: number = 10,
+    private windowMs: number = 60_000,
+  ) {}
+  check(operation: string): void {
+    const now = Date.now();
+    this.timestamps = this.timestamps.filter(t => now - t < this.windowMs);
+    if (this.timestamps.length >= this.maxOps) {
+      throw new Error(`Rate limit exceeded: max ${this.maxOps} ${operation} ops per ${this.windowMs / 1000}s`);
+    }
+    this.timestamps.push(now);
+  }
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ShoppingMandate {
@@ -230,6 +250,8 @@ export class CommerceEngine {
   private totalSpent = 0;
   private approvalCallback: ApprovalCallback | null = null;
   private externalOrderMap: Map<string, string> = new Map(); // externalOrderId → orderId
+  private searchLimiter = new CommerceRateLimiter(20, 60_000);  // 20 searches/min
+  private purchaseLimiter = new CommerceRateLimiter(5, 60_000);  // 5 purchases/min
 
   constructor(agent: any, provider?: CommerceProvider) {
     this.agent = agent;
@@ -291,9 +313,12 @@ export class CommerceEngine {
     if (!this.mandate) {
       throw new Error("No shopping mandate set. Call setMandate() first.");
     }
+    // Security: rate limit searches
+    this.searchLimiter.check("search");
 
-    // Check mandate expiry
+    // Check mandate expiry and clear stale mandate
     if (new Date() > new Date(this.mandate.expiresAt!)) {
+      this.mandate = null;
       throw new Error("Shopping mandate has expired");
     }
 
@@ -335,9 +360,12 @@ export class CommerceEngine {
     if (!this.mandate) {
       throw new Error("No shopping mandate set. Call setMandate() first.");
     }
+    // Security: rate limit purchases
+    this.purchaseLimiter.check("purchase");
 
-    // Validate mandate expiry
+    // Validate mandate expiry and clear stale mandate
     if (new Date() > new Date(this.mandate.expiresAt!)) {
+      this.mandate = null;
       throw new Error("Shopping mandate has expired");
     }
 
@@ -354,7 +382,7 @@ export class CommerceEngine {
       );
     }
 
-    const orderId = `order_${this.agent.agentId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const orderId = `order_${this.agent.agentId}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date();
 
     const order: PurchaseOrder = {
@@ -592,15 +620,15 @@ export class CommerceEngine {
       }
     }
 
-    // Merchant check
-    const domain = product.merchantDomain?.toLowerCase();
+    // Merchant check — NFKC normalize to prevent Unicode homoglyph bypass
+    const domain = product.merchantDomain?.normalize("NFKC").toLowerCase().replace(/[^\x20-\x7E]/g, "");
     if (domain && this.mandate.blockedMerchants?.length) {
-      if (this.mandate.blockedMerchants.some(m => m.toLowerCase() === domain)) {
+      if (this.mandate.blockedMerchants.some(m => m.normalize("NFKC").toLowerCase().replace(/[^\x20-\x7E]/g, "") === domain)) {
         return `Merchant "${product.merchant}" is blocked`;
       }
     }
     if (domain && this.mandate.allowedMerchants?.length) {
-      if (!this.mandate.allowedMerchants.some(m => m.toLowerCase() === domain)) {
+      if (!this.mandate.allowedMerchants.some(m => m.normalize("NFKC").toLowerCase().replace(/[^\x20-\x7E]/g, "") === domain)) {
         return `Merchant "${product.merchant}" not in allowed list`;
       }
     }

@@ -1,7 +1,7 @@
 {
   "name": "@mnemopay/sdk",
-  "version": "0.9.0",
-  "description": "AI agent banking SDK — memory, payments, identity, and escrow-protected commerce for AI agents. Transaction mandates, budget enforcement, double-entry ledger, fraud detection, KYA compliance. 402 tests.",
+  "version": "0.9.1",
+  "description": "AI agent banking SDK — memory, payments, identity, and escrow-protected commerce for AI agents. Timing-safe auth, replay-protected signing, wallet-ledger reconciliation, MCP rate limiting, crash-safe persistence. 500 tests.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

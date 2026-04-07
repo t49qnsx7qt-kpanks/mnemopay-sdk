@@ -29,8 +29,34 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { MnemoPay, MnemoPayLite, RateLimiter } from "../index.js";
+import { MnemoPay, MnemoPayLite, RateLimiter, constantTimeEqual } from "../index.js";
 import type { RequestContext } from "../fraud.js";
+
+// ─── Security: MCP-level rate limiter ────────────────────────────────────────
+// Separate from per-agent fraud rate limits — this guards the MCP server itself.
+
+const MCP_RATE_LIMIT = {
+  maxCallsPerMinute: 60,
+  maxCallsPerHour: 500,
+};
+
+class McpRateLimiter {
+  private timestamps: number[] = [];
+  check(): void {
+    const now = Date.now();
+    this.timestamps = this.timestamps.filter(t => now - t < 3_600_000);
+    const lastMinute = this.timestamps.filter(t => now - t < 60_000).length;
+    if (lastMinute >= MCP_RATE_LIMIT.maxCallsPerMinute) {
+      throw new Error("MCP rate limit exceeded: too many calls per minute");
+    }
+    if (this.timestamps.length >= MCP_RATE_LIMIT.maxCallsPerHour) {
+      throw new Error("MCP rate limit exceeded: too many calls per hour");
+    }
+    this.timestamps.push(now);
+  }
+}
+
+const mcpLimiter = new McpRateLimiter();
 
 type Agent = MnemoPayLite | MnemoPay;
 
@@ -83,7 +109,7 @@ const TOOLS = [
     inputSchema: {
       type: "object" as const,
       properties: {
-        content: { type: "string", description: "What to remember" },
+        content: { type: "string", description: "What to remember", maxLength: 100000 },
         importance: {
           type: "number",
           minimum: 0,
@@ -544,7 +570,7 @@ export async function startServer(): Promise<void> {
   const agent = createAgent();
 
   const server = new Server(
-    { name: "mnemopay", version: "0.9.0" },
+    { name: "mnemopay", version: "0.9.1" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
@@ -557,11 +583,33 @@ export async function startServer(): Promise<void> {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     try {
+      // Security: MCP-level rate limiting (prevents tool call flooding)
+      mcpLimiter.check();
+
+      // Security: API key auth when MNEMOPAY_API_KEY is set
+      // Uses constant-time comparison to prevent timing attacks
+      const requiredKey = process.env.MNEMOPAY_API_KEY;
+      if (requiredKey) {
+        const providedKey = (request as any).params?._apiKey || process.env.MNEMOPAY_CLIENT_KEY || "";
+        if (!constantTimeEqual(providedKey, requiredKey)) {
+          return {
+            content: [{ type: "text", text: "Error: Unauthorized — invalid API key" }],
+            isError: true,
+          };
+        }
+      }
+
       const result = await executeTool(agent, name, args ?? {});
       return { content: [{ type: "text", text: result }] };
     } catch (err: any) {
+      // Security: sanitize error messages — never leak internal state
+      const safeMessage = (err.message || "Unknown error")
+        .replace(/\/[^\s]+/g, "[path]")        // strip file paths
+        .replace(/[a-f0-9-]{36}/gi, "[id]")    // strip UUIDs
+        .replace(/\$[\d.]+/g, "[amount]")       // strip dollar amounts from errors
+        .slice(0, 200);                          // cap length
       return {
-        content: [{ type: "text", text: `Error: ${err.message}` }],
+        content: [{ type: "text", text: `Error: ${safeMessage}` }],
         isError: true,
       };
     }
@@ -901,7 +949,7 @@ export async function startServer(): Promise<void> {
     app.get("/api/tools", mcpAuth, (_req: any, res: any) => {
       res.json({
         tools: TOOLS.map(t => ({ name: t.name, description: t.description })),
-        version: "0.9.0",
+        version: "0.9.1",
       });
     });
 
@@ -1020,7 +1068,7 @@ export default function createSandboxServer(): Server {
   const agent = MnemoPay.quick("smithery-sandbox");
 
   const server = new Server(
-    { name: "mnemopay", version: "0.9.0" },
+    { name: "mnemopay", version: "0.9.1" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
