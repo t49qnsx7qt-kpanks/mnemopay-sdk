@@ -492,6 +492,24 @@ export class IdentityRegistry {
     }
   }
 
+  /**
+   * Garbage-collect expired and revoked tokens to prevent unbounded memory growth.
+   * Call periodically (e.g., every reconciliation cycle).
+   */
+  purgeExpiredTokens(): number {
+    const now = new Date();
+    let purged = 0;
+    for (const [id, token] of this.tokens) {
+      if (token.revoked || new Date(token.expiresAt) < now) {
+        this.tokens.delete(id);
+        const agentSet = this.agentTokens.get(token.agentId);
+        if (agentSet) agentSet.delete(id);
+        purged++;
+      }
+    }
+    return purged;
+  }
+
   // ── Serialization ────────────────────────────────────────────────────────
 
   serialize(): {

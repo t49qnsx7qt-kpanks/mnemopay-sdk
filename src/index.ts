@@ -16,6 +16,7 @@ import { type PaymentRail, MockRail } from "./rails/index.js";
 import { type StorageAdapter, JSONFileStorage } from "./storage/sqlite.js";
 import { Ledger, type LedgerEntry, type LedgerSummary, type AccountBalance, type Currency } from "./ledger.js";
 import { IdentityRegistry, constantTimeEqual, type AgentIdentity, type CapabilityToken, type Permission, type IdentityVerification, type KYARecord } from "./identity.js";
+import { AdaptiveEngine, type AdaptiveConfig, type AgentInsight, type BusinessMetrics, type AdaptationRecord } from "./adaptive.js";
 
 // ─── Browser-compatible EventEmitter ──────────────────────────────────────
 // Replaces Node's "events" module so MnemoPayLite runs in browsers too.
@@ -301,6 +302,8 @@ export class MnemoPayLite extends EventEmitter {
   private _settlingTxIds: Set<string> = new Set();
   /** Guard against concurrent double-refund on the same transaction */
   private _refundingTxIds: Set<string> = new Set();
+  /** Track whether process exit hooks have been registered (prevent listener leak) */
+  private _exitHooksRegistered = false;
   /** Guard against concurrent wallet mutations */
   private _walletLock: Promise<void> = Promise.resolve();
   /** Max wallet balance — prevents overflow/accumulation attacks */
@@ -319,6 +322,8 @@ export class MnemoPayLite extends EventEmitter {
   readonly ledger: Ledger;
   /** Agent identity registry — cryptographic identity, KYA compliance, capability tokens */
   readonly identity: IdentityRegistry;
+  /** Adaptive business intelligence — learns from operations, optimizes within secure bounds */
+  readonly adaptive: AdaptiveEngine;
 
   constructor(agentId: string, decay = 0.05, debug = false, recallConfig?: Partial<RecallEngineConfig>, fraudConfig?: Partial<FraudConfig>, paymentRail?: PaymentRail, requireCounterparty = false, storage?: StorageAdapter) {
     super();
@@ -331,6 +336,7 @@ export class MnemoPayLite extends EventEmitter {
     this.requireCounterparty = requireCounterparty;
     this.ledger = new Ledger();
     this.identity = new IdentityRegistry();
+    this.adaptive = new AdaptiveEngine();
 
     // Use provided storage adapter, or auto-detect persistence
     if (storage) {
@@ -368,7 +374,9 @@ export class MnemoPayLite extends EventEmitter {
 
       // Hook process exit signals to flush data before shutdown.
       // This prevents memory loss on restart, SIGTERM, or uncaught exceptions.
-      if (typeof process !== "undefined" && process.on) {
+      // Guard: only register once per instance to prevent listener leaks on repeated calls.
+      if (typeof process !== "undefined" && process.on && !this._exitHooksRegistered) {
+        this._exitHooksRegistered = true;
         const flush = () => { this._saveToDisk(); };
         process.on("beforeExit", flush);
         process.on("SIGINT", () => { flush(); process.exit(0); });
@@ -425,6 +433,20 @@ export class MnemoPayLite extends EventEmitter {
       }
 
       const raw = JSON.parse(rawText);
+      // Schema validation: reject obviously malformed persisted data
+      if (typeof raw !== "object" || raw === null) { this.log("Persisted data is not an object — ignoring"); return; }
+      if (raw.agentId !== undefined && raw.agentId !== this.agentId) {
+        this.log(`Persisted data agentId mismatch (${raw.agentId} vs ${this.agentId}) — ignoring`);
+        return;
+      }
+      if (raw.wallet !== undefined && (typeof raw.wallet !== "number" || !Number.isFinite(raw.wallet) || raw.wallet < 0 || raw.wallet > MnemoPayLite.MAX_WALLET_BALANCE)) {
+        this.log(`Persisted wallet value invalid ($${raw.wallet}) — resetting to 0`);
+        raw.wallet = 0;
+      }
+      if (raw.reputation !== undefined && (typeof raw.reputation !== "number" || raw.reputation < 0 || raw.reputation > 1)) {
+        this.log(`Persisted reputation invalid (${raw.reputation}) — resetting to 0.5`);
+        raw.reputation = 0.5;
+      }
       // Restore memories (with tags parsing for both stringified and array formats)
       if (raw.memories) {
         for (const m of raw.memories) {
@@ -609,14 +631,31 @@ export class MnemoPayLite extends EventEmitter {
     if (this.debugMode) console.log(`[mnemopay:${this.agentId}] ${msg}`);
   }
 
+  private _lastAuditHash = "0";
+
   private audit(action: string, details: Record<string, unknown>): void {
     const entry: AuditEntry = {
       id: randomUUID(),
       agentId: this.agentId,
       action,
-      details,
+      details: {
+        ...details,
+        _prevHash: this._lastAuditHash,
+      },
       createdAt: new Date(),
     };
+    // Hash chain: each entry includes a hash linking it to the previous entry.
+    // Tampering with any entry breaks the chain, making modification detectable.
+    try {
+      const { createHash } = require("crypto");
+      this._lastAuditHash = createHash("sha256")
+        .update(`${entry.id}:${entry.action}:${this._lastAuditHash}`)
+        .digest("hex")
+        .slice(0, 16);
+    } catch {
+      this._lastAuditHash = entry.id.slice(0, 16);
+    }
+    (entry.details as any)._hash = this._lastAuditHash;
     this.auditLog.push(entry);
     // Cap in-memory audit log to prevent unbounded growth
     if (this.auditLog.length > 1000) {
@@ -660,6 +699,7 @@ export class MnemoPayLite extends EventEmitter {
     this.audit("memory:stored", { id: mem.id, tags: safeTags, importance: mem.importance });
     this._saveToDisk();
     this.emit("memory:stored", { id: mem.id, importance: mem.importance });
+    this.adaptive.observe({ type: "memory_store", agentId: this.agentId, timestamp: Date.now() });
     this.log(`Stored memory: id=${mem.id} (importance: ${mem.importance.toFixed(2)}, tags: ${safeTags.join(",") || "none"})`);
     return mem.id;
   }
@@ -699,6 +739,7 @@ export class MnemoPayLite extends EventEmitter {
       m.accessCount++;
     }
     this.emit("memory:recalled", { count: results.length });
+    this.adaptive.observe({ type: "memory_recall", agentId: this.agentId, timestamp: Date.now() });
     this.log(`Recalled ${results.length} memories (strategy: ${this.recallEngine.strategy})`);
     return results;
   }
@@ -715,9 +756,12 @@ export class MnemoPayLite extends EventEmitter {
   }
 
   async reinforce(id: string, boost = 0.1): Promise<void> {
+    if (!id || typeof id !== "string") throw new Error("Memory ID is required");
+    if (typeof boost !== "number" || !Number.isFinite(boost)) throw new Error("Boost must be a finite number");
+    if (boost < -0.5 || boost > 0.5) throw new Error("Boost must be between -0.5 and 0.5");
     const mem = this.memories.get(id);
     if (!mem) throw new Error(`Memory ${id} not found`);
-    mem.importance = Math.min(mem.importance + boost, 1.0);
+    mem.importance = Math.min(Math.max(mem.importance + boost, 0), 1.0);
     mem.lastAccessed = new Date();
     this.audit("memory:reinforced", { id, boost, newImportance: mem.importance });
     this._saveToDisk();
@@ -810,6 +854,7 @@ export class MnemoPayLite extends EventEmitter {
       this.audit("fraud:blocked", { amount, reason, riskScore: risk.score, signals: risk.signals.map((s) => s.type) });
       this._saveToDisk();
       this.emit("fraud:blocked", { amount, risk });
+      this.adaptive.observe({ type: "fraud_block", agentId: this.agentId, amount, timestamp: Date.now() });
       throw new Error(risk.reason || `Charge blocked: risk score ${risk.score}`);
     }
     if (risk.flagged) {
@@ -846,6 +891,7 @@ export class MnemoPayLite extends EventEmitter {
     this.audit("payment:pending", { id: tx.id, amount, reason, riskScore: risk.score, rail: this.paymentRail.name, externalId: hold.externalId });
     this._saveToDisk();
     this.emit("payment:pending", { id: tx.id, amount, reason });
+    this.adaptive.observe({ type: "charge", agentId: this.agentId, amount, timestamp: Date.now() });
     this.log(`Charge created: $${amount.toFixed(2)} for "${reason}" (pending, risk: ${risk.score}, rail: ${this.paymentRail.name})`);
     return { ...tx };
   }
@@ -937,6 +983,7 @@ export class MnemoPayLite extends EventEmitter {
       });
       this._saveToDisk();
       this.emit("payment:completed", { id: tx.id, amount: fee.netAmount, fee: fee.feeAmount });
+      this.adaptive.observe({ type: "settle", agentId: this.agentId, amount: fee.netAmount, timestamp: Date.now() });
       this.log(
         `Settled $${tx.amount.toFixed(2)} (fee: $${fee.feeAmount.toFixed(2)}, net: $${fee.netAmount.toFixed(2)}) → ` +
         `wallet: $${this._wallet.toFixed(2)}, reputation: ${this._reputation.toFixed(2)}, reinforced: ${reinforced} memories`
@@ -993,6 +1040,7 @@ export class MnemoPayLite extends EventEmitter {
     this.audit("payment:refunded", { id: tx.id, amount: tx.amount, netRefunded: tx.netAmount ?? tx.amount });
     this._saveToDisk();
     this.emit("payment:refunded", { id: tx.id });
+    this.adaptive.observe({ type: "refund", agentId: this.agentId, amount: tx.amount, timestamp: Date.now() });
     this.log(`Refunded $${tx.amount.toFixed(2)} → reputation: ${this._reputation.toFixed(2)}`);
     return { ...tx };
     } finally {
@@ -1014,16 +1062,25 @@ export class MnemoPayLite extends EventEmitter {
     this.audit("payment:disputed", { id: tx.id, disputeId: d.id, reason });
     this._saveToDisk();
     this.emit("payment:disputed", { txId, disputeId: d.id, reason });
+    this.adaptive.observe({ type: "dispute", agentId: this.agentId, amount: tx.amount, timestamp: Date.now() });
     this.log(`Dispute filed for tx ${txId}: ${reason}`);
     return d;
   }
 
   async resolveDispute(disputeId: string, outcome: "refund" | "uphold"): Promise<Dispute> {
-    // Security: verify the dispute belongs to this agent (only agent's own disputes)
+    if (!disputeId || typeof disputeId !== "string") throw new Error("Dispute ID is required");
+    if (outcome !== "refund" && outcome !== "uphold") throw new Error("Outcome must be 'refund' or 'uphold'");
+    // Security: verify authorization BEFORE mutating dispute state
+    // Look up the dispute's transaction to check ownership first
+    const disputes = this.fraud.getDisputes?.() ?? [];
+    const pending = disputes.find((d: any) => d.id === disputeId);
+    if (pending) {
+      const tx = this.transactions.get(pending.txId);
+      if (tx && tx.agentId !== this.agentId) throw new Error("Unauthorized: cannot resolve another agent's dispute");
+    }
     const d = this.fraud.resolveDispute(disputeId, outcome);
     const tx = this.transactions.get(d.txId);
     if (!tx) throw new Error("Dispute references unknown transaction");
-    if (tx.agentId !== this.agentId) throw new Error("Unauthorized: cannot resolve another agent's dispute");
 
     if (outcome === "refund") {
       if (tx.status === "disputed") {
@@ -1080,10 +1137,14 @@ export class MnemoPayLite extends EventEmitter {
     const ledgerBalance = Math.round(acctBalance.balance * 100) / 100;
     const drift = Math.round((walletBefore - ledgerBalance) * 100) / 100;
 
+    // Garbage-collect expired tokens during reconciliation (natural maintenance cycle)
+    const purgedTokens = this.identity.purgeExpiredTokens();
+    if (purgedTokens > 0) this.log(`Purged ${purgedTokens} expired/revoked tokens`);
+
     if (drift !== 0) {
       this.log(`RECONCILIATION DRIFT: wallet=$${walletBefore}, ledger=$${ledgerBalance}, drift=$${drift}`);
       this._wallet = ledgerBalance;
-      this.audit("reconciliation:drift", { walletBefore, ledgerBalance, drift });
+      this.audit("reconciliation:drift", { walletBefore, ledgerBalance, drift, purgedTokens });
       this._saveToDisk();
       this.emit("reconciliation:drift", { walletBefore, ledgerBalance, drift });
       return { walletBefore, ledgerBalance, drift, corrected: true };
@@ -1164,7 +1225,7 @@ export class MnemoPayLite extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.9.1",
+      version: "0.9.2",
       capabilities: {
         memory: true,
         payments: true,
@@ -1183,6 +1244,21 @@ export class MnemoPayLite extends EventEmitter {
   // ── x402 Settlement ────────────────────────────────────────────────────
 
   configureX402(config: X402Config): void {
+    // SSRF protection: block internal network targets
+    try {
+      const url = new URL(config.facilitatorUrl);
+      const blocked = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254", "metadata.google.internal"];
+      if (blocked.some(h => url.hostname === h || url.hostname.endsWith(".internal") || url.hostname.endsWith(".local"))) {
+        throw new Error(`SSRF blocked: facilitator URL points to internal network (${url.hostname})`);
+      }
+      // Block private IP ranges
+      if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(url.hostname)) {
+        throw new Error(`SSRF blocked: facilitator URL points to private IP (${url.hostname})`);
+      }
+    } catch (e: any) {
+      if (e.message?.startsWith("SSRF")) throw e;
+      throw new Error(`Invalid facilitator URL: ${config.facilitatorUrl}`);
+    }
     this.x402 = config;
     this.log(`x402 configured: ${config.facilitatorUrl} (${config.token || "USDC"} on ${config.chain || "base"})`);
   }
@@ -1562,7 +1638,7 @@ export class MnemoPay extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.9.1",
+      version: "0.9.2",
       capabilities: {
         memory: true,
         payments: true,
@@ -1693,4 +1769,6 @@ export { MnemoPayNetwork } from "./network.js";
 export type { NetworkAgent, DealResult, NetworkStats, NetworkConfig } from "./network.js";
 export { CommerceEngine, MockCommerceProvider } from "./commerce.js";
 export type { ShoppingMandate, ProductResult, PurchaseOrder, CommerceProvider, SearchOptions, ApprovalCallback } from "./commerce.js";
+export { AdaptiveEngine, DEFAULT_ADAPTIVE_CONFIG } from "./adaptive.js";
+export type { AdaptiveConfig, AgentInsight, BusinessMetrics, AdaptationRecord, AdaptiveEvent, AdaptiveEventType } from "./adaptive.js";
 export { default as createSandboxServer } from "./mcp/server.js";
