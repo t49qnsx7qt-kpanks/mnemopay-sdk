@@ -1,0 +1,75 @@
+You are an expert in TypeScript, Node.js, MCP (Model Context Protocol), and AI agent financial infrastructure.
+
+Core Rules
+- This is a financial SDK — correctness > cleverness. Never approximate money.
+- All amounts are numbers (not strings). Use penny-precise arithmetic where needed.
+- Never break the public API surface (exports from src/index.ts).
+- Tests run with vitest. Run `npm test` before any PR.
+- Build with `npm run build` (tsc). Fix type errors before committing.
+
+Architecture
+- src/index.ts — Main SDK class (MnemoPay, MnemoPayLite, MnemoPayNetwork) + all type exports (~74KB)
+- src/fico.ts — Agent FICO credit scoring (300-850, 5 components)
+- src/behavioral.ts — Behavioral finance (prospect theory, hyperbolic discounting, cooling-off)
+- src/integrity.ts — Merkle tree memory integrity (SHA-256, tamper detection)
+- src/anomaly.ts — EWMA anomaly detection + BehaviorMonitor + CanarySystem
+- src/adaptive.ts — Adaptive engine (AIMD, anti-gaming, circuit breaker, PSI drift)
+- src/commerce.ts — CommerceEngine (autonomous shopping with mandates)
+- src/fraud.ts — Geo-enhanced fraud detection (country tracking, rapid-hop, currency mismatch)
+- src/fraud-ml.ts — ML fraud scoring
+- src/identity.ts — IdentityRegistry, AgentIdentity, CapabilityToken, KYA
+- src/ledger.ts — Double-entry ledger (always balances to zero)
+- src/network.ts — Multi-agent commerce network
+- src/client.ts — REST client for remote MnemoPay server
+- src/mcp/ — MCP server (12 tools, 2 prompts, SSE endpoint)
+- src/rails/ — Payment rails (Stripe, Paystack, Lightning, Mock)
+- src/recall/ — Recall engine (score, vector, hybrid strategies)
+- src/storage/ — Storage adapters (SQLite, in-memory)
+- src/middleware/ — OpenAI and Anthropic middleware
+- src/langgraph/ — LangGraph tool bindings
+- src/cli/ — CLI tools (setup, dashboard)
+
+Two Modes
+- MnemoPay.quick("id") → zero infra, in-memory (dev/testing)
+- MnemoPay.create({...}) → full config (production)
+
+Key Patterns
+- EventEmitter for lifecycle events (charge, settle, refund, fraud-alert, etc.)
+- All payment operations: charge → settle/refund (two-phase commit)
+- Agent FICO: payment history 35%, utilization 20%, age 15%, diversity 15%, fraud 15%
+- Fee tiers based on FICO: 1.0% (800+), 1.3% (740+), 1.5% (670+), 1.9% (580+), 2.5% (<580)
+- Merkle proofs for memory tamper detection
+- EWMA for streaming anomaly detection
+
+Testing
+- 672+ tests across 12 test files in tests/
+- Use vitest: `npm test` (run all), `npm run test:watch` (dev mode)
+- Test files mirror src/ structure: tests/index.test.ts, tests/fico.test.ts, etc.
+- Always test edge cases: zero amounts, negative values, overflow, concurrent access
+
+MCP Server
+- 12 tools: remember, recall, forget, reinforce, consolidate, charge, settle, refund, balance, profile, logs, history
+- 2 prompts: recall-and-decide, agent-status-report
+- Auth: Bearer token via MNEMOPAY_MCP_TOKEN
+- Entry: src/mcp/server.ts
+
+Dependencies
+- Runtime: @modelcontextprotocol/sdk, express
+- Peer (optional): openai, @anthropic-ai/sdk, @langchain/*, zod, stripe, better-sqlite3
+- Dev: typescript, vitest, @langchain/core
+
+Common Mistakes
+- Forgetting to call settle() after charge() — leaves transactions pending forever
+- Using string amounts instead of numbers
+- Not handling the HITL (human-in-the-loop) flag from FICO scoring
+- Ignoring fraud risk assessments on cross-border transactions
+- Breaking EventEmitter contracts (listeners expect specific event shapes)
+
+Deployment
+- npm: @mnemopay/sdk
+- PyPI: mnemopay (Python SDK, separate codebase)
+- MCP: Smithery registry
+- Landing: site/index.html
+- Fly.io: mnemopay-mcp.fly.dev
+
+Docs: https://github.com/mnemopay/mnemopay-sdk
