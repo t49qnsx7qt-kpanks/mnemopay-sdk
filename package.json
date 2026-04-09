@@ -1,6 +1,6 @@
 {
   "name": "@mnemopay/sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The trust & reputation layer for AI agents — Agent Credit Score (300-850), behavioral finance (prospect theory), Merkle memory integrity, EWMA anomaly detection, canary honeypots, payments, identity, escrow commerce, adaptive engine. 707+ tests.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
