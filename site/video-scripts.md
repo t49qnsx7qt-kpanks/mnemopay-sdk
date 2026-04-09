@@ -24,7 +24,7 @@ All videos use Jerry's Digital Twin. Each script maps to a specific generated im
 "One line of code. Your agent gets memory. A wallet. Identity. Fraud detection. A ledger that never drifts by a penny."
 
 [15-22s] CUT — hands typing, code running, green checkmarks
-"402 tests. Three payment rails. Backed by the same math accountants have used since 1494."
+"14 modules. Three payment rails. Backed by the same math accountants have used since 1494."
 
 [22-28s] CUT — back to doorway shot, looking at camera
 "MnemoPay. Give your agents real superpowers."
@@ -58,7 +58,7 @@ All videos use Jerry's Digital Twin. Each script maps to a specific generated im
 "Identity verification. Fraud detection with geo-enhanced risk scoring. Multi-agent commerce — one method call, both agents remember the deal. Three payment rails: Paystack for Africa, Stripe for global, Lightning for crypto."
 
 [42-52s] CUT — standing, direct to camera
-"402 tests. 5,000 transactions per second. Penny-precise math. We stress-tested it with a thousand random transactions — fee plus net equals gross every single time."
+"14 production modules. 5,000 transactions per second. Penny-precise math. We stress-tested it with a thousand random transactions — fee plus net equals gross every single time."
 
 [52-58s] CUT — walking toward camera, intense
 "The agent economy needs its own credit bureau. Memory IS the credit file. We're building the FICO score for AI agents."
@@ -136,7 +136,7 @@ All videos use Jerry's Digital Twin. Each script maps to a specific generated im
 "npm install @mnemopay/sdk. That's it. Five lines of code. Your agent has memory, a wallet, identity, fraud detection, and a double-entry ledger."
 
 [18-25s] CUT — split: street walk + terminal with green checkmarks
-"402 tests prove it works. 5,000 ops per second. We stress-tested a thousand random transactions. The ledger always balances."
+"14 production modules. Stress-tested. 5,000 ops per second. A thousand random transactions. The ledger always balances."
 
 [25-28s] CUT — stops, looks at camera
 "Stop building payment infrastructure. Start building your product."

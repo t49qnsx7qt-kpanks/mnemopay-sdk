@@ -613,7 +613,7 @@ describe("Competitive Simulation — Industry Trajectory", () => {
 
     // Full stack replication would take any competitor 12+ months
     expect(totalMonths).toBeGreaterThanOrEqual(12);
-    // 330 tests prove the implementation works
+    // 14 production modules prove the implementation works
     expect(totalTests).toBeGreaterThanOrEqual(300);
   });
 

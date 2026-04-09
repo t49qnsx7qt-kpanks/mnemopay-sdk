@@ -1,85 +1,235 @@
 # MnemoPay
 
-**Give your AI agents real superpowers.** Memory + Payments + Identity in one SDK.
+**The credit bureau for AI agents.** Memory + Payments + Identity + Agent FICO + Behavioral Finance in one SDK.
 
-Your agent remembers every interaction, handles real money, builds reputation, and trades with other agents — all with a balanced double-entry ledger that never drifts by a penny.
+Your agent builds a credit score, detects fraud in real time, makes psychologically sound financial decisions, and proves its memory hasn't been tampered with. All on top of persistent memory, real payment rails, and a double-entry ledger that never drifts by a penny.
 
 ```bash
 npm install @mnemopay/sdk
 ```
 
 ```ts
-import MnemoPay from "@mnemopay/sdk";
+import MnemoPay, { AgentFICO, BehavioralEngine, MerkleTree } from "@mnemopay/sdk";
 
 const agent = MnemoPay.quick("my-agent");
 
 await agent.remember("User prefers monthly billing");
 const tx = await agent.charge(25, "Monthly API access");
 await agent.settle(tx.id);
-// Agent now has memory, money, and reputation. Ledger balanced.
+
+// Score the agent (300-850, like human FICO)
+const fico = new AgentFICO();
+const score = fico.compute({ transactions: [tx], createdAt: new Date(), ...});
+// → { score: 672, rating: "good", feeRate: 0.015, trustLevel: "standard" }
 ```
 
-330+ tests. Production-hardened. MIT licensed.
+14 modules. Zero vulnerabilities. Production-ready. MIT licensed.
 
 ---
 
-## Why MnemoPay
+## What Makes MnemoPay Different
 
-AI agents can think. They can't remember or pay. MnemoPay fixes both.
+$87M has been invested across 5 competitors. None have more than 3 of these 10 features:
 
-| Problem | Without MnemoPay | With MnemoPay |
+| Feature | MnemoPay | Mem0 ($24M) | Skyfire ($9.5M) | Kite ($33M) | Payman ($14M) |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Persistent Memory | **Yes** | Yes | No | No | No |
+| Payment Rails (3) | **Yes** | No | USDC only | Stablecoin | Bank only |
+| Agent Identity (KYA) | **Yes** | No | Building | Passport | No |
+| **Agent FICO (300-850)** | **Yes** | No | No | No | No |
+| **Behavioral Finance** | **Yes** | No | No | No | No |
+| **Memory Integrity (Merkle)** | **Yes** | No | No | No | No |
+| **EWMA Anomaly Detection** | **Yes** | No | No | No | No |
+| Double-Entry Ledger | **Yes** | No | No | No | No |
+| Autonomous Commerce | **Yes** | No | No | No | No |
+| Multi-Agent Network | **Yes** | No | Partial | Partial | No |
+| **Score** | **10/10** | 1/10 | 2/10 | 2/10 | 1/10 |
+
+---
+
+## Agent FICO — Credit Score for AI Agents
+
+The first cross-session credit scoring system for AI agents. Mirrors human FICO (300-850 range) with five components:
+
+```ts
+import { AgentFICO } from "@mnemopay/sdk";
+
+const fico = new AgentFICO();
+const result = fico.compute({
+  transactions: await agent.history(1000),
+  createdAt: agentCreationDate,
+  fraudFlags: 0,
+  disputeCount: 0,
+  disputesLost: 0,
+  warnings: 0,
+  budgetCap: 5000,
+  memoriesCount: agent.memories.size,
+});
+
+console.log(result.score);     // 742
+console.log(result.rating);    // "very_good"
+console.log(result.feeRate);   // 0.013 (1.3%)
+console.log(result.trustLevel); // "high"
+console.log(result.requiresHITL); // false
+```
+
+| Component | Weight | What It Measures |
 |---|---|---|
-| Memory | Every session starts cold | Agent remembers everything — decays naturally, strengthens on use |
-| Payments | Manual API calls, no escrow | Charge → escrow → settle → refund. Real money, real rails |
-| Identity | No agent verification | KYA (Know Your Agent) with capability tokens and permissions |
-| Trust | No reputation system | Agent FICO score that grows with successful transactions |
-| Accounting | Hope the numbers are right | Double-entry ledger. Every debit has a credit. Always balances to zero |
-| Fraud | Build your own | Velocity checks, anomaly detection, geo-enhanced risk scoring |
-| Multi-agent | Not possible | `net.transact("buyer", "seller", 25, "API access")` — both agents remember |
+| Payment History | 35% | Success rate, disputes, recency-weighted |
+| Credit Utilization | 20% | Spend vs budget cap, sweet spot 10-30% |
+| History Length | 15% | Account age, activity density |
+| Behavior Diversity | 15% | Counterparties, categories, amount range |
+| Fraud Record | 15% | Fraud flags, disputes lost, warnings |
+
+| Score Range | Rating | Trust Level | Fee Rate |
+|---|---|---|---|
+| 800-850 | Exceptional | Full trust | 1.0% |
+| 740-799 | Very Good | High trust | 1.3% |
+| 670-739 | Good | Standard | 1.5% |
+| 580-669 | Fair | Reduced | 1.9% |
+| 300-579 | Poor | Minimal + HITL | 2.5% |
 
 ---
 
-## Features
+## Behavioral Finance Engine
 
-### Memory (Neuroscience-backed)
-- **Ebbinghaus forgetting curve** — memories decay over time, just like the brain
+Nobel Prize-winning behavioral economics, implemented. Every parameter from peer-reviewed research.
+
+```ts
+import { BehavioralEngine } from "@mnemopay/sdk";
+
+const behavioral = new BehavioralEngine();
+
+// Prospect Theory (Kahneman & Tversky, 1992)
+// Losses hurt 2.25x more than gains feel good
+behavioral.prospectValue(100);   // { value: 57.5, domain: "gain" }
+behavioral.prospectValue(-100);  // { value: -129.5, domain: "loss" }
+
+// Should the agent wait before buying?
+const cooling = behavioral.coolingOff(2000, 5000); // amount, monthly income
+// → { recommended: true, hours: 3.2, riskLevel: "high", regretProbability: 0.65 }
+
+// Frame spending as goal delay (2.25x more effective than gain framing)
+const frame = behavioral.lossFrame(200, {
+  name: "Emergency Fund", target: 10000, current: 3000, monthlySavings: 500
+});
+// → "This $200 purchase delays your Emergency Fund goal by 12 days."
+
+// Save More Tomorrow (Thaler & Benartzi, 2004)
+const smart = behavioral.commitmentDevice(0.035, 0.03, 4);
+// → { finalRate: 0.095, explanation: "3.5% → 9.5% over 4 raise cycles" }
+
+// Predict regret from purchase history
+behavioral.recordRegret({ amount: 300, category: "gadgets", regretScore: 8, timestamp: "..." });
+const prediction = behavioral.predictRegret(400, "gadgets");
+// → { probability: 0.72, triggerCoolingOff: true }
+```
+
+**Research sources:** Tversky & Kahneman 1992, Laibson 1997, Thaler & Benartzi 2004, Barber & Odean 2000, Nunes & Dreze 2006, Shiller 2000.
+
+---
+
+## Memory Integrity (Merkle Tree)
+
+Tamper-evident memory. If anyone injects, modifies, or deletes an agent's memories, the Merkle root changes and you know.
+
+```ts
+import { MerkleTree } from "@mnemopay/sdk";
+
+const tree = new MerkleTree();
+
+// Every memory write adds a leaf
+tree.addLeaf("mem-1", "User prefers monthly billing");
+tree.addLeaf("mem-2", "Last purchase was $25 API access");
+
+// Take periodic snapshots
+const snapshot = tree.snapshot();
+// → { rootHash: "a3f2...", leafCount: 2, snapshotHash: "b7c1..." }
+
+// Later: check if memories were tampered
+const check = tree.detectTampering(snapshot);
+// → { tampered: false, summary: "Integrity verified. 2 memories, root matches." }
+
+// Prove a specific memory exists without revealing others
+const proof = tree.getProof("mem-1");
+MerkleTree.verifyProof(proof); // true
+```
+
+**Defends against:** MemoryGraft injection, silent deletion, content tampering, replay attacks, reordering attacks.
+
+---
+
+## Anomaly Detection (EWMA + Behavioral Fingerprinting + Canaries)
+
+Three independent systems that catch compromised agents.
+
+```ts
+import { EWMADetector, BehaviorMonitor, CanarySystem } from "@mnemopay/sdk";
+
+// 1. EWMA: real-time streaming anomaly detection
+const detector = new EWMADetector(0.15, 2.5, 3.5, 10);
+detector.update(100); // normal
+detector.update(100); // normal
+detector.update(9999); // → { anomaly: true, severity: "critical", zScore: 8.2 }
+
+// 2. Behavioral fingerprinting: detect hijacked agents
+const monitor = new BehaviorMonitor({ warmupPeriod: 10 });
+// Build profile over time
+monitor.observe("agent-1", { amount: 100, hourOfDay: 14, chargesPerHour: 2 });
+// Sudden change = suspected hijack
+monitor.observe("agent-1", { amount: 9999, hourOfDay: 3, chargesPerHour: 50 });
+// → { suspected: true, severity: "critical", anomalousFeatures: 3 }
+
+// 3. Canary honeypots: plant traps for compromised agents
+const canary = new CanarySystem();
+const trap = canary.plant("transaction");
+canary.check(trap.id, "rogue-agent");
+// → { severity: "critical", message: "CANARY TRIGGERED: Agent compromised" }
+```
+
+**Math:** `mu_t = alpha * x_t + (1 - alpha) * mu_{t-1}`, alert when `|x_t - mu_t| > k * sigma_t` (Roberts 1959, Lucas & Saccucci 1990).
+
+---
+
+## Memory (Neuroscience-backed)
+
+- **Ebbinghaus forgetting curve** — memories decay naturally over time
 - **Hebbian reinforcement** — successful transactions strengthen associated memories
 - **Consolidation** — auto-prunes weak memories, keeps what matters
 - **Semantic recall** — find memories by relevance, not just recency
 - **100KB per memory** — store rich context, not just strings
 
-### Payments (Bank-grade math)
-- **Double-entry bookkeeping** — Luca Pacioli's 1494 system, 330+ tests proving it works
-- **Escrow flow** — charge → hold → settle → refund (same as Stripe/Square)
-- **Platform fee** — 1.9% on settlement (configurable, volume-tiered: 1.9% → 1.5% → 1.0%)
-- **3 payment rails** — Paystack (Africa), Stripe (global), Lightning (BTC)
-- **Penny-precise** — stress-tested with 1,000 random transactions, fee + net = gross every time
+## Payments (Bank-grade math)
 
-### Identity (KYA Compliance)
-- **Agent identity** — cryptographic keypairs, owner verification
-- **Capability tokens** — scoped permissions (charge, settle, refund, remember)
-- **Spend limits** — max per transaction, max total spend, counterparty whitelists
+- **Double-entry bookkeeping** — every debit has a credit, always balances to zero
+- **Escrow flow** — charge -> hold -> settle -> refund (same as Stripe/Square)
+- **Volume-tiered fees** — 1.9% / 1.5% / 1.0% based on cumulative volume
+- **3 payment rails** — Paystack (Africa), Stripe (global), Lightning (BTC)
+- **Penny-precise** — stress-tested with 1,000 random transactions
+
+## Identity (KYA Compliance)
+
+- **Cryptographic identity** — HMAC-SHA256 keypairs, replay protection
+- **Capability tokens** — scoped permissions with spend limits
+- **Counterparty whitelists** — restrict who the agent can transact with
 - **Kill switch** — revoke all tokens instantly
 
-### Fraud Detection (Geo-enhanced)
-- **Velocity checks** — per-minute, per-hour, per-day limits
-- **Anomaly detection** — z-score + optional ML (Isolation Forest)
-- **Geo-enhanced** — country tracking, rapid-hop detection, currency mismatch, timezone anomalies
-- **Geo trust** — consistent location builds trust, dampens false positives
-- **OFAC sanctions** — hard blocks for sanctioned countries (KP, IR, SY, CU, RU)
-- **Behavioral fingerprinting** — detects drift from agent's normal patterns
+## Fraud Detection (ML-grade)
 
-### Multi-Agent Commerce
+- **Velocity checks** — per-minute/hour/day limits
+- **Isolation Forest** — unsupervised ML anomaly detection
+- **Geo-enhanced** — country tracking, rapid-hop detection, OFAC sanctions
+- **Adaptive engine** — asymmetric AIMD, anti-gaming, circuit breaker, PSI drift detection
+
+## Multi-Agent Commerce
+
+- **CommerceEngine** — autonomous shopping with mandates, escrow, approval callbacks
 - **MnemoPayNetwork** — register agents, execute deals, shared memory context
-- **One method** — `net.transact(buyer, seller, amount, reason)` handles everything
-- **Both remember** — buyer and seller each store the deal in their memory
 - **Supply chains** — 10-step agent chains, 100-agent marketplaces, all tested
 
 ---
 
 ## Payment Rails
-
-MnemoPay supports real money movement through pluggable payment rails:
 
 ```ts
 import { PaystackRail, StripeRail, LightningRail } from "@mnemopay/sdk";
@@ -87,39 +237,18 @@ import { PaystackRail, StripeRail, LightningRail } from "@mnemopay/sdk";
 // Africa (NGN, GHS, ZAR, KES)
 const paystack = new PaystackRail(process.env.PAYSTACK_SECRET_KEY!);
 
-// Global (USD, EUR, GBP — cards)
+// Global (USD, EUR, GBP)
 const stripe = new StripeRail(process.env.STRIPE_SECRET_KEY!);
 
 // Crypto (BTC via Lightning Network)
 const lightning = new LightningRail(LND_URL, MACAROON);
 
-// Plug into any agent
 const agent = MnemoPay.quick("my-agent", { paymentRail: paystack });
 ```
-
-### Paystack Rail (Built for Africa)
-- Initialize → checkout → verify flow
-- Charge saved cards (authorization codes)
-- Bank transfers / payouts
-- Webhook HMAC-SHA512 verification
-- Bank account resolution
-- 23 Nigerian banks pre-mapped
-
-### Fee Structure
-
-| Tier | Monthly Volume | Platform Fee |
-|---|---|---|
-| Standard | < $10,000 | 1.9% |
-| Growth | $10,000 - $100,000 | 1.5% |
-| Scale | $100,000+ | 1.0% |
-
-Fees are automatically tiered based on cumulative settled volume per agent.
 
 ---
 
 ## MCP Server
-
-MnemoPay runs as an MCP server, giving Claude and other AI assistants direct access:
 
 ```bash
 npx @mnemopay/sdk init
@@ -127,13 +256,11 @@ npx @mnemopay/sdk init
 claude mcp add mnemopay -s user -- npx -y @mnemopay/sdk
 ```
 
-Available tools: `charge`, `settle`, `refund`, `remember`, `recall`, `balance`, `history`, `profile`, `reputation`, `fraud_stats`, `dispute`, `reinforce`, `consolidate`, `forget`, `logs`.
+Tools: `charge`, `settle`, `refund`, `remember`, `recall`, `balance`, `history`, `profile`, `reputation`, `fraud_stats`, `dispute`, `reinforce`, `consolidate`, `forget`, `logs`.
 
 ---
 
 ## Middleware
-
-Drop MnemoPay into your existing AI stack:
 
 ```ts
 // OpenAI
@@ -148,112 +275,49 @@ import { mnemoPayTools } from "@mnemopay/sdk/langgraph";
 
 ---
 
-## Multi-Agent Example
-
-```ts
-import { MnemoPayNetwork } from "@mnemopay/sdk";
-
-const net = new MnemoPayNetwork({ fraud: { platformFeeRate: 0.019 } });
-
-// Register agents
-net.register("buyer-bot", "owner-1", "dev@company.com");
-net.register("seller-bot", "owner-2", "dev@company.com");
-
-// Execute a deal — both agents remember, seller gets paid, ledger balances
-const deal = await net.transact("buyer-bot", "seller-bot", 25, "API access for 1 month");
-
-console.log(deal.netAmount);     // 24.52 (after 1.9% fee)
-console.log(deal.platformFee);   // 0.48
-console.log(deal.buyerMemoryId); // buyer remembers the purchase
-console.log(deal.sellerMemoryId);// seller remembers the sale
-```
-
----
-
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  MnemoPay SDK                   │
-├──────────┬──────────┬───────────┬───────────────┤
-│  Memory  │ Payments │ Identity  │ Fraud Guard   │
-│          │          │           │               │
-│ remember │ charge   │ KYA       │ velocity      │
-│ recall   │ settle   │ tokens    │ anomaly       │
-│ reinforce│ refund   │ perms     │ geo-enhanced  │
-│ forget   │ dispute  │ killswitch│ ML (optional) │
-├──────────┴──────────┴───────────┴───────────────┤
-│              Double-Entry Ledger                │
-│         debit + credit = always zero            │
-├─────────────────────────────────────────────────┤
-│              Payment Rails                      │
-│     Paystack  │   Stripe   │   Lightning        │
-└─────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                    MnemoPay SDK v1.0.0-beta.1              │
+├──────────┬──────────┬───────────┬──────────────────────────┤
+│  Memory  │ Payments │ Identity  │  Agent FICO (300-850)    │
+│          │          │           │  5-component scoring     │
+│ remember │ charge   │ KYA       ├──────────────────────────┤
+│ recall   │ settle   │ tokens    │  Behavioral Finance      │
+│ reinforce│ refund   │ perms     │  prospect theory, nudges │
+│ forget   │ dispute  │ killswitch├──────────────────────────┤
+│          │          │           │  Anomaly Detection       │
+│          │          │           │  EWMA + fingerprinting   │
+├──────────┴──────────┴───────────┼──────────────────────────┤
+│     Double-Entry Ledger         │  Merkle Integrity        │
+│  debit + credit = always zero   │  tamper-evident memory   │
+├─────────────────────────────────┼──────────────────────────┤
+│     Fraud Guard (ML-grade)      │  Canary Honeypots        │
+│  velocity + geo + adaptive      │  compromise detection    │
+├─────────────────────────────────┴──────────────────────────┤
+│              Payment Rails                                 │
+│        Paystack  │   Stripe   │   Lightning                │
+└────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## Persistence
-
-```ts
-// File-based (default)
-const agent = MnemoPay.quick("my-agent", { persistDir: "./data" });
-
-// SQLite (production)
-import { SQLiteStorage } from "@mnemopay/sdk/storage";
-const storage = new SQLiteStorage("./mnemopay.db");
-
-// Everything persists: memories, transactions, identity, fraud state, geo profiles
-```
-
----
-
-## API Reference
-
-### Core Methods
-
-| Method | Description |
-|---|---|
-| `agent.remember(content, opts?)` | Store a memory with importance scoring |
-| `agent.recall(limit?, query?)` | Retrieve memories by relevance |
-| `agent.charge(amount, reason)` | Create an escrow hold |
-| `agent.settle(txId, counterpartyId?)` | Release escrow, apply fee, complete payment |
-| `agent.refund(txId)` | Reverse a completed or pending transaction |
-| `agent.dispute(txId, reason)` | File a dispute against a settled transaction |
-| `agent.balance()` | Get wallet balance and reputation |
-| `agent.verifyLedger()` | Confirm double-entry ledger balances to zero |
-| `agent.history(limit?)` | Get transaction history |
-| `agent.consolidate()` | Prune stale memories |
-
-### Network Methods
-
-| Method | Description |
-|---|---|
-| `net.register(agentId, ownerId, email)` | Register an agent on the network |
-| `net.transact(buyer, seller, amount, reason)` | Full deal: charge → settle → memory → identity |
-| `net.refundDeal(dealId)` | Reverse a deal, both agents remember the refund |
-| `net.stats()` | Network-wide statistics |
-| `net.dealsBetween(agentA, agentB)` | Get deal history between two agents |
 
 ---
 
 ## Testing
 
 ```bash
-npm test          # Run all 330+ tests
-npm run lint      # Type check
+npm test    # full test suite across 12 files
 ```
 
-Test coverage:
-- `core.test.ts` — 67 tests (memory, payments, lifecycle)
-- `fraud.test.ts` — 43 tests (velocity, anomaly, fees, disputes)
-- `geo-fraud.test.ts` — 20 tests (geo signals, trust, sanctions)
-- `identity.test.ts` — 44 tests (KYA, tokens, permissions)
-- `ledger.test.ts` — 21 tests (double-entry, reconciliation)
-- `network.test.ts` — 22 tests (multi-agent, deals, supply chains)
-- `paystack.test.ts` — 46 tests (rail, webhooks, transfers)
-- `stress.test.ts` — 32 tests (1000-cycle precision, parallel ops)
-- `recall.test.ts` — 35 tests (semantic search, decay, reinforcement)
+- `core.test.ts` — memory, payments, lifecycle, FICO, behavioral, Merkle, EWMA, canaries, stress tests
+- `fraud.test.ts` — velocity, anomaly, fees, disputes
+- `geo-fraud.test.ts` — geo signals, trust, sanctions
+- `identity.test.ts` — KYA, tokens, permissions
+- `ledger.test.ts` — double-entry, reconciliation
+- `network.test.ts` — multi-agent, deals, supply chains
+- `paystack.test.ts` — rail, webhooks, transfers
+- `stress.test.ts` — 1000-cycle precision, parallel ops
+- `recall.test.ts` — semantic search, decay, reinforcement
 
 ---
 

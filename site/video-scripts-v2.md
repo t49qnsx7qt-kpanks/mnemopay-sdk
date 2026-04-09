@@ -22,7 +22,7 @@ It doesn't know. It never knew. Every session — completely blank. Like a banke
 
 **[Walks toward camera.]**
 
-We fixed that.
+We fixed that. Agent FICO. Merkle memory integrity. Behavioral fingerprinting. The whole stack.
 
 **[Cut to black. Text fades in:]**
 
@@ -34,48 +34,46 @@ npm install @mnemopay/sdk
 ## SCRIPT 2: "The Math" (60 sec)
 **Image:** ad-banking.png — penthouse, skyline sunset, double-breasted suit
 **Platforms:** LinkedIn, YouTube
-**Tone:** Calm authority. A founder explaining something he's deeply proud of.
+**Tone:** Calm authority. A founder explaining something he's deeply proud of. This is a talking head — deliver it like you're sitting across from a partner at Andreessen.
+**Production:** HeyGen Digital Twin, full 60 seconds. Background music: warm orchestral build (Suno track ready).
 
 **[SCENE: Standing at floor-to-ceiling windows. Golden hour. City below.]**
 
-In 1494, a Franciscan monk named Luca Pacioli published a book. It described a system where every debit has a credit. Every transaction balances. Every penny is accounted for.
+Eighty-seven million dollars.
 
-**[Turns from window. Walking slowly.]**
+**[Turns from window. Direct eye contact.]**
 
-Five hundred and thirty-two years later, we're building AI agents that can trade stocks, manage portfolios, close contracts worth millions—
+That's how much VCs have poured into agent infrastructure. Mem0 took twenty-four million. Kite raised thirty-three. Skyfire, Payman — millions more. And every single one of them built one, maybe two features.
 
-**[Stops.]**
+**[Walking slowly toward camera.]**
 
-—and not a single one of them uses Pacioli's system.
+Memory here. Payments there. Nobody connected them. Nobody asked the obvious question: if an agent handles money, shouldn't it remember who it's dealing with?
+
+**[Stops. Slight pause.]**
+
+So we built MnemoPay. Fourteen modules. Not layers — modules. Each one tested. Each one stress-tested. Agent FICO scores from three hundred to eight fifty, like a real credit bureau — the first one ever built for AI agents.
 
 **[Sits at desk. Leans forward.]**
 
-We built MnemoPay. Double-entry bookkeeping for AI agents. We stress-tested it with a thousand random transactions. Fee plus net equals gross. Every. Single. Time.
+We took Kahneman and Tversky's prospect theory — the same behavioral economics that won a Nobel Prize — and baked it into how agents evaluate risk. Loss aversion. Reference dependence. Diminishing sensitivity. Not rules we made up. Math that's been proven for forty years.
 
-**[Slight smile.]**
+**[Stands. Walking again.]**
 
-But that's just the ledger.
+Every memory is Merkle-hashed. SHA-256. Tamper-evident. You can't edit an agent's history without the chain breaking. EWMA anomaly detection catches drift before it becomes fraud. Canary honeypots catch agents that snoop where they shouldn't.
 
-**[Stands. Walks.]**
+**[Direct to camera. Closer now.]**
 
-We gave agents memory. Not a key-value store — actual cognitive memory. Backed by the same neuroscience that explains how your brain remembers your first kiss but forgets what you had for lunch.
+Three payment rails. Paystack for Africa. Stripe for everywhere else. Lightning for Bitcoin. Ten out of ten features versus the competition's one or two.
 
-**[Direct to camera.]**
+**[Beat. The slightest smile.]**
 
-Memory that decays when it should. Strengthens when it matters.
-
-**[Beat.]**
-
-Six companies have raised eighty-seven million dollars building pieces of this. Memory here. Payments there. None of them built both.
-
-**[Leans in slightly.]**
-
-We built all six layers. On zero funding.
+They raised eighty-seven million. We built all fourteen modules on zero.
 
 **[Cut to end card:]**
 
 MnemoPay — The agent banking platform.
-402 tests. Zero penny drift.
+14 modules. Zero penny drift.
+v1.0.0-beta.1 on npm
 getbizsuite.com/mnemopay
 
 ---
@@ -103,12 +101,13 @@ Every agent starts at zero. Every session. Every time. No history. No reputation
 
 **[Direct.]**
 
-That's a trillion-dollar problem disguised as a missing feature.
+We built Agent FICO. Three hundred to eight fifty. Behavioral fingerprinting. Merkle-backed memory. The first credit bureau for AI agents.
 
 **[Cut to black. Text:]**
 
-Agent FICO. Memory is the credit file.
-MnemoPay — npm install @mnemopay/sdk
+Agent FICO — Memory is the credit file.
+MnemoPay v1.0.0-beta.1
+npm install @mnemopay/sdk
 
 ---
 
@@ -133,9 +132,9 @@ npm install @mnemopay/sdk.
 
 **[Shows screen — code running, green checkmarks.]**
 
-Five lines. Memory. Wallet. Identity. Fraud detection. Double-entry ledger.
+Five lines. Memory. Wallet. Identity. Fraud detection. Double-entry ledger. Agent FICO scoring. Merkle integrity. Fourteen modules.
 
-Three hundred and seventy-eight tests say it works.
+Fourteen production modules say it works.
 
 **[Puts phone away. Shrugs.]**
 
@@ -171,7 +170,7 @@ Your AI agent doesn't know any of that. It just knows: charge, settle, refund.
 
 **[Slight smile.]**
 
-So we made it that simple. One API. Three rails. Twenty-three Nigerian banks pre-mapped. HMAC-SHA512 on every webhook.
+So we made it that simple. One API. Three rails. Twenty-three Nigerian banks pre-mapped. HMAC-SHA256 on every webhook.
 
 **[Looks out over mountains.]**
 
@@ -179,11 +178,11 @@ And if your agent flies from Lagos to London to New York in the same hour?
 
 **[Turns back to camera.]**
 
-Our geo-enhanced fraud system knows the difference between a traveling agent and a stolen one. Trust builds over time. Consistent behavior. Consistent location.
+EWMA anomaly detection and behavioral fingerprinting know the difference between a traveling agent and a compromised one. Canary honeypots catch the ones that snoop. Trust builds through consistent behavior — not a config flag.
 
 **[Direct.]**
 
-Real money. Real rails. Real math.
+Real money. Real rails. Real math. Fourteen production modules.
 
 **[End card:]**
 
@@ -200,15 +199,15 @@ getbizsuite.com/mnemopay
 
 **[SCENE: Dark background. Direct eye contact. Still.]**
 
-Six companies. Eighty-seven million dollars. None of them built all six layers.
+Six companies. Eighty-seven million dollars. Ten out of ten features. They built one or two.
 
 **[One step forward.]**
 
-We did. On zero.
+We built all fourteen. On zero.
 
 **[End card — 3 seconds:]**
 
-MnemoPay.
+MnemoPay v1.0.0-beta.1
 getbizsuite.com/mnemopay
 
 ---
@@ -223,14 +222,14 @@ getbizsuite.com/mnemopay
 
 **Music:**
 - Subtle dark ambient for "Amnesia" and "Credit Score"
-- Warm, building orchestral for "The Math"
+- Warm, building orchestral for "The Math" (Suno tracks ready)
 - Lo-fi beats for "Five Lines"
 - Cinematic world-music fusion for "The Map"
 - Dead silence + single bass note for "87 Million"
 
 **Editing:**
 - Cut on every beat/pause mark
-- Text overlays for key numbers (402 tests, $87M, 1494, zero)
+- Text overlays for key numbers ($87M, 14 modules, Agent FICO 300-850, zero)
 - Code snippets as B-roll on "Five Lines"
 - Split screen for comparisons
 - End cards: always show npm install command + URL
@@ -240,3 +239,15 @@ getbizsuite.com/mnemopay
 - 1080x1920 vertical for Reels/TikTok/Shorts
 - 1920x1080 horizontal for LinkedIn/YouTube
 - Always include captions baked in
+
+**Key stats for overlays:**
+- 14 production modules
+- 10/10 features
+- $87M+ competitor funding
+- Agent FICO 300-850
+- Behavioral Finance (Kahneman & Tversky)
+- Merkle Memory Integrity (SHA-256)
+- EWMA Anomaly Detection
+- Canary Honeypots
+- 3 payment rails
+- v1.0.0-beta.1

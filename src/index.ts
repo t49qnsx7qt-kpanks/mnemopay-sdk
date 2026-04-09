@@ -1225,7 +1225,7 @@ export class MnemoPayLite extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.9.3",
+      version: "1.0.0-beta.1",
       capabilities: {
         memory: true,
         payments: true,
@@ -1638,7 +1638,7 @@ export class MnemoPay extends EventEmitter {
       name: `MnemoPay Agent (${this.agentId})`,
       description: "AI agent with persistent cognitive memory and micropayment capabilities via MnemoPay protocol.",
       url,
-      version: "0.9.3",
+      version: "1.0.0-beta.1",
       capabilities: {
         memory: true,
         payments: true,
@@ -1771,4 +1771,12 @@ export { CommerceEngine, MockCommerceProvider } from "./commerce.js";
 export type { ShoppingMandate, ProductResult, PurchaseOrder, CommerceProvider, SearchOptions, ApprovalCallback } from "./commerce.js";
 export { AdaptiveEngine, DEFAULT_ADAPTIVE_CONFIG } from "./adaptive.js";
 export type { AdaptiveConfig, AgentInsight, BusinessMetrics, AdaptationRecord, AdaptiveEvent, AdaptiveEventType } from "./adaptive.js";
+export { AgentFICO, DEFAULT_FICO_CONFIG } from "./fico.js";
+export type { FICOInput, FICOResult, FICOComponent, FICOConfig, FICOTransaction } from "./fico.js";
+export { MerkleTree } from "./integrity.js";
+export type { MerkleLeaf, MerkleProof, IntegritySnapshot, TamperResult, IntegrityAuditEntry } from "./integrity.js";
+export { BehavioralEngine, DEFAULT_BEHAVIORAL_CONFIG } from "./behavioral.js";
+export type { BehavioralConfig, ProspectValue, CoolingOffResult, CommitmentResult, LossFrame, ReframedExpense, RegretEntry, RegretPrediction, OverconfidenceResult, AssetMetrics, HerdAlert, FinancialGoal, EndowedProgress, TradeEntry } from "./behavioral.js";
+export { EWMADetector, BehaviorMonitor, CanarySystem, DEFAULT_ANOMALY_CONFIG } from "./anomaly.js";
+export type { EWMAState, EWMAAlert, BehaviorFingerprint, HijackDetection, CanaryTransaction, CanaryAlert, AnomalyConfig } from "./anomaly.js";
 export { default as createSandboxServer } from "./mcp/server.js";

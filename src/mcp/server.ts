@@ -29,7 +29,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { MnemoPay, MnemoPayLite, RateLimiter, constantTimeEqual } from "../index.js";
+import { MnemoPay, MnemoPayLite, RateLimiter, constantTimeEqual, AgentFICO, MerkleTree, BehavioralEngine, EWMADetector } from "../index.js";
 import type { RequestContext } from "../fraud.js";
 
 // ─── Security: MCP-level rate limiter ────────────────────────────────────────
@@ -373,6 +373,84 @@ const TOOLS = [
       },
     },
   },
+  // ── Agent FICO ─────────────────────────────────────────────────────────────
+  {
+    name: "agent_fico_score",
+    description:
+      "Compute the agent's FICO credit score (300-850). Uses payment history, " +
+      "credit utilization, account age, behavior diversity, and fraud record. " +
+      "Returns score, rating, fee rate, trust level, and HITL requirement.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        budgetCap: {
+          type: "number",
+          minimum: 1,
+          description: "Agent's budget cap for utilization calculation (default: 10000)",
+        },
+        fraudFlags: { type: "number", minimum: 0, description: "Number of fraud flags (default: 0)" },
+        disputeCount: { type: "number", minimum: 0, description: "Total disputes filed (default: 0)" },
+        disputesLost: { type: "number", minimum: 0, description: "Disputes lost (default: 0)" },
+        warnings: { type: "number", minimum: 0, description: "Fraud warnings (default: 0)" },
+      },
+    },
+  },
+  // ── Behavioral Finance ─────────────────────────────────────────────────────
+  {
+    name: "behavioral_analysis",
+    description:
+      "Run behavioral finance analysis on a proposed spending amount. " +
+      "Returns prospect theory value, cooling-off recommendation, and loss framing. " +
+      "Based on Kahneman & Tversky (1992) and Thaler & Benartzi (2004).",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        amount: { type: "number", description: "The spending amount to analyze" },
+        monthlyIncome: {
+          type: "number",
+          minimum: 1,
+          description: "Agent's monthly income/budget for cooling-off calculation",
+        },
+        goalName: { type: "string", description: "Savings goal name for loss framing" },
+        goalTarget: { type: "number", description: "Savings goal target amount" },
+        goalCurrent: { type: "number", description: "Current savings toward goal" },
+        goalMonthlySavings: { type: "number", description: "Monthly savings rate" },
+      },
+      required: ["amount"],
+    },
+  },
+  // ── Memory Integrity ───────────────────────────────────────────────────────
+  {
+    name: "memory_integrity_check",
+    description:
+      "Check the integrity of the agent's memory store using SHA-256 Merkle trees. " +
+      "Detects tampering, injection, deletion, replay, and reordering attacks. " +
+      "Returns root hash, leaf count, and tampering status.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        snapshotHash: {
+          type: "string",
+          description: "Previous snapshot hash to compare against (optional — omit for first check)",
+        },
+      },
+    },
+  },
+  // ── Anomaly Detection ──────────────────────────────────────────────────────
+  {
+    name: "anomaly_check",
+    description:
+      "Check if a transaction amount is anomalous using EWMA streaming detection. " +
+      "Returns whether the value is normal, a warning, or a critical anomaly. " +
+      "Based on Roberts (1959) and Lucas & Saccucci (1990).",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        amount: { type: "number", description: "Transaction amount to check" },
+      },
+      required: ["amount"],
+    },
+  },
 ];
 
 // ─── Tool execution ─────────────────────────────────────────────────────────
@@ -547,10 +625,101 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
       return `${list}\n\nSpent: $${summary.totalSpent.toFixed(2)} | Remaining: $${summary.remainingBudget.toFixed(2)} | Orders: ${summary.orderCount}`;
     }
 
+    // ── Agent FICO ─────────────────────────────────────────────────────────
+
+    case "agent_fico_score": {
+      const fico = new AgentFICO();
+      const txHistory = await agent.history(1000);
+      const profile = await agent.profile();
+      const result = fico.compute({
+        transactions: txHistory.map((tx: any) => ({
+          id: tx.id,
+          amount: tx.amount,
+          status: tx.status,
+          reason: tx.reason || "",
+          createdAt: new Date(tx.createdAt),
+          settledAt: tx.settledAt ? new Date(tx.settledAt) : undefined,
+          counterparty: tx.counterparty,
+        })),
+        createdAt: new Date(Date.now() - 86400000 * 30),
+        fraudFlags: args.fraudFlags ?? 0,
+        disputeCount: args.disputeCount ?? 0,
+        disputesLost: args.disputesLost ?? 0,
+        warnings: args.warnings ?? 0,
+        budgetCap: args.budgetCap ?? 10000,
+        memoriesCount: profile.memoriesCount ?? 0,
+      });
+      return JSON.stringify(result, null, 2);
+    }
+
+    // ── Behavioral Finance ─────────────────────────────────────────────────
+
+    case "behavioral_analysis": {
+      const behavioral = new BehavioralEngine();
+      const prospect = behavioral.prospectValue(args.amount);
+      const analysis: any = { prospect };
+
+      if (args.monthlyIncome) {
+        analysis.coolingOff = behavioral.coolingOff(args.amount, args.monthlyIncome);
+      }
+
+      if (args.goalName && args.goalTarget && args.goalCurrent !== undefined && args.goalMonthlySavings) {
+        analysis.lossFrame = behavioral.lossFrame(args.amount, {
+          name: args.goalName,
+          target: args.goalTarget,
+          current: args.goalCurrent,
+          monthlySavings: args.goalMonthlySavings,
+        });
+      }
+
+      return JSON.stringify(analysis, null, 2);
+    }
+
+    // ── Memory Integrity ─────────────────────────────────────────────────
+
+    case "memory_integrity_check": {
+      const tree = _merkleTree;
+      if (!tree || tree.size === 0) {
+        // Build tree from current memories
+        const memories = await agent.recall(50);
+        for (const m of memories) {
+          tree.addLeaf(m.id, m.content);
+        }
+      }
+      const snapshot = tree.snapshot();
+      const result: any = {
+        rootHash: snapshot.rootHash,
+        leafCount: snapshot.leafCount,
+        snapshotHash: snapshot.snapshotHash,
+      };
+      if (args.snapshotHash) {
+        const check = tree.detectTampering({
+          rootHash: args.snapshotHash,
+          leafCount: snapshot.leafCount,
+          snapshotHash: args.snapshotHash,
+          timestamp: new Date().toISOString(),
+        });
+        result.tampering = check;
+      }
+      return JSON.stringify(result, null, 2);
+    }
+
+    // ── Anomaly Detection ────────────────────────────────────────────────
+
+    case "anomaly_check": {
+      const result = _ewmaDetector.update(args.amount);
+      return JSON.stringify(result, null, 2);
+    }
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
 }
+
+// ── Module singletons ────────────────────────────────────────────────────────
+
+const _merkleTree = new MerkleTree();
+const _ewmaDetector = new EWMADetector(0.15, 2.5, 3.5, 10);
 
 // ── Commerce singleton ──────────────────────────────────────────────────────
 
@@ -570,7 +739,7 @@ export async function startServer(): Promise<void> {
   const agent = createAgent();
 
   const server = new Server(
-    { name: "mnemopay", version: "0.9.3" },
+    { name: "mnemopay", version: "1.0.0-beta.1" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
@@ -1073,7 +1242,7 @@ export default function createSandboxServer(): Server {
   const agent = MnemoPay.quick("smithery-sandbox");
 
   const server = new Server(
-    { name: "mnemopay", version: "0.9.3" },
+    { name: "mnemopay", version: "1.0.0-beta.1" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 

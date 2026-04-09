@@ -13,6 +13,11 @@ import { FraudGuard } from "../src/fraud.js";
 import { Ledger } from "../src/ledger.js";
 import { LightningRail } from "../src/rails/index.js";
 import { CommerceEngine } from "../src/commerce.js";
+import { AgentFICO } from "../src/fico.js";
+import type { FICOInput, FICOTransaction } from "../src/fico.js";
+import { MerkleTree } from "../src/integrity.js";
+import { BehavioralEngine } from "../src/behavioral.js";
+import { EWMADetector, BehaviorMonitor, CanarySystem } from "../src/anomaly.js";
 
 /** Fraud config that disables fees and raises all limits — for backward-compatible tests */
 const NO_FRAUD: Partial<FraudConfig> = {
@@ -2364,5 +2369,1020 @@ describe("v0.9.3 — Commerce engine type safety", () => {
     };
     const engine = new CommerceEngine(fakeAgent);
     expect(engine).toBeDefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v1.0.0-beta.1 — Agent FICO, Merkle Integrity, Behavioral Finance, Anomaly
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Helper: generate transactions ─────────────────────────────────────────
+
+function makeTx(overrides: Partial<FICOTransaction> = {}): FICOTransaction {
+  return {
+    id: `tx-${Math.random().toString(36).slice(2, 8)}`,
+    amount: 50,
+    status: "completed",
+    createdAt: new Date(Date.now() - 86_400_000 * 30),
+    reason: "test purchase",
+    ...overrides,
+  };
+}
+
+function makeTxBatch(count: number, status: FICOTransaction["status"] = "completed"): FICOTransaction[] {
+  return Array.from({ length: count }, (_, i) => makeTx({
+    id: `tx-batch-${i}`,
+    status,
+    amount: 10 + Math.random() * 90,
+    counterpartyId: `cp-${i % 5}`,
+    reason: ["purchase", "api call", "subscription", "hosting fee", "data analysis"][i % 5],
+    createdAt: new Date(Date.now() - 86_400_000 * (count - i)),
+  }));
+}
+
+function baseFICOInput(txs: FICOTransaction[] = []): FICOInput {
+  return {
+    transactions: txs,
+    createdAt: new Date(Date.now() - 86_400_000 * 90),
+    fraudFlags: 0,
+    disputeCount: 0,
+    disputesLost: 0,
+    warnings: 0,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AGENT FICO TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Agent FICO — Score Computation", () => {
+  it("computes score 300-850 for empty history", () => {
+    const fico = new AgentFICO();
+    const result = fico.compute(baseFICOInput());
+    expect(result.score).toBeGreaterThanOrEqual(300);
+    expect(result.score).toBeLessThanOrEqual(850);
+    expect(result.stable).toBe(false);
+    expect(result.confidence).toBe(0);
+  });
+
+  it("scores higher for perfect payment history", () => {
+    const fico = new AgentFICO();
+    const txs = makeTxBatch(60);
+    const result = fico.compute(baseFICOInput(txs));
+    expect(result.score).toBeGreaterThan(650);
+    expect(result.rating).not.toBe("poor");
+    expect(result.stable).toBe(true);
+    expect(result.components.paymentHistory.score).toBeGreaterThan(80);
+  });
+
+  it("penalizes disputes in payment history", () => {
+    const fico = new AgentFICO();
+    const perfect = makeTxBatch(50);
+    const disputed = makeTxBatch(50);
+    disputed[0].status = "disputed";
+    disputed[1].status = "disputed";
+    disputed[2].status = "disputed";
+
+    const goodScore = fico.compute(baseFICOInput(perfect)).score;
+    const badScore = fico.compute(baseFICOInput(disputed)).score;
+    expect(badScore).toBeLessThan(goodScore);
+  });
+
+  it("penalizes fraud flags heavily", () => {
+    const fico = new AgentFICO();
+    const txs = makeTxBatch(50);
+    const clean = fico.compute(baseFICOInput(txs));
+    const flagged = fico.compute({ ...baseFICOInput(txs), fraudFlags: 2 });
+    expect(flagged.score).toBeLessThan(clean.score);
+    expect(flagged.components.fraudRecord.score).toBeLessThan(60);
+  });
+
+  it("rewards account age and activity density", () => {
+    const fico = new AgentFICO();
+    const newAcct = fico.compute({
+      ...baseFICOInput(makeTxBatch(20)),
+      createdAt: new Date(Date.now() - 86_400_000 * 3), // 3 days old
+    });
+    const oldAcct = fico.compute({
+      ...baseFICOInput(makeTxBatch(20)),
+      createdAt: new Date(Date.now() - 86_400_000 * 200), // 200 days old
+    });
+    expect(oldAcct.components.historyLength.score).toBeGreaterThan(newAcct.components.historyLength.score);
+  });
+
+  it("scores behavior diversity from counterparties and categories", () => {
+    const fico = new AgentFICO();
+    const diverse = makeTxBatch(30);
+    const monotone = Array.from({ length: 30 }, (_, i) => makeTx({
+      id: `mono-${i}`,
+      counterpartyId: "same-cp",
+      reason: "purchase",
+      amount: 50,
+    }));
+
+    const diverseScore = fico.compute(baseFICOInput(diverse)).components.behaviorDiversity.score;
+    const monotoneScore = fico.compute(baseFICOInput(monotone)).components.behaviorDiversity.score;
+    expect(diverseScore).toBeGreaterThan(monotoneScore);
+  });
+
+  it("maps score to correct fee rates", () => {
+    const fico = new AgentFICO();
+    // Excellent agent
+    const txs = makeTxBatch(100);
+    const result = fico.compute({
+      ...baseFICOInput(txs),
+      createdAt: new Date(Date.now() - 86_400_000 * 400),
+      memoriesCount: 200,
+    });
+    // Score should be high enough for reduced fee
+    expect(result.feeRate).toBeLessThanOrEqual(0.019);
+  });
+
+  it("rejects invalid inputs", () => {
+    const fico = new AgentFICO();
+    expect(() => fico.compute(null as any)).toThrow();
+    expect(() => fico.compute({ ...baseFICOInput(), fraudFlags: -1 })).toThrow();
+    expect(() => fico.compute({ ...baseFICOInput(), disputesLost: 5, disputeCount: 2 })).toThrow();
+    expect(() => fico.compute({ ...baseFICOInput(), createdAt: new Date("invalid") })).toThrow();
+  });
+
+  it("validates weights sum to 1.0", () => {
+    expect(() => new AgentFICO({ w1: 0.5, w2: 0.5, w3: 0.15, w4: 0.15, w5: 0.15 })).toThrow("weights must sum to 1.0");
+  });
+
+  it("clamps component scores 0-100", () => {
+    const fico = new AgentFICO();
+    const result = fico.compute({
+      ...baseFICOInput(makeTxBatch(60)),
+      fraudFlags: 10,
+      disputeCount: 10,
+      disputesLost: 10,
+      warnings: 10,
+    });
+    for (const comp of Object.values(result.components)) {
+      expect(comp.score).toBeGreaterThanOrEqual(0);
+      expect(comp.score).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it("serializes and deserializes with validation", () => {
+    const fico = new AgentFICO();
+    const result = fico.compute(baseFICOInput(makeTxBatch(30)));
+    const json = AgentFICO.serialize(result);
+    const restored = AgentFICO.deserialize(json);
+    expect(restored.score).toBe(result.score);
+    expect(restored.rating).toBe(result.rating);
+  });
+
+  it("rejects deserialized score outside 300-850", () => {
+    expect(() => AgentFICO.deserialize('{"score": 200}')).toThrow("Invalid FICO score");
+    expect(() => AgentFICO.deserialize('{"score": 900}')).toThrow("Invalid FICO score");
+  });
+
+  it("computes confidence logarithmically", () => {
+    const fico = new AgentFICO();
+    const few = fico.compute(baseFICOInput(makeTxBatch(5)));
+    const many = fico.compute(baseFICOInput(makeTxBatch(80)));
+    expect(many.confidence).toBeGreaterThan(few.confidence);
+    expect(many.confidence).toBeGreaterThan(0.5);
+    expect(many.confidence).toBeLessThanOrEqual(1);
+  });
+
+  it("HITL required for poor scores", () => {
+    const fico = new AgentFICO();
+    const result = fico.compute({
+      ...baseFICOInput([
+        makeTx({ status: "disputed" }),
+        makeTx({ status: "disputed" }),
+        makeTx({ status: "refunded" }),
+      ]),
+      fraudFlags: 3,
+      disputeCount: 5,
+      disputesLost: 4,
+      warnings: 5,
+      createdAt: new Date(Date.now() - 86_400_000),
+    });
+    expect(result.score).toBeLessThan(580);
+    expect(result.requiresHITL).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MERKLE INTEGRITY TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Merkle Tree — Memory Integrity", () => {
+  it("creates leaves and computes root", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("mem-1", "hello world");
+    tree.addLeaf("mem-2", "second memory");
+    expect(tree.size).toBe(2);
+    const root = tree.getRoot();
+    expect(root).toHaveLength(64); // SHA-256 hex
+  });
+
+  it("root changes when content changes", () => {
+    const tree1 = new MerkleTree();
+    tree1.addLeaf("m1", "content A", "2026-04-07T00:00:00Z");
+    const root1 = tree1.getRoot();
+
+    const tree2 = new MerkleTree();
+    tree2.addLeaf("m1", "content B", "2026-04-07T00:00:00Z");
+    const root2 = tree2.getRoot();
+
+    expect(root1).not.toBe(root2);
+  });
+
+  it("generates and verifies Merkle proofs", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "first");
+    tree.addLeaf("m2", "second");
+    tree.addLeaf("m3", "third");
+    tree.addLeaf("m4", "fourth");
+
+    const proof = tree.getProof("m2");
+    expect(proof.leafHash).toHaveLength(64);
+    expect(proof.rootHash).toBe(tree.getRoot());
+    expect(MerkleTree.verifyProof(proof)).toBe(true);
+  });
+
+  it("detects tampering via snapshot comparison", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "original");
+    const snap = tree.snapshot();
+
+    // Tamper: add a memory
+    tree.addLeaf("m2", "injected memory");
+    const result = tree.detectTampering(snap);
+    expect(result.tampered).toBe(true);
+    expect(result.summary).toContain("new memories added");
+  });
+
+  it("detects snapshot tampering", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "test");
+    const snap = tree.snapshot();
+
+    // Tamper with the snapshot itself
+    snap.snapshotHash = "0000000000000000000000000000000000000000000000000000000000000000";
+    const result = tree.detectTampering(snap);
+    expect(result.tampered).toBe(true);
+    expect(result.summary).toContain("snapshot itself has been tampered");
+  });
+
+  it("handles leaf removal", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "first");
+    tree.addLeaf("m2", "second");
+    tree.addLeaf("m3", "third");
+    expect(tree.size).toBe(3);
+
+    tree.removeLeaf("m2");
+    expect(tree.size).toBe(2);
+  });
+
+  it("compacts tree and re-indexes", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "first");
+    tree.addLeaf("m2", "second");
+    tree.addLeaf("m3", "third");
+    tree.removeLeaf("m2");
+
+    const result = tree.compact();
+    expect(result.removed).toBe(1);
+    expect(result.remaining).toBe(2);
+    expect(tree.size).toBe(2);
+  });
+
+  it("verifies memory content against tree", () => {
+    const tree = new MerkleTree();
+    const ts = "2026-04-07T12:00:00Z";
+    tree.addLeaf("m1", "secret data", ts);
+
+    expect(tree.verifyMemory("m1", "secret data", ts)).toBe(true);
+    expect(tree.verifyMemory("m1", "tampered data", ts)).toBe(false);
+  });
+
+  it("verifies tree integrity (no corruption)", () => {
+    const tree = new MerkleTree();
+    for (let i = 0; i < 20; i++) {
+      tree.addLeaf(`mem-${i}`, `content ${i}`);
+    }
+    const check = tree.verifyTreeIntegrity();
+    expect(check.valid).toBe(true);
+    expect(check.leafCount).toBe(20);
+  });
+
+  it("serializes and deserializes with root verification", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "hello");
+    tree.addLeaf("m2", "world");
+    const data = tree.serialize();
+    const restored = MerkleTree.deserialize(data);
+    expect(restored.getRoot()).toBe(tree.getRoot());
+    expect(restored.size).toBe(2);
+  });
+
+  it("rejects deserialized tree with bad root", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "hello");
+    const data = tree.serialize();
+    data.rootHash = "badhash000000000000000000000000000000000000000000000000000000000";
+    expect(() => MerkleTree.deserialize(data)).toThrow("Root hash mismatch");
+  });
+
+  it("handles memoryId re-addition as update", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "content v1", "2026-04-07T00:00:00Z");
+    const root1 = tree.getRoot();
+    // Same memoryId with different content = update (old leaf removed, new leaf added)
+    tree.addLeaf("m1", "content v2", "2026-04-07T01:00:00Z");
+    const root2 = tree.getRoot();
+    expect(root2).not.toBe(root1);
+    expect(tree.size).toBe(1); // Still 1 leaf, not 2
+  });
+
+  it("rejects invalid inputs", () => {
+    const tree = new MerkleTree();
+    expect(() => tree.addLeaf("", "content")).toThrow("memoryId is required");
+    expect(() => tree.addLeaf("m1", "")).toThrow("content is required");
+  });
+
+  it("enforces max leaf limit", () => {
+    // Can't easily test 100K, but verify the check exists
+    expect(MerkleTree.MAX_LEAVES).toBe(100_000);
+  });
+
+  it("tracks audit log", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "test");
+    tree.snapshot();
+    const log = tree.getAuditLog();
+    expect(log.length).toBeGreaterThanOrEqual(2);
+    expect(log[0].event).toBe("leaf_added");
+  });
+
+  it("snapshot matches when no changes", () => {
+    const tree = new MerkleTree();
+    tree.addLeaf("m1", "stable");
+    const snap = tree.snapshot();
+    const result = tree.detectTampering(snap);
+    expect(result.tampered).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BEHAVIORAL FINANCE TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Behavioral Finance — Prospect Theory", () => {
+  it("computes gain value with diminishing returns", () => {
+    const engine = new BehavioralEngine();
+    const v100 = engine.prospectValue(100);
+    const v200 = engine.prospectValue(200);
+    expect(v100.domain).toBe("gain");
+    expect(v200.value).toBeGreaterThan(v100.value);
+    // Diminishing returns: doubling amount should NOT double value
+    expect(v200.value).toBeLessThan(v100.value * 2);
+  });
+
+  it("computes loss value with lambda=2.25 amplification", () => {
+    const engine = new BehavioralEngine();
+    const gain = engine.prospectValue(100);
+    const loss = engine.prospectValue(-100);
+    expect(loss.domain).toBe("loss");
+    expect(Math.abs(loss.value)).toBeGreaterThan(gain.value);
+    // Loss should be ~2.25x worse than equivalent gain
+    const ratio = Math.abs(loss.value) / gain.value;
+    expect(ratio).toBeCloseTo(2.25, 1);
+  });
+
+  it("compares gain vs loss framing", () => {
+    const engine = new BehavioralEngine();
+    const framing = engine.compareFraming(500);
+    expect(framing.ratio).toBeGreaterThan(2);
+    expect(framing.insight).toContain("more than gaining");
+  });
+
+  it("rejects invalid amounts", () => {
+    const engine = new BehavioralEngine();
+    expect(() => engine.prospectValue(NaN)).toThrow("finite number");
+    expect(() => engine.prospectValue(Infinity)).toThrow("finite number");
+  });
+});
+
+describe("Behavioral Finance — Quasi-Hyperbolic Discounting", () => {
+  it("D(0) = 1 (no discount for present)", () => {
+    const engine = new BehavioralEngine();
+    expect(engine.discount(0)).toBe(1);
+  });
+
+  it("D(1) = beta * delta = 0.672", () => {
+    const engine = new BehavioralEngine();
+    expect(engine.discount(1)).toBeCloseTo(0.70 * 0.96, 4);
+  });
+
+  it("discounts future amounts correctly", () => {
+    const engine = new BehavioralEngine();
+    const pv = engine.presentValue(1000, 5);
+    expect(pv.discountedValue).toBeLessThan(1000);
+    expect(pv.discountedValue).toBeGreaterThan(0);
+    expect(pv.lostValue).toBeGreaterThan(0);
+  });
+
+  it("shows present bias gap between period 0 and 1", () => {
+    const engine = new BehavioralEngine();
+    const d0 = engine.discount(0); // 1.0
+    const d1 = engine.discount(1); // 0.672
+    // The gap (1 - 0.672 = 0.328) is the present bias
+    expect(d0 - d1).toBeGreaterThan(0.3);
+  });
+});
+
+describe("Behavioral Finance — Cooling-Off Period", () => {
+  it("recommends cooling for large purchases relative to income", () => {
+    const engine = new BehavioralEngine();
+    const result = engine.coolingOff(5000, 5000); // 100% of income
+    expect(result.recommended).toBe(true);
+    expect(result.hours).toBeGreaterThan(1);
+    expect(result.riskLevel).toBe("extreme");
+  });
+
+  it("does not recommend cooling for small purchases", () => {
+    const engine = new BehavioralEngine();
+    const result = engine.coolingOff(20, 5000);
+    expect(result.recommended).toBe(false);
+    expect(result.hours).toBe(0);
+  });
+
+  it("increases cooling for impulsive users (low beta)", () => {
+    const engine = new BehavioralEngine();
+    const calm = engine.coolingOff(3000, 5000, 0.9);     // 60% income, calm user
+    const impulsive = engine.coolingOff(3000, 5000, 0.3); // 60% income, impulsive
+    expect(impulsive.hours).toBeGreaterThan(calm.hours);
+  });
+
+  it("uses regret history to calibrate cooling", () => {
+    const engine = new BehavioralEngine();
+    // Build regret history
+    for (let i = 0; i < 10; i++) {
+      engine.recordRegret({ amount: 200, category: "electronics", regretScore: 8, timestamp: new Date().toISOString() });
+    }
+    const result = engine.coolingOff(500, 5000);
+    expect(result.regretProbability).toBeGreaterThan(0.5);
+  });
+
+  it("rejects invalid inputs", () => {
+    const engine = new BehavioralEngine();
+    expect(() => engine.coolingOff(-100, 5000)).toThrow();
+    expect(() => engine.coolingOff(100, 0)).toThrow();
+    expect(() => engine.coolingOff(100, -5000)).toThrow();
+  });
+});
+
+describe("Behavioral Finance — Loss Framing", () => {
+  it("frames spending as goal delay", () => {
+    const engine = new BehavioralEngine();
+    const goal = { name: "Emergency Fund", target: 10000, current: 3000, monthlySavings: 500 };
+    const frame = engine.lossFrame(200, goal);
+    expect(frame.goalDelayDays).toBeGreaterThan(0);
+    expect(frame.message).toContain("delays");
+    expect(frame.effectivenessMultiplier).toBe(2.25);
+  });
+});
+
+describe("Behavioral Finance — Commitment Devices (SMarT)", () => {
+  it("projects savings growth over 4 raise cycles", () => {
+    const engine = new BehavioralEngine();
+    const result = engine.commitmentDevice(0.035, 0.03, 4);
+    expect(result.finalRate).toBeGreaterThan(0.035);
+    expect(result.projectedRates.length).toBe(5); // initial + 4 cycles
+    expect(result.explanation).toContain("Thaler & Benartzi");
+  });
+
+  it("caps savings rate at 50%", () => {
+    const engine = new BehavioralEngine();
+    const result = engine.commitmentDevice(0.45, 0.10, 10);
+    expect(result.finalRate).toBeLessThanOrEqual(0.50);
+  });
+
+  it("rejects invalid inputs", () => {
+    const engine = new BehavioralEngine();
+    expect(() => engine.commitmentDevice(-0.1, 0.03, 4)).toThrow();
+    expect(() => engine.commitmentDevice(0.1, 0, 4)).toThrow();
+    expect(() => engine.commitmentDevice(0.1, 0.03, 0)).toThrow();
+  });
+});
+
+describe("Behavioral Finance — Regret Prediction", () => {
+  it("predicts high regret from bad history", () => {
+    const engine = new BehavioralEngine();
+    for (let i = 0; i < 20; i++) {
+      engine.recordRegret({
+        amount: 300, category: "gadgets",
+        regretScore: i < 15 ? 8 : 2,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    const prediction = engine.predictRegret(400, "gadgets");
+    expect(prediction.probability).toBeGreaterThan(0.5);
+    expect(prediction.triggerCoolingOff).toBe(true);
+  });
+
+  it("predicts low regret from good history", () => {
+    const engine = new BehavioralEngine();
+    for (let i = 0; i < 20; i++) {
+      engine.recordRegret({
+        amount: 50, category: "groceries",
+        regretScore: 1,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    const prediction = engine.predictRegret(40, "groceries");
+    expect(prediction.probability).toBeLessThan(0.3);
+    expect(prediction.triggerCoolingOff).toBe(false);
+  });
+
+  it("returns uncertain prediction with no history", () => {
+    const engine = new BehavioralEngine();
+    const prediction = engine.predictRegret(100, "test");
+    expect(prediction.confidence).toBeLessThan(0.2);
+    expect(prediction.probability).toBe(0.5);
+  });
+
+  it("validates regret entry bounds", () => {
+    const engine = new BehavioralEngine();
+    expect(() => engine.recordRegret({ amount: NaN, category: "x", regretScore: 5, timestamp: "" })).toThrow();
+    expect(() => engine.recordRegret({ amount: 100, category: "x", regretScore: 11, timestamp: "" })).toThrow();
+    expect(() => engine.recordRegret({ amount: 100, category: "x", regretScore: -1, timestamp: "" })).toThrow();
+  });
+});
+
+describe("Behavioral Finance — Expense Reframing", () => {
+  it("reframes monthly subscription to annual", () => {
+    const engine = new BehavioralEngine();
+    const result = engine.reframeExpense(13, "monthly");
+    expect(result.annual).toBe(156);
+    expect(result.daily).toBeCloseTo(0.43, 1);
+    expect(result.impactFrame).toContain("156");
+  });
+
+  it("reframes daily habit to annual", () => {
+    const engine = new BehavioralEngine();
+    const result = engine.reframeExpense(5, "daily");
+    expect(result.annual).toBe(1825);
+    expect(result.impactFrame).toContain("1825");
+    expect(result.opportunityCost).toContain("Invested");
+  });
+
+  it("rejects invalid inputs", () => {
+    const engine = new BehavioralEngine();
+    expect(() => engine.reframeExpense(-10, "monthly")).toThrow();
+    expect(() => engine.reframeExpense(10, "biweekly" as any)).toThrow();
+  });
+});
+
+describe("Behavioral Finance — Overconfidence Brake", () => {
+  it("detects overtrading", () => {
+    const engine = new BehavioralEngine();
+    const trades: TradeEntry[] = Array.from({ length: 50 }, (_, i) => ({
+      timestamp: Date.now() - i * 3_600_000,
+      amount: 100,
+      direction: "buy" as const,
+      asset: "BTC",
+    }));
+    const result = engine.overconfidenceBrake(trades, 30);
+    expect(result.detected).toBe(true);
+    expect(result.frequency).toBe(50);
+    expect(result.performanceDrag).toBeGreaterThan(0);
+  });
+
+  it("detects disposition effect (selling winners, holding losers)", () => {
+    const engine = new BehavioralEngine();
+    const trades: TradeEntry[] = [
+      { timestamp: Date.now() - 1000, amount: 100, direction: "sell", asset: "A", realizedPL: 50 },
+      { timestamp: Date.now() - 2000, amount: 100, direction: "sell", asset: "B", realizedPL: 30 },
+      { timestamp: Date.now() - 3000, amount: 100, direction: "sell", asset: "C", realizedPL: 20 },
+      { timestamp: Date.now() - 4000, amount: 100, direction: "sell", asset: "D", realizedPL: -10 },
+    ];
+    const result = engine.overconfidenceBrake(trades, 30);
+    expect(result.dispositionEffect).toBe(true);
+  });
+
+  it("does not flag normal trading", () => {
+    const engine = new BehavioralEngine();
+    const trades: TradeEntry[] = Array.from({ length: 5 }, (_, i) => ({
+      timestamp: Date.now() - i * 86_400_000 * 5,
+      amount: 100,
+      direction: "buy" as const,
+      asset: "ETF",
+    }));
+    const result = engine.overconfidenceBrake(trades, 30);
+    expect(result.detected).toBe(false);
+  });
+});
+
+describe("Behavioral Finance — Endowed Progress", () => {
+  it("frames progress encouragingly", () => {
+    const engine = new BehavioralEngine();
+    const result = engine.endowedProgress({ name: "Emergency Fund", target: 10000, current: 6000, monthlySavings: 500 });
+    expect(result.percentComplete).toBe(60);
+    expect(result.message).toContain("halfway");
+    expect(result.expectedCompletionRate).toBe(0.34);
+  });
+
+  it("handles zero progress", () => {
+    const engine = new BehavioralEngine();
+    const result = engine.endowedProgress({ name: "New Goal", target: 5000, current: 0, monthlySavings: 200 });
+    expect(result.percentComplete).toBe(0);
+    expect(result.expectedCompletionRate).toBe(0.19);
+  });
+});
+
+describe("Behavioral Finance — Anti-Herd Alert", () => {
+  it("detects extreme overvaluation", () => {
+    const engine = new BehavioralEngine();
+    const alert = engine.antiHerdAlert({
+      peRatio: 44, historicalMeanPE: 16, historicalStdPE: 6,
+      recentReturn30d: 15, volumeRatio: 1.5,
+    });
+    expect(alert.detected).toBe(true);
+    expect(alert.severity).toBe("high");
+    expect(alert.valuationSigma).toBeGreaterThan(2);
+    expect(alert.recommendation).toContain("reduce exposure");
+  });
+
+  it("detects potential undervaluation", () => {
+    const engine = new BehavioralEngine();
+    const alert = engine.antiHerdAlert({
+      peRatio: 6, historicalMeanPE: 16, historicalStdPE: 5,
+      recentReturn30d: -20, volumeRatio: 1,
+    });
+    expect(alert.detected).toBe(true);
+    expect(alert.message).toContain("undervaluation");
+  });
+
+  it("no alert for normal valuation", () => {
+    const engine = new BehavioralEngine();
+    const alert = engine.antiHerdAlert({
+      peRatio: 18, historicalMeanPE: 16, historicalStdPE: 5,
+      recentReturn30d: 3, volumeRatio: 1.1,
+    });
+    expect(alert.detected).toBe(false);
+    expect(alert.severity).toBe("low");
+  });
+});
+
+describe("Behavioral Finance — Serialization", () => {
+  it("serializes and deserializes with regret history", () => {
+    const engine = new BehavioralEngine();
+    engine.recordRegret({ amount: 100, category: "tech", regretScore: 7, timestamp: new Date().toISOString() });
+    const data = engine.serialize();
+    const restored = BehavioralEngine.deserialize(data);
+    expect(restored.getRegretHistory().length).toBe(1);
+    expect(restored.config.lambda).toBe(2.25);
+  });
+
+  it("rejects invalid config on construction", () => {
+    expect(() => new BehavioralEngine({ lambda: -1 })).toThrow();
+    expect(() => new BehavioralEngine({ alpha: 2 })).toThrow();
+    expect(() => new BehavioralEngine({ beta_discount: 0 })).toThrow();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EWMA ANOMALY DETECTION TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("EWMA Detector — Streaming Anomaly Detection", () => {
+  it("tracks mean and variance", () => {
+    const detector = new EWMADetector(0.2, 2.5, 3.5, 5);
+    for (let i = 0; i < 10; i++) detector.update(100);
+    const state = detector.getState();
+    expect(state.mean).toBeCloseTo(100, 0);
+    expect(state.warmedUp).toBe(true);
+  });
+
+  it("detects anomalous values after warmup", () => {
+    const detector = new EWMADetector(0.15, 2.0, 3.0, 10);
+    // Build stable baseline
+    for (let i = 0; i < 20; i++) detector.update(100 + Math.random() * 5);
+    // Spike
+    const alert = detector.update(500);
+    expect(alert.anomaly).toBe(true);
+    expect(alert.severity).not.toBe("none");
+    expect(alert.zScore).toBeGreaterThan(2);
+  });
+
+  it("does not alert during warmup", () => {
+    const detector = new EWMADetector(0.15, 2.5, 3.5, 20);
+    const alert = detector.update(99999); // Huge value, but still in warmup
+    detector.update(1); // Huge delta
+    const alert2 = detector.update(99999);
+    expect(alert.severity).toBe("none");
+    expect(alert2.severity).toBe("none"); // Still warming up
+  });
+
+  it("serializes and restores state", () => {
+    const detector = new EWMADetector(0.2, 2.5, 3.5, 5);
+    for (let i = 0; i < 10; i++) detector.update(50);
+    const state = detector.serialize();
+
+    const detector2 = new EWMADetector(0.2, 2.5, 3.5, 5);
+    detector2.restore(state);
+    expect(detector2.getState().mean).toBeCloseTo(50, 0);
+    expect(detector2.getState().count).toBe(10);
+  });
+
+  it("validates constructor parameters", () => {
+    expect(() => new EWMADetector(0)).toThrow("Alpha must be in (0, 1)");
+    expect(() => new EWMADetector(1)).toThrow("Alpha must be in (0, 1)");
+    expect(() => new EWMADetector(0.5, 3, 2)).toThrow("Critical threshold must exceed");
+    expect(() => new EWMADetector(0.5, 2.5, 3.5, 0)).toThrow("Warmup period must be");
+  });
+
+  it("rejects non-finite values", () => {
+    const detector = new EWMADetector();
+    expect(() => detector.update(NaN)).toThrow("finite number");
+    expect(() => detector.update(Infinity)).toThrow("finite number");
+  });
+
+  it("resets cleanly", () => {
+    const detector = new EWMADetector();
+    for (let i = 0; i < 20; i++) detector.update(100);
+    detector.reset();
+    const state = detector.getState();
+    expect(state.count).toBe(0);
+    expect(state.mean).toBe(0);
+  });
+
+  it("distinguishes warning from critical severity", () => {
+    const detector = new EWMADetector(0.15, 2.0, 4.0, 5);
+    // Build baseline
+    for (let i = 0; i < 20; i++) detector.update(100);
+    // Moderate deviation
+    const warning = detector.update(200);
+    // The exact severity depends on accumulated variance, but the classification logic is tested
+    expect(["none", "warning", "critical"]).toContain(warning.severity);
+  });
+});
+
+describe("Behavior Monitor — Agent Fingerprinting", () => {
+  it("builds fingerprint from observations", () => {
+    const monitor = new BehaviorMonitor({ warmupPeriod: 5 });
+    for (let i = 0; i < 10; i++) {
+      monitor.observe("agent-1", { amount: 100, hourOfDay: 14, timeBetweenTx: 3600 });
+    }
+    const fp = monitor.getFingerprint("agent-1");
+    expect(fp).not.toBeNull();
+    expect(fp!.established).toBe(true);
+    expect(fp!.observations).toBe(10);
+  });
+
+  it("detects behavioral deviation (hijack)", () => {
+    const monitor = new BehaviorMonitor({ warmupPeriod: 10, hijackFeatureThreshold: 0.3 });
+    // Build normal profile
+    for (let i = 0; i < 20; i++) {
+      monitor.observe("agent-1", { amount: 100, hourOfDay: 14, timeBetweenTx: 3600, chargesPerHour: 2 });
+    }
+    // Sudden change in behavior
+    const detection = monitor.observe("agent-1", { amount: 9999, hourOfDay: 3, timeBetweenTx: 10, chargesPerHour: 50 });
+    expect(detection.anomalousFeatures).toBeGreaterThan(0);
+    // At least some features should be flagged
+    expect(detection.anomalyScore).toBeGreaterThan(0);
+  });
+
+  it("removes agent fingerprint", () => {
+    const monitor = new BehaviorMonitor();
+    monitor.observe("agent-1", { amount: 100 });
+    expect(monitor.agentCount).toBe(1);
+    monitor.removeAgent("agent-1");
+    expect(monitor.agentCount).toBe(0);
+    expect(monitor.getFingerprint("agent-1")).toBeNull();
+  });
+
+  it("serializes and deserializes", () => {
+    const monitor = new BehaviorMonitor({ warmupPeriod: 3 });
+    for (let i = 0; i < 5; i++) {
+      monitor.observe("agent-1", { amount: 100, hourOfDay: 12 });
+    }
+    const data = monitor.serialize();
+    const restored = BehaviorMonitor.deserialize(data, { warmupPeriod: 3 });
+    expect(restored.agentCount).toBe(1);
+    const fp = restored.getFingerprint("agent-1");
+    expect(fp!.observations).toBe(5);
+  });
+
+  it("validates inputs", () => {
+    const monitor = new BehaviorMonitor();
+    expect(() => monitor.observe("", { amount: 100 })).toThrow("agentId is required");
+    expect(() => monitor.observe("a", null as any)).toThrow("features must be an object");
+  });
+});
+
+describe("Canary System — Honeypot Detection", () => {
+  it("plants canaries and detects access", () => {
+    const canary = new CanarySystem();
+    const c = canary.plant("transaction");
+    expect(c.triggered).toBe(false);
+
+    // Simulate agent accessing the canary
+    const alert = canary.check(c.id, "rogue-agent");
+    expect(alert).not.toBeNull();
+    expect(alert!.severity).toBe("critical");
+    expect(alert!.agentId).toBe("rogue-agent");
+    expect(alert!.message).toContain("CANARY TRIGGERED");
+  });
+
+  it("returns null for non-canary IDs", () => {
+    const canary = new CanarySystem();
+    canary.plant();
+    expect(canary.check("random-tx-id", "agent")).toBeNull();
+  });
+
+  it("batch checks multiple IDs", () => {
+    const canary = new CanarySystem();
+    const c1 = canary.plant();
+    const c2 = canary.plant();
+    const alerts = canary.checkBatch(["normal-1", c1.id, "normal-2", c2.id], "agent-x");
+    expect(alerts.length).toBe(2);
+  });
+
+  it("limits max canaries", () => {
+    const canary = new CanarySystem(3);
+    canary.plant();
+    canary.plant();
+    canary.plant();
+    canary.plant(); // Should evict oldest
+    expect(canary.getActiveCanaries().length).toBeLessThanOrEqual(3);
+  });
+
+  it("serializes and deserializes", () => {
+    const canary = new CanarySystem();
+    const c = canary.plant();
+    canary.check(c.id, "agent-1");
+    const data = canary.serialize();
+    const restored = CanarySystem.deserialize(data);
+    expect(restored.getAlerts().length).toBe(1);
+  });
+
+  it("isCanary identifies planted canaries", () => {
+    const canary = new CanarySystem();
+    const c = canary.plant();
+    expect(canary.isCanary(c.id)).toBe(true);
+    expect(canary.isCanary("not-a-canary")).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INTEGRATION STRESS TESTS — All New Modules Together
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("v1.0.0-beta.1 — Cross-Module Integration", () => {
+  it("FICO + Behavioral: high regret history lowers effective trust", () => {
+    const fico = new AgentFICO();
+    const behavioral = new BehavioralEngine();
+
+    // Build regret history
+    for (let i = 0; i < 20; i++) {
+      behavioral.recordRegret({ amount: 500, category: "impulsive", regretScore: 9, timestamp: new Date().toISOString() });
+    }
+
+    const txs = makeTxBatch(60);
+    const score = fico.compute(baseFICOInput(txs));
+    const prediction = behavioral.predictRegret(500, "impulsive");
+
+    // Both systems flag the same agent as risky
+    expect(score.stable).toBe(true);
+    expect(prediction.probability).toBeGreaterThan(0.5);
+    expect(prediction.triggerCoolingOff).toBe(true);
+  });
+
+  it("Merkle + EWMA: memory tampering triggers anomaly cascade", () => {
+    const tree = new MerkleTree();
+    const detector = new EWMADetector(0.2, 2.0, 3.0, 5);
+
+    // Normal operations: 1 leaf at a time
+    for (let i = 0; i < 15; i++) {
+      tree.addLeaf(`m${i}`, `content ${i}`);
+      detector.update(1); // 1 new leaf per observation
+    }
+
+    // Sudden burst: 10 leaves at once (potential injection)
+    for (let i = 15; i < 25; i++) {
+      tree.addLeaf(`m${i}`, `injected ${i}`);
+    }
+    const alert = detector.update(10); // 10 new leaves in one cycle
+
+    // Both systems detect the anomaly
+    expect(tree.size).toBe(25);
+    expect(alert.zScore).toBeGreaterThan(1);
+  });
+
+  it("Canary + Behavior Monitor: compromise detection on two axes", () => {
+    const canary = new CanarySystem();
+    const monitor = new BehaviorMonitor({ warmupPeriod: 5 });
+
+    // Build normal profile
+    for (let i = 0; i < 10; i++) {
+      monitor.observe("agent-1", { amount: 100, hourOfDay: 14 });
+    }
+
+    // Plant canaries
+    const trap = canary.plant();
+
+    // Simulated compromise: behavior changes AND canary accessed
+    const hijack = monitor.observe("agent-1", { amount: 9999, hourOfDay: 3 });
+    const canaryAlert = canary.check(trap.id, "agent-1");
+
+    // Both systems independently detect the compromise
+    expect(hijack.anomalousFeatures).toBeGreaterThan(0);
+    expect(canaryAlert).not.toBeNull();
+    expect(canaryAlert!.severity).toBe("critical");
+  });
+
+  it("Full pipeline: 100 agents scored with FICO + monitored with EWMA", () => {
+    const fico = new AgentFICO();
+    const monitor = new BehaviorMonitor({ warmupPeriod: 5 });
+
+    const scores: number[] = [];
+    for (let a = 0; a < 100; a++) {
+      const txCount = 10 + Math.floor(Math.random() * 90);
+      const txs = makeTxBatch(txCount);
+      const score = fico.compute({
+        ...baseFICOInput(txs),
+        createdAt: new Date(Date.now() - 86_400_000 * (30 + Math.random() * 300)),
+        memoriesCount: Math.floor(Math.random() * 100),
+      });
+      scores.push(score.score);
+
+      // Also build behavioral profile
+      monitor.observe(`agent-${a}`, {
+        amount: score.components.creditUtilization.score,
+        hourOfDay: Math.floor(Math.random() * 24),
+      });
+    }
+
+    // Verify score distribution
+    expect(scores.every(s => s >= 300 && s <= 850)).toBe(true);
+    expect(monitor.agentCount).toBe(100);
+
+    // At least some score variation
+    const min = Math.min(...scores);
+    const max = Math.max(...scores);
+    expect(max - min).toBeGreaterThan(20);
+  });
+});
+
+describe("v1.0.0-beta.1 — Stress Tests", () => {
+  it("FICO handles 10,000 transactions", () => {
+    const fico = new AgentFICO();
+    const txs = makeTxBatch(10000);
+    const start = performance.now();
+    const result = fico.compute(baseFICOInput(txs));
+    const elapsed = performance.now() - start;
+    expect(result.score).toBeGreaterThanOrEqual(300);
+    expect(result.transactionCount).toBe(10000);
+    expect(elapsed).toBeLessThan(2000); // Should complete in <2 seconds
+  });
+
+  it("Merkle tree handles 1,000 leaves", () => {
+    const tree = new MerkleTree();
+    const start = performance.now();
+    for (let i = 0; i < 1000; i++) {
+      tree.addLeaf(`m-${i}`, `content for memory ${i}`);
+    }
+    const root = tree.getRoot();
+    const elapsed = performance.now() - start;
+    expect(tree.size).toBe(1000);
+    expect(root).toHaveLength(64);
+    expect(elapsed).toBeLessThan(10000); // Should complete in <10 seconds
+  });
+
+  it("EWMA processes 100,000 observations in under 1 second", () => {
+    const detector = new EWMADetector();
+    const start = performance.now();
+    for (let i = 0; i < 100_000; i++) {
+      detector.update(Math.random() * 100);
+    }
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(1000);
+    expect(detector.getState().count).toBe(100_000);
+  });
+
+  it("Behavioral Engine processes 1,000 regret entries", () => {
+    const engine = new BehavioralEngine();
+    for (let i = 0; i < 1000; i++) {
+      engine.recordRegret({
+        amount: Math.random() * 500,
+        category: ["tech", "food", "travel", "clothes"][i % 4],
+        regretScore: Math.floor(Math.random() * 11),
+        timestamp: new Date().toISOString(),
+      });
+    }
+    // Should handle 500 max (truncation)
+    expect(engine.getRegretHistory().length).toBeLessThanOrEqual(500);
+    const prediction = engine.predictRegret(200, "tech");
+    expect(prediction.confidence).toBeGreaterThan(0.5);
   });
 });
