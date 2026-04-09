@@ -17,7 +17,7 @@
  *   4. Webhook:   verifyWebhook → process event
  */
 
-import type { PaymentRail, PaymentRailResult } from "./index.js";
+import type { PaymentRail, PaymentRailResult, HoldOptions } from "./index.js";
 import { createHmac, timingSafeEqual } from "crypto";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -135,11 +135,7 @@ export class PaystackRail implements PaymentRail {
     amount: number,
     reason: string,
     agentId: string,
-    options?: {
-      email?: string;
-      authorizationCode?: string;
-      metadata?: Record<string, unknown>;
-    },
+    options?: HoldOptions,
   ): Promise<PaystackHoldResult> {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error("Amount must be a positive finite number");

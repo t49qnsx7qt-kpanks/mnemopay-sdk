@@ -22,7 +22,7 @@ It doesn't know. It never knew. Every session — completely blank. Like a banke
 
 **[Walks toward camera.]**
 
-We fixed that. Agent FICO. Merkle memory integrity. Behavioral fingerprinting. The whole stack.
+We fixed that. Agent Credit Score. Merkle memory integrity. Behavioral fingerprinting. The whole stack.
 
 **[Cut to black. Text fades in:]**
 
@@ -51,7 +51,7 @@ Memory here. Payments there. Nobody connected them. Nobody asked the obvious que
 
 **[Stops. Slight pause.]**
 
-So we built MnemoPay. Fourteen modules. Not layers — modules. Each one tested. Each one stress-tested. Agent FICO scores from three hundred to eight fifty, like a real credit bureau — the first one ever built for AI agents.
+So we built MnemoPay. Fourteen modules. Not layers — modules. Each one tested. Each one stress-tested. Agent Credit Score — scores from three hundred to eight fifty, reputation scoring built for AI agents.
 
 **[Sits at desk. Leans forward.]**
 
@@ -71,7 +71,7 @@ They raised eighty-seven million. We built all fourteen modules on zero.
 
 **[Cut to end card:]**
 
-MnemoPay — The agent banking platform.
+MnemoPay — The agent commerce platform.
 14 modules. Zero penny drift.
 v1.0.0-beta.1 on npm
 getbizsuite.com/mnemopay
@@ -101,11 +101,11 @@ Every agent starts at zero. Every session. Every time. No history. No reputation
 
 **[Direct.]**
 
-We built Agent FICO. Three hundred to eight fifty. Behavioral fingerprinting. Merkle-backed memory. The first credit bureau for AI agents.
+We built the Agent Credit Score. Three hundred to eight fifty. Behavioral fingerprinting. Merkle-backed memory. A reputation layer for AI agents.
 
 **[Cut to black. Text:]**
 
-Agent FICO — Memory is the credit file.
+Agent Credit Score — Memory is the credit file.
 MnemoPay v1.0.0-beta.1
 npm install @mnemopay/sdk
 
@@ -132,7 +132,7 @@ npm install @mnemopay/sdk.
 
 **[Shows screen — code running, green checkmarks.]**
 
-Five lines. Memory. Wallet. Identity. Fraud detection. Double-entry ledger. Agent FICO scoring. Merkle integrity. Fourteen modules.
+Five lines. Memory. Wallet. Identity. Fraud detection. Double-entry ledger. Agent Credit Score scoring. Merkle integrity. Fourteen modules.
 
 Fourteen production modules say it works.
 
@@ -229,7 +229,7 @@ getbizsuite.com/mnemopay
 
 **Editing:**
 - Cut on every beat/pause mark
-- Text overlays for key numbers ($87M, 14 modules, Agent FICO 300-850, zero)
+- Text overlays for key numbers ($87M, 14 modules, Agent Credit Score 300-850, zero)
 - Code snippets as B-roll on "Five Lines"
 - Split screen for comparisons
 - End cards: always show npm install command + URL
@@ -244,7 +244,7 @@ getbizsuite.com/mnemopay
 - 14 production modules
 - 10/10 features
 - $87M+ competitor funding
-- Agent FICO 300-850
+- Agent Credit Score 300-850
 - Behavioral Finance (Kahneman & Tversky)
 - Merkle Memory Integrity (SHA-256)
 - EWMA Anomaly Detection

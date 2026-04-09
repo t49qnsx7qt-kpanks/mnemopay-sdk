@@ -8,11 +8,12 @@ import {
 } from "../src/commerce.js";
 
 const NO_FRAUD = {
-  maxChargeAmount: 500,
-  velocityWindow: 60_000,
-  velocityMaxCharges: 1000,
-  reputationThreshold: 0,
-  riskScoreThreshold: 1.0,
+  blockThreshold: 1.0,
+  flagThreshold: 1.0,
+  maxChargesPerMinute: 100000,
+  maxChargesPerHour: 1000000,
+  maxChargesPerDay: 10000000,
+  maxDailyVolume: 100000000,
   settlementHoldMinutes: 0,
   disputeWindowMinutes: 0,
 };

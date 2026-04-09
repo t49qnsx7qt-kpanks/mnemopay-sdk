@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MnemoPay — Give Your AI Agents Real Superpowers</title>
-  <meta name="description" content="The credit bureau for AI agents. Agent FICO scoring, behavioral finance, Merkle memory integrity, EWMA anomaly detection. 14 modules. Production-ready. 10/10 features vs $87M-funded competitors.">
+  <meta name="description" content="The trust & reputation layer for AI agents. Agent Credit Score, behavioral finance, Merkle memory integrity, EWMA anomaly detection. 14 modules. Production-ready. Open source.">
   <meta property="og:title" content="MnemoPay — AI Agent Superpowers">
-  <meta property="og:description" content="The credit bureau for AI agents. Agent FICO (300-850), behavioral finance, Merkle integrity, anomaly detection. 14 modules. 10/10 vs $87M-funded competitors.">
+  <meta property="og:description" content="The trust & reputation layer for AI agents. Agent Credit Score (300-850), behavioral finance, Merkle integrity, anomaly detection. 14 modules.">
   <meta property="og:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="MnemoPay — Give Your AI Agents Real Superpowers">
-  <meta name="twitter:description" content="Agent FICO + Behavioral Finance + Merkle Integrity. 14 modules. 10/10 features. The credit bureau for AI agents.">
+  <meta name="twitter:description" content="Agent Credit Score + Behavioral Finance + Merkle Integrity. 14 modules. The trust & reputation layer for AI agents.">
   <meta name="twitter:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -355,7 +355,7 @@
     "name": "MnemoPay",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Any",
-    "description": "The credit bureau for AI agents. Agent FICO scoring, behavioral finance, Merkle memory integrity, EWMA anomaly detection. 14 modules.",
+    "description": "The trust & reputation layer for AI agents. Agent Credit Score, behavioral finance, Merkle memory integrity, EWMA anomaly detection. 14 modules.",
     "url": "https://getbizsuite.com/mnemopay/",
     "image": "https://getbizsuite.com/mnemopay/img/hero-ceo.png",
     "offers": [
@@ -393,6 +393,7 @@
       <div class="links">
         <a href="#features">Features</a>
         <a href="#comparison">Compare</a>
+        <a href="/calculator.html">Calculator</a>
         <a href="#pricing">Pricing</a>
         <a href="https://github.com/mnemopay/mnemopay-sdk">GitHub</a>
         <a href="#pricing" class="btn btn-primary">Get Started Free</a>
@@ -406,7 +407,7 @@
       <div class="hero-content">
         <div class="hero-badge"><span class="dot"></span> v1.0.0-beta.1 &mdash; Production-ready</div>
         <h1>Give your AI agents <span class="gradient">real superpowers</span></h1>
-        <p>The credit bureau for AI agents. Memory + Payments + Identity + Agent FICO + Behavioral Finance in one SDK. Your agent builds a credit score, detects fraud in real time, and proves its memory hasn't been tampered with.</p>
+        <p>The trust & reputation layer for AI agents. Memory + Payments + Identity + Agent Credit Score + Behavioral Finance in one SDK. Your agent builds a reputation score, detects fraud in real time, and proves its memory hasn't been tampered with.</p>
         <div class="hero-actions">
           <div class="install-cmd" onclick="navigator.clipboard.writeText('npm install @mnemopay/sdk');this.querySelector('.copy').textContent='copied!'">
             <span class="dollar">$</span>
@@ -425,17 +426,37 @@
   <!-- STATS -->
   <section class="stats">
     <div class="stat"><div class="num">14</div><div class="label">Modules shipped</div></div>
-    <div class="stat"><div class="num">14</div><div class="label">Modules</div></div>
+    <div class="stat"><div class="num">707</div><div class="label">Tests passing</div></div>
     <div class="stat"><div class="num">10/10</div><div class="label">Feature score</div></div>
     <div class="stat"><div class="num">$87M+</div><div class="label">Competitors funded</div></div>
     <div class="stat"><div class="num">$0</div><div class="label">To start</div></div>
+  </section>
+
+  <!-- MCP WEDGE -->
+  <section class="mcp-wedge" style="background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%); color: #fff; padding: 80px 0;">
+    <div class="container" style="max-width: 1100px; margin: 0 auto; padding: 0 24px;">
+      <div style="display: inline-block; padding: 6px 14px; border-radius: 999px; background: rgba(124, 92, 255, 0.2); color: #a48bff; font-size: 0.85rem; font-weight: 600; margin-bottom: 18px;">FOR MCP SERVER AUTHORS</div>
+      <h2 style="font-size: 2.4rem; line-height: 1.15; margin: 0 0 18px; font-weight: 800;">Charge per-call for your MCP server.<br/><span style="background: linear-gradient(90deg, #7c5cff, #22d3ee); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Down to 0.1¢ per tool invocation.</span></h2>
+      <p style="font-size: 1.15rem; color: #c5c9e0; max-width: 720px; line-height: 1.6; margin: 0 0 32px;">Stripe's fees make sub-cent payments impossible. Lightning makes them trivial. MnemoPay gives your MCP server a billing layer in two lines of code — with Agent Credit Score gating freeloaders automatically.</p>
+      <pre style="background: #05070f; border: 1px solid #1e2540; border-radius: 12px; padding: 24px; overflow-x: auto; font-size: 0.95rem; color: #e0e4f0; margin: 0 0 28px;"><code>import MnemoPay from "@mnemopay/sdk";
+const agent = MnemoPay.quick("my-mcp-server");
+
+// Inside your tool handler:
+const tx = await agent.charge(0.002, "embed_document");  // 0.2¢
+if (tx.status === "blocked") return { error: "Payment declined" };
+await agent.settle(tx.id);</code></pre>
+      <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+        <a href="mailto:omiagbogold@icloud.com?subject=MnemoPay%20MCP%20Design%20Partner" style="background: linear-gradient(90deg, #7c5cff, #5436ff); color: #fff; padding: 14px 28px; border-radius: 12px; font-weight: 700; text-decoration: none; display: inline-block;">Apply for free forever tier →</a>
+        <span style="color: #8990ae; font-size: 0.9rem;">First 10 MCP servers only. Logo in README is the only ask.</span>
+      </div>
+    </div>
   </section>
 
   <!-- CODE -->
   <section class="code-section">
     <div class="container">
       <div class="section-header">
-        <h2>5 lines to agent banking.</h2>
+        <h2>5 lines to agent commerce.</h2>
         <p>Memory, payments, identity, credit scoring, behavioral finance, tamper-proof integrity.</p>
       </div>
       <pre><code><span class="kw">import</span> MnemoPay <span class="kw">from</span> <span class="str">"@mnemopay/sdk"</span>;
@@ -517,11 +538,11 @@
         <div class="feature">
           <div class="feature-icon">&#127757;</div>
           <h3>Global Payment Rails</h3>
-          <p>Paystack (Africa), Stripe (global), Lightning (BTC). Same API. Plug in any rail. Volume-tiered fees. Real money, real banks, real settlements.</p>
+          <p>Paystack (Africa), Stripe (global), Lightning (BTC). Same API. Plug in any rail. Volume-tiered fees. Real money, real rails, real settlements.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">&#128200;</div>
-          <h3>Agent FICO (300-850)</h3>
+          <h3>Agent Credit Score (300-850)</h3>
           <p>The first credit score for AI agents. 5 components mirroring human FICO: payment history (35%), utilization (20%), age (15%), diversity (15%), fraud record (15%). Fee tiers from 1.0% to 2.5%.</p>
         </div>
         <div class="feature">
@@ -557,7 +578,7 @@
             <th>Memory</th>
             <th>Payments</th>
             <th>Identity</th>
-            <th>Agent FICO</th>
+            <th>Agent Credit Score</th>
             <th>Behavioral</th>
             <th>Merkle</th>
             <th>Anomaly</th>
@@ -647,60 +668,6 @@
           </tr>
         </tbody>
       </table>
-    </div>
-  </section>
-
-  <!-- GALLERY -->
-  <section class="gallery" id="gallery">
-    <div class="container">
-      <div class="section-header">
-        <h2>Built for the agent economy</h2>
-        <p>The financial infrastructure AI agents have been waiting for.</p>
-      </div>
-      <div class="gallery-grid">
-        <div class="gallery-card">
-          <img src="img/ad-banking.png" alt="Agent Banking">
-          <div class="overlay">
-            <h4>Agent Banking</h4>
-            <p>Real financial operations for autonomous agents</p>
-          </div>
-        </div>
-        <div class="gallery-card">
-          <img src="img/ad-global.png" alt="Global Rails">
-          <div class="overlay">
-            <h4>Global Rails</h4>
-            <p>Paystack, Stripe, Lightning &mdash; one API</p>
-          </div>
-        </div>
-        <div class="gallery-card">
-          <img src="img/ad-dev.png" alt="Developer First">
-          <div class="overlay">
-            <h4>Developer First</h4>
-            <p>npm install &rarr; production in 5 lines</p>
-          </div>
-        </div>
-        <div class="gallery-card">
-          <img src="img/ad-trust.png" alt="Agent FICO">
-          <div class="overlay">
-            <h4>Agent FICO</h4>
-            <p>Memory + transactions = credit scoring</p>
-          </div>
-        </div>
-        <div class="gallery-card">
-          <img src="img/ad-hero.png" alt="Superpowers">
-          <div class="overlay">
-            <h4>Real Superpowers</h4>
-            <p>Memory, money, identity, reputation</p>
-          </div>
-        </div>
-        <div class="gallery-card">
-          <img src="img/hero-ceo.png" alt="The Vision">
-          <div class="overlay">
-            <h4>The Vision</h4>
-            <p>Built by Jerry Omiagbo</p>
-          </div>
-        </div>
-      </div>
     </div>
   </section>
 
@@ -806,7 +773,7 @@
 
   <footer>
     <div class="container">
-      <p>MnemoPay &copy; 2026 &mdash; MIT Licensed &mdash; Built by <a href="https://github.com/mnemopay">Jerry Omiagbo</a></p>
+      <p>MnemoPay &copy; 2026 &mdash; Apache 2.0 Licensed &mdash; Built by <a href="https://github.com/mnemopay">Jerry Omiagbo</a></p>
     </div>
   </footer>
 </body>

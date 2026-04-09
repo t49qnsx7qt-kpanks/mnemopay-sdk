@@ -5,9 +5,9 @@ Original author: Jerry Omiagbo (jerry@mnemopay.com)
 First published: March 2025 (npm: @mnemopay/sdk v0.1.0)
 GitHub: https://github.com/mnemopay/mnemopay-sdk
 
-This software is licensed under the MIT License (see LICENSE file).
-While the MIT license permits use, modification, and redistribution,
-it does not grant rights to claim original authorship.
+This software is licensed under the Apache License, Version 2.0
+(see LICENSE file). While Apache 2.0 permits use, modification, and
+redistribution, it does not grant rights to claim original authorship.
 
 PRIOR ART CHAIN:
 - 2025-03-xx: Initial concept and prototype (git history)
@@ -24,8 +24,9 @@ PRIOR ART CHAIN:
 ORIGINAL INVENTIONS DOCUMENTED HEREIN:
 1. Memory-Payment Feedback Loop — payment settlements reinforce the memories
    that led to the decision (Hebbian learning applied to agent economics)
-2. Agent FICO Score — reputation computed from settlement history, memory
-   quality, dispute rate, and behavioral patterns
+2. Agent Credit Score — reputation computed from settlement history, memory
+   quality, dispute rate, and behavioral patterns (formerly "Agent FICO";
+   renamed to avoid implied association with Fair Isaac Corporation)
 3. Adaptive Engine — self-optimizing fee rates, risk thresholds, and rate
    limits within cryptographically enforced secure bounds
 4. Elephant Memory Architecture — bio-inspired cognitive memory with

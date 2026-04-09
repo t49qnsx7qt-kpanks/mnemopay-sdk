@@ -1,6 +1,6 @@
 # MnemoPay
 
-**The credit bureau for AI agents.** Memory + Payments + Identity + Agent FICO + Behavioral Finance in one SDK.
+**The trust & reputation layer for AI agents.** Agent Credit Score + Behavioral Finance + Payments + Memory + Identity in one SDK.
 
 Your agent builds a credit score, detects fraud in real time, makes psychologically sound financial decisions, and proves its memory hasn't been tampered with. All on top of persistent memory, real payment rails, and a double-entry ledger that never drifts by a penny.
 
@@ -9,7 +9,7 @@ npm install @mnemopay/sdk
 ```
 
 ```ts
-import MnemoPay, { AgentFICO, BehavioralEngine, MerkleTree } from "@mnemopay/sdk";
+import MnemoPay, { AgentCreditScore, BehavioralEngine, MerkleTree } from "@mnemopay/sdk";
 
 const agent = MnemoPay.quick("my-agent");
 
@@ -18,12 +18,37 @@ const tx = await agent.charge(25, "Monthly API access");
 await agent.settle(tx.id);
 
 // Score the agent (300-850, like human FICO)
-const fico = new AgentFICO();
+const fico = new AgentCreditScore();
 const score = fico.compute({ transactions: [tx], createdAt: new Date(), ...});
 // → { score: 672, rating: "good", feeRate: 0.015, trustLevel: "standard" }
 ```
 
-14 modules. Zero vulnerabilities. Production-ready. MIT licensed.
+14 modules. Hardened against the 10/10 critical issues from our v0.9.2 audit. Production-ready. Apache 2.0 licensed.
+
+---
+
+## Building an MCP server? Start here.
+
+If you're shipping an MCP server and want to charge per-call — even sub-cent amounts — MnemoPay is built for you.
+
+- **Sub-cent payments** via Lightning rail (impossible on Stripe/Paystack due to fees)
+- **Per-tool metering** with `agent.charge(amount, toolName)` — two lines of code
+- **Agent Credit Score** gates abusive callers automatically — 300-850 credit score, free tier + paid tier
+- **Cryptographic receipts** every user can audit — no "trust me bro" billing
+- **Free indefinitely** for the first 10 MCP servers that adopt it, subject to 90 days' written notice of any future change ([email](mailto:omiagbogold@icloud.com) with your repo)
+
+```ts
+import MnemoPay from "@mnemopay/sdk";
+const agent = MnemoPay.quick("my-mcp-server");
+
+// Inside your tool handler:
+const tx = await agent.charge(0.002, "embed_document");  // 0.2¢
+if (tx.status === "blocked") return { error: "Payment declined" };
+await agent.settle(tx.id);
+// ... run the tool
+```
+
+Zero-config starter → production Lightning rail → Agent Credit Score gating. Same API.
 
 ---
 
@@ -36,7 +61,7 @@ $87M has been invested across 5 competitors. None have more than 3 of these 10 f
 | Persistent Memory | **Yes** | Yes | No | No | No |
 | Payment Rails (3) | **Yes** | No | USDC only | Stablecoin | Bank only |
 | Agent Identity (KYA) | **Yes** | No | Building | Passport | No |
-| **Agent FICO (300-850)** | **Yes** | No | No | No | No |
+| **Agent Credit Score (300-850)** | **Yes** | No | No | No | No |
 | **Behavioral Finance** | **Yes** | No | No | No | No |
 | **Memory Integrity (Merkle)** | **Yes** | No | No | No | No |
 | **EWMA Anomaly Detection** | **Yes** | No | No | No | No |
@@ -47,14 +72,14 @@ $87M has been invested across 5 competitors. None have more than 3 of these 10 f
 
 ---
 
-## Agent FICO — Credit Score for AI Agents
+## Agent Credit Score — Credit Score for AI Agents
 
-The first cross-session credit scoring system for AI agents. Mirrors human FICO (300-850 range) with five components:
+A novel cross-session credit scoring system for AI agents. Five-component scoring on a 300-850 range (familiar to developers from consumer credit; MnemoPay is not affiliated with Fair Isaac Corporation or any consumer credit bureau):
 
 ```ts
-import { AgentFICO } from "@mnemopay/sdk";
+import { AgentCreditScore } from "@mnemopay/sdk";
 
-const fico = new AgentFICO();
+const fico = new AgentCreditScore();
 const result = fico.compute({
   transactions: await agent.history(1000),
   createdAt: agentCreationDate,
@@ -93,7 +118,7 @@ console.log(result.requiresHITL); // false
 
 ## Behavioral Finance Engine
 
-Nobel Prize-winning behavioral economics, implemented. Every parameter from peer-reviewed research.
+Peer-reviewed behavioral economics from Nobel laureate Daniel Kahneman and collaborators. Every parameter cited to published research.
 
 ```ts
 import { BehavioralEngine } from "@mnemopay/sdk";
@@ -199,13 +224,13 @@ canary.check(trap.id, "rogue-agent");
 - **Semantic recall** — find memories by relevance, not just recency
 - **100KB per memory** — store rich context, not just strings
 
-## Payments (Bank-grade math)
+## Payments (cent-precise double-entry)
 
 - **Double-entry bookkeeping** — every debit has a credit, always balances to zero
-- **Escrow flow** — charge -> hold -> settle -> refund (same as Stripe/Square)
+- **Escrow flow** — charge -> hold -> settle -> refund (same shape as Stripe/Square)
 - **Volume-tiered fees** — 1.9% / 1.5% / 1.0% based on cumulative volume
 - **3 payment rails** — Paystack (Africa), Stripe (global), Lightning (BTC)
-- **Penny-precise** — stress-tested with 1,000 random transactions
+- **Cent-precise integer math** — stress-tested with 1,000 random transactions, zero drift
 
 ## Identity (KYA Compliance)
 
@@ -246,6 +271,45 @@ const lightning = new LightningRail(LND_URL, MACAROON);
 const agent = MnemoPay.quick("my-agent", { paymentRail: paystack });
 ```
 
+### Stripe — real card charges with saved customers
+
+End-to-end flow for charging a user's saved card without a browser handoff:
+
+```ts
+import MnemoPay, { StripeRail } from "@mnemopay/sdk";
+
+const rail = new StripeRail(process.env.STRIPE_SECRET_KEY!);
+const agent = MnemoPay.quick("agent-1", { paymentRail: rail });
+
+// 1. Create a Stripe customer (one-time, persist cus_... to your DB)
+const { customerId } = await rail.createCustomer("user@example.com", "Jerry O");
+
+// 2. Collect a card via Stripe.js: create a SetupIntent, return client_secret
+//    to the browser, let Stripe Elements confirm it. You receive pm_... from
+//    the webhook or confirmation callback. Save it alongside the customer.
+const { clientSecret } = await rail.createSetupIntent(customerId);
+// → hand clientSecret to frontend, get back paymentMethodId after confirm
+
+// 3. Charge the saved card later, off-session, no user interaction needed
+const tx = await agent.charge(25, "Monthly API access", undefined, {
+  customerId,
+  paymentMethodId: "pm_saved_from_step_2",
+  offSession: true,
+});
+
+// 4. Settle (captures the hold) or refund (releases it)
+await agent.settle(tx.id);
+```
+
+Paystack supports the same pattern via `authorizationCode`:
+
+```ts
+const tx = await agent.charge(5000, "NGN invoice", undefined, {
+  email: "customer@example.com",
+  authorizationCode: "AUTH_abc123", // from an earlier Paystack transaction
+});
+```
+
 ---
 
 ## MCP Server
@@ -281,7 +345,7 @@ import { mnemoPayTools } from "@mnemopay/sdk/langgraph";
 ┌────────────────────────────────────────────────────────────┐
 │                    MnemoPay SDK v1.0.0-beta.1              │
 ├──────────┬──────────┬───────────┬──────────────────────────┤
-│  Memory  │ Payments │ Identity  │  Agent FICO (300-850)    │
+│  Memory  │ Payments │ Identity  │  Agent Credit Score (300-850)    │
 │          │          │           │  5-component scoring     │
 │ remember │ charge   │ KYA       ├──────────────────────────┤
 │ recall   │ settle   │ tokens    │  Behavioral Finance      │
@@ -323,7 +387,19 @@ npm test    # full test suite across 12 files
 
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](LICENSE).
+
+Copyright 2026 J&B Enterprise LLC.
+
+---
+
+## Trademark and regulatory notices
+
+**Agent Credit Score** is a creditworthiness scoring system **for autonomous software agents**, not for consumer credit reporting. It does not produce a consumer report as defined by the Fair Credit Reporting Act (FCRA) and is not regulated under the FCRA. MnemoPay is not a consumer reporting agency.
+
+MnemoPay is not a bank, money transmitter, or insurer, and does not hold customer deposits. Payments are settled through third-party payment rails (Stripe, Paystack, Lightning Network) — MnemoPay is software that connects to those rails on behalf of developers, not a financial institution.
+
+"FICO" is a registered trademark of Fair Isaac Corporation. MnemoPay and its Agent Credit Score module are not affiliated with, endorsed by, or derived from Fair Isaac Corporation. The `AgentFICO` export name is a deprecated alias kept for backward compatibility with earlier beta releases and will be removed in a future major version.
 
 ---
 

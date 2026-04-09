@@ -4,7 +4,32 @@
  * Replaces toy JSON file persistence with production-grade SQLite.
  * Zero-config, ACID-compliant, single-file database.
  *
- * Requires: npm install better-sqlite3
+ * Requires: better-sqlite3 >= 12.0.0 (bundles SQLite >= 3.52, which fixes a
+ * WAL-mode corruption bug present in every SQLite from 3.7.0 through 3.51.2).
+ * The SDK peer-dependency pin is ">=12.0.0"; earlier versions are unsupported.
+ *
+ * ⚠ Operational safety rules for this storage adapter:
+ *
+ *   1. SINGLE-PROCESS WRITES. Exactly one process may hold a write connection
+ *      to a given .db file at any time. Multiple readers are fine. If you need
+ *      multi-process access, run a dedicated writer process and have other
+ *      processes read via IPC / HTTP, not by opening the same file.
+ *
+ *   2. NEVER COPY A RUNNING DB WITH fs.copyFile / cp / shutil.copy. In WAL
+ *      mode the `-wal` and `-shm` sidecars contain uncommitted state; copying
+ *      the main file alone is a known corruption vector. Use SQLite's
+ *      `VACUUM INTO 'backup.db'` statement or the online backup API.
+ *
+ *   3. CLOSE CLEANLY. `SQLiteStorage.close()` runs a WAL checkpoint before
+ *      releasing the connection so the main DB file is consistent on exit.
+ *      If the process crashes without calling close(), WAL recovery runs the
+ *      next time the DB is opened — which is safe but leaves `-wal`/`-shm`
+ *      sidecars on disk.
+ *
+ *   4. DAILY BACKUP. The ledger, Merkle tree, and credit score history live
+ *      here. A corrupted ledger is the worst possible failure mode for a
+ *      financial SDK. Schedule daily `VACUUM INTO` to an offsite location
+ *      and verify backup integrity by opening it in read-only mode.
  *
  * Usage:
  *   import { SQLiteStorage } from "@mnemopay/sdk/storage";
@@ -305,6 +330,15 @@ export class SQLiteStorage implements StorageAdapter {
 
   close(): void {
     if (this.db) {
+      try {
+        // Checkpoint the WAL so the main DB file is consistent on disk before
+        // we release the connection. PASSIVE = non-blocking; safe on a healthy
+        // DB. If it fails (e.g., readers still hold shared locks) we still
+        // close the connection — WAL recovery handles the rest on next open.
+        this.db.pragma("wal_checkpoint(PASSIVE)");
+      } catch {
+        // swallow: checkpoint is best-effort on close
+      }
       this.db.close();
     }
   }

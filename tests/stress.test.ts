@@ -19,7 +19,7 @@ import { IdentityRegistry } from "../src/identity.js";
 
 describe("Financial Precision — No Money Lost", () => {
   it("1000 charge→settle cycles: ledger always balanced, fees always correct", async () => {
-    const agent = MnemoPay.quick("precision-1000", { fraud: { platformFeeRate: 0.019, riskScoreThreshold: 1.0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
+    const agent = MnemoPay.quick("precision-1000", { fraud: { platformFeeRate: 0.019, blockThreshold: 1.0, flagThreshold: 1.0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
     let totalFees = 0;
     let totalNet = 0;
     let totalGross = 0;

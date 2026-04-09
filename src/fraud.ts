@@ -225,6 +225,22 @@ export class FraudGuard {
   readonly behaviorProfile: BehaviorProfile | null;
 
   constructor(config?: Partial<FraudConfig>) {
+    // Typo guard — warn if caller passed keys that don't exist on FraudConfig.
+    // This catches latent bugs like `riskScoreThreshold: 1.0` (should be
+    // `blockThreshold`) where the override is silently dropped and the
+    // fraud engine falls back to defaults. Runtime warning only — never
+    // throws, so existing callers keep working.
+    if (config && typeof config === "object") {
+      const validKeys = new Set(Object.keys(DEFAULT_FRAUD_CONFIG));
+      const unknown = Object.keys(config).filter(k => !validKeys.has(k));
+      if (unknown.length > 0) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[mnemopay] FraudGuard: ignoring unknown config keys: ${unknown.join(", ")}. ` +
+          `Valid keys: ${Array.from(validKeys).join(", ")}`,
+        );
+      }
+    }
     this.config = { ...DEFAULT_FRAUD_CONFIG, ...config };
     // Deep merge geo config
     this.config.geo = { ...DEFAULT_FRAUD_CONFIG.geo, ...config?.geo };

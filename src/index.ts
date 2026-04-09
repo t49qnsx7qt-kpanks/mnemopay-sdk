@@ -12,7 +12,7 @@
 
 import { RecallEngine, type RecallStrategy, type EmbeddingProvider, type RecallEngineConfig } from "./recall/engine.js";
 import { FraudGuard, type FraudConfig, type RiskAssessment, type Dispute, type PlatformFeeRecord, type RequestContext } from "./fraud.js";
-import { type PaymentRail, MockRail } from "./rails/index.js";
+import { type PaymentRail, type HoldOptions, MockRail } from "./rails/index.js";
 import { type StorageAdapter, JSONFileStorage } from "./storage/sqlite.js";
 import { Ledger, type LedgerEntry, type LedgerSummary, type AccountBalance, type Currency } from "./ledger.js";
 import { IdentityRegistry, constantTimeEqual, type AgentIdentity, type CapabilityToken, type Permission, type IdentityVerification, type KYARecord } from "./identity.js";
@@ -827,7 +827,7 @@ export class MnemoPayLite extends EventEmitter {
     return expired;
   }
 
-  async charge(amount: number, reason: string, ctx?: RequestContext): Promise<Transaction> {
+  async charge(amount: number, reason: string, ctx?: RequestContext, payOptions?: HoldOptions): Promise<Transaction> {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error("Amount must be a positive finite number");
     // Round to 2 decimals to prevent floating point dust
     amount = Math.round(amount * 100) / 100;
@@ -868,8 +868,11 @@ export class MnemoPayLite extends EventEmitter {
     // Generate idempotency key for payment rail calls
     const idempotencyKey = `charge_${this.agentId}_${Date.now()}_${randomUUID().slice(0, 8)}`;
 
-    // Create hold on external payment rail
-    const hold = await this.paymentRail.createHold(amount, reason, this.agentId);
+    // Create hold on external payment rail.
+    // payOptions lets callers target a specific customer + saved payment
+    // method (Stripe) or a saved authorization code (Paystack). Rails
+    // ignore fields they don't understand.
+    const hold = await this.paymentRail.createHold(amount, reason, this.agentId, payOptions);
 
     const tx: Transaction = {
       id: randomUUID(),
@@ -1758,7 +1761,7 @@ export type { FraudConfig, FeeTier, FraudSignal, RiskAssessment, Dispute, Platfo
 export { IsolationForest, TransactionGraph, BehaviorProfile } from "./fraud-ml.js";
 export type { CollusionSignal, DriftSignal, BehaviorSnapshot } from "./fraud-ml.js";
 export { MockRail, StripeRail, LightningRail, PaystackRail, NIGERIAN_BANKS } from "./rails/index.js";
-export type { PaymentRail, PaymentRailResult, PaystackConfig, PaystackCurrency, PaystackHoldResult, PaystackVerifyResult, PaystackTransferRecipient, PaystackTransferResult, PaystackWebhookEvent } from "./rails/index.js";
+export type { PaymentRail, PaymentRailResult, HoldOptions, PaystackConfig, PaystackCurrency, PaystackHoldResult, PaystackVerifyResult, PaystackTransferRecipient, PaystackTransferResult, PaystackWebhookEvent } from "./rails/index.js";
 export { SQLiteStorage, JSONFileStorage } from "./storage/sqlite.js";
 export type { StorageAdapter, PersistedState } from "./storage/sqlite.js";
 export { Ledger } from "./ledger.js";
@@ -1771,7 +1774,7 @@ export { CommerceEngine, MockCommerceProvider } from "./commerce.js";
 export type { ShoppingMandate, ProductResult, PurchaseOrder, CommerceProvider, SearchOptions, ApprovalCallback } from "./commerce.js";
 export { AdaptiveEngine, DEFAULT_ADAPTIVE_CONFIG } from "./adaptive.js";
 export type { AdaptiveConfig, AgentInsight, BusinessMetrics, AdaptationRecord, AdaptiveEvent, AdaptiveEventType } from "./adaptive.js";
-export { AgentFICO, DEFAULT_FICO_CONFIG } from "./fico.js";
+export { AgentCreditScore, AgentFICO, DEFAULT_FICO_CONFIG } from "./fico.js";
 export type { FICOInput, FICOResult, FICOComponent, FICOConfig, FICOTransaction } from "./fico.js";
 export { MerkleTree } from "./integrity.js";
 export type { MerkleLeaf, MerkleProof, IntegritySnapshot, TamperResult, IntegrityAuditEntry } from "./integrity.js";

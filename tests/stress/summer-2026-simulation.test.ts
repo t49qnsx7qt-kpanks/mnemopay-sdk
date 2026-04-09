@@ -92,7 +92,6 @@ const STRESS_FRAUD = {
   maxChargesPerDay: 100_000_000,
   maxDailyVolume: 1_000_000_000,
   maxPendingTransactions: 1_000_000,
-  riskScoreThreshold: 1.0,
   blockThreshold: 100,
   flagThreshold: 100,
 };

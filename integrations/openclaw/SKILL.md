@@ -3,7 +3,7 @@ name: mnemopay
 description: |
   Persistent session memory and wallet for AI agents — works on Bedrock, Vertex, API, and Foundry where Anthropic's built-in memory doesn't.
   Auto-captures git commits, publishes, and file writes without manual remember() calls.
-  MIT licensed, self-hostable, MCP-native.
+  Apache 2.0 licensed, self-hostable, MCP-native.
   15 MCP tools: remember, recall, forget, reinforce, consolidate, charge, settle, refund, balance, profile, reputation, logs, history, dispute, fraud_stats.
   4 prompts: recall-and-decide, agent-status-report, session-start, session-end.
   3 Claude Code hooks: Stop (session summary), UserPromptSubmit (recall injection), PostToolUse (auto-capture).

@@ -17,6 +17,30 @@ export interface PaymentRailResult {
   receiptId?: string;
 }
 
+/**
+ * Optional rail-specific options for createHold.
+ *
+ * Rails ignore fields they don't support. Existing callers that pass no
+ * options keep the pre-v1.0 behavior (rail charges its own default source).
+ */
+export interface HoldOptions {
+  /** Stripe customer id (cus_...) — source of funds for the hold */
+  customerId?: string;
+  /** Stripe payment method id (pm_...) — the saved card/bank to charge */
+  paymentMethodId?: string;
+  /** Paystack: end-user email for checkout receipts */
+  email?: string;
+  /** Paystack: saved-card authorization code for one-click charges */
+  authorizationCode?: string;
+  /**
+   * Stripe: confirm immediately using a saved payment method without user
+   * interaction. Requires customerId + paymentMethodId. Defaults to false.
+   */
+  offSession?: boolean;
+  /** Arbitrary rail-specific metadata merged into the underlying call */
+  metadata?: Record<string, unknown>;
+}
+
 export interface PaymentRail {
   /** Human-readable rail name (e.g. "stripe", "lightning", "mock") */
   readonly name: string;
@@ -24,11 +48,15 @@ export interface PaymentRail {
   /**
    * Create a hold/escrow on the external payment system.
    * Called during charge(). The hold should NOT capture funds yet.
+   *
+   * The optional `opts` bag lets callers target a specific customer /
+   * saved payment method. Rails that don't support a given field ignore it.
    */
   createHold(
     amount: number,
     reason: string,
     agentId: string,
+    opts?: HoldOptions,
   ): Promise<PaymentRailResult>;
 
   /**
@@ -56,7 +84,7 @@ export class MockRail implements PaymentRail {
   readonly name = "mock";
   private counter = 0;
 
-  async createHold(amount: number, reason: string, agentId: string): Promise<PaymentRailResult> {
+  async createHold(amount: number, reason: string, agentId: string, _opts?: HoldOptions): Promise<PaymentRailResult> {
     return {
       externalId: `mock_hold_${++this.counter}`,
       status: "held",
@@ -104,8 +132,28 @@ export class StripeRail implements PaymentRail {
     }
   }
 
-  async createHold(amount: number, reason: string, agentId: string): Promise<PaymentRailResult> {
-    const intent = await this.stripe.paymentIntents.create({
+  /**
+   * Build a StripeRail from an already-constructed Stripe client.
+   *
+   * Useful for tests (inject a mock) and for apps that want to share a
+   * single Stripe client instance across multiple rails / services.
+   */
+  static fromClient(client: any, currency = "usd"): StripeRail {
+    // Bypass the require() path by stamping the field on a bare instance.
+    const rail = Object.create(StripeRail.prototype) as StripeRail;
+    (rail as any).name = "stripe";
+    (rail as any).stripe = client;
+    (rail as any).currency = currency;
+    return rail;
+  }
+
+  async createHold(
+    amount: number,
+    reason: string,
+    agentId: string,
+    opts?: HoldOptions,
+  ): Promise<PaymentRailResult> {
+    const params: Record<string, unknown> = {
       amount: Math.round(amount * 100), // Stripe uses cents
       currency: this.currency,
       capture_method: "manual", // Hold funds, don't capture yet
@@ -113,8 +161,23 @@ export class StripeRail implements PaymentRail {
         agentId,
         reason: reason.slice(0, 500),
         source: "mnemopay",
+        ...(opts?.metadata ?? {}),
       },
-    });
+    };
+
+    // Target a specific customer + saved payment method when provided.
+    // This is the path that actually moves money without a browser handoff.
+    if (opts?.customerId) params.customer = opts.customerId;
+    if (opts?.paymentMethodId) {
+      params.payment_method = opts.paymentMethodId;
+      // Only confirm automatically when we have a PM to confirm with.
+      // Omitting confirm lets the caller attach a PM client-side (Stripe.js)
+      // and confirm from the browser — the pre-v1.0 flow.
+      params.confirm = true;
+      if (opts.offSession) params.off_session = true;
+    }
+
+    const intent = await this.stripe.paymentIntents.create(params);
 
     return {
       externalId: intent.id,
@@ -141,6 +204,49 @@ export class StripeRail implements PaymentRail {
       externalId: intent.id,
       status: intent.status === "canceled" ? "reversed" : intent.status,
     };
+  }
+
+  // ── Customer onboarding helpers ─────────────────────────────────────────
+  // Thin wrappers around Stripe's customer + SetupIntent APIs. These let
+  // apps collect and save a card without pulling in the full Stripe SDK
+  // from every service that only needs MnemoPay.
+
+  /**
+   * Create a Stripe customer. Returns the customer id (cus_...).
+   * Persist this against your internal user/agent record.
+   */
+  async createCustomer(
+    email: string,
+    name?: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<{ customerId: string }> {
+    if (!email || typeof email !== "string") {
+      throw new Error("email is required");
+    }
+    const customer = await this.stripe.customers.create({
+      email,
+      ...(name ? { name } : {}),
+      ...(metadata ? { metadata } : {}),
+    });
+    return { customerId: customer.id };
+  }
+
+  /**
+   * Create a SetupIntent for collecting a card via Stripe.js (off-session
+   * charges later). Return the client_secret to the frontend and confirm
+   * it with Stripe.js — no card data ever touches your servers.
+   */
+  async createSetupIntent(
+    customerId: string,
+  ): Promise<{ setupIntentId: string; clientSecret: string }> {
+    if (!customerId || typeof customerId !== "string") {
+      throw new Error("customerId is required");
+    }
+    const si = await this.stripe.setupIntents.create({
+      customer: customerId,
+      usage: "off_session",
+    });
+    return { setupIntentId: si.id, clientSecret: si.client_secret };
   }
 }
 
@@ -222,7 +328,7 @@ export class LightningRail implements PaymentRail {
     return res.json();
   }
 
-  async createHold(amount: number, reason: string, agentId: string): Promise<PaymentRailResult> {
+  async createHold(amount: number, reason: string, agentId: string, _opts?: HoldOptions): Promise<PaymentRailResult> {
     const sats = this.usdToSats(amount);
 
     // Create a standard invoice (HODL invoices need invoicesrpc)

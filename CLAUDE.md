@@ -1,6 +1,6 @@
 # MnemoPay SDK
 
-AI agent banking SDK — memory + payments + identity + credit scoring in one package.
+AI agent trust & reputation SDK — memory + payments + identity + Agent Credit Score in one package.
 
 ## Quick Start
 
@@ -18,7 +18,7 @@ npm run lint       # type-check without emit
 | Module | Purpose |
 |--------|---------|
 | `index.ts` | Main SDK: MnemoPay, MnemoPayLite, MnemoPayNetwork (~74KB) |
-| `fico.ts` | Agent FICO credit scoring (300-850) |
+| `fico.ts` | Agent Credit Score (300-850); exports `AgentCreditScore`, legacy `AgentFICO` alias kept |
 | `behavioral.ts` | Behavioral finance (prospect theory, cooling-off) |
 | `integrity.ts` | Merkle tree memory integrity (SHA-256) |
 | `anomaly.ts` | EWMA anomaly detection, BehaviorMonitor, CanarySystem |
@@ -29,7 +29,7 @@ npm run lint       # type-check without emit
 | `ledger.ts` | Double-entry ledger |
 | `network.ts` | Multi-agent commerce network |
 | `client.ts` | REST client |
-| `mcp/server.ts` | MCP server (12 tools, 2 prompts) |
+| `mcp/server.ts` | MCP server (24 tools, 2 prompts) |
 | `rails/` | Payment rails: Stripe, Paystack, Lightning |
 
 ## Two Modes
@@ -45,13 +45,14 @@ const agent = await MnemoPay.create({ agentId: "agent-1", storage: sqliteAdapter
 ## Key Flows
 
 - **Payments:** charge() → settle() or refund() (two-phase)
-- **FICO:** 5 components weighted: payment 35%, utilization 20%, age 15%, diversity 15%, fraud 15%
-- **Fee tiers:** 1.0% (FICO 800+) → 2.5% (FICO <580, requires HITL)
+- **Agent Credit Score:** 5 components weighted: payment 35%, utilization 20%, age 15%, diversity 15%, fraud 15%
+- **Fee tiers:** 1.0% (score 800+) → 2.5% (score <580, requires HITL)
 
 ## MCP Server
 
-12 tools: remember, recall, forget, reinforce, consolidate, charge, settle, refund, balance, profile, logs, history
-Entry: `src/mcp/server.ts` | Binary: `mnemopay-mcp`
+24 tools: remember, recall, forget, reinforce, consolidate, charge, settle, refund, balance, profile, logs, history, reputation, dispute, fraud_stats, shop_set_mandate, shop_search, shop_buy, shop_confirm_delivery, shop_orders, agent_fico_score, behavioral_analysis, memory_integrity_check, anomaly_check
+2 prompts: recall-and-decide, agent-status-report
+Entry: `src/mcp/server.ts` | Binary: `mnemopay-mcp` | Rate limit: 60/min, 500/hr
 
 ## Tests
 

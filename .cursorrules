@@ -21,7 +21,7 @@ Architecture
 - src/ledger.ts — Double-entry ledger (always balances to zero)
 - src/network.ts — Multi-agent commerce network
 - src/client.ts — REST client for remote MnemoPay server
-- src/mcp/ — MCP server (12 tools, 2 prompts, SSE endpoint)
+- src/mcp/ — MCP server (24 tools, 2 prompts, SSE endpoint)
 - src/rails/ — Payment rails (Stripe, Paystack, Lightning, Mock)
 - src/recall/ — Recall engine (score, vector, hybrid strategies)
 - src/storage/ — Storage adapters (SQLite, in-memory)
@@ -48,9 +48,10 @@ Testing
 - Always test edge cases: zero amounts, negative values, overflow, concurrent access
 
 MCP Server
-- 12 tools: remember, recall, forget, reinforce, consolidate, charge, settle, refund, balance, profile, logs, history
+- 24 tools: remember, recall, forget, reinforce, consolidate, charge, settle, refund, balance, profile, logs, history, reputation, dispute, fraud_stats, shop_set_mandate, shop_search, shop_buy, shop_confirm_delivery, shop_orders, agent_fico_score, behavioral_analysis, memory_integrity_check, anomaly_check
 - 2 prompts: recall-and-decide, agent-status-report
-- Auth: Bearer token via MNEMOPAY_MCP_TOKEN
+- Auth: Bearer token via MNEMOPAY_API_KEY (constant-time comparison)
+- Rate limiting: 60 calls/min, 500 calls/hour
 - Entry: src/mcp/server.ts
 
 Dependencies

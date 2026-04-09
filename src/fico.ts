@@ -1,8 +1,8 @@
 /**
- * Agent FICO — Credit Score for AI Agents
+ * Agent Credit Score — creditworthiness scoring for AI agents
  *
- * Mirrors human FICO (300-850 range) but adapted for agent behavior.
- * Five components weighted identically to FICO's public methodology:
+ * 300-850 range, deterministic given inputs. No randomness, no hidden state.
+ * Five components with conventional consumer-credit-scoring weights:
  *
  *   1. Payment History    (35%) — on-time settlements, disputes, late payments
  *   2. Credit Utilization (20%) — spend vs budget cap, sweet spot 10-30%
@@ -10,13 +10,17 @@
  *   4. Behavior Diversity  (15%) — counterparties, categories, amount range
  *   5. Fraud Record        (15%) — fraud flags, disputes lost, warnings
  *
- * Score is deterministic given inputs. No randomness, no hidden state.
- * All parameters are from published FICO methodology + agent-specific adaptations.
+ * This is an agent-specific scoring system. It is not a consumer credit
+ * report and does not produce FCRA-regulated data. It is not affiliated
+ * with, endorsed by, or derived from Fair Isaac Corporation or the FICO mark.
+ *
+ * The class is exported as `AgentCreditScore`. The legacy name `AgentFICO`
+ * is kept as a deprecated alias for backward compatibility and will be
+ * removed in a future major version.
  *
  * References:
- *   - FICO Score Open Access: myfico.com/credit-education
- *   - Fair Isaac Corporation, "Understanding FICO Scores" (2024)
- *   - MnemoPay Master Strategy, Part 3.3 (April 2026)
+ *   - General consumer credit-scoring methodology (public domain).
+ *   - MnemoPay Master Strategy, Part 3.3 (April 2026).
  */
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -161,9 +165,9 @@ function interpretScore(score: number): {
   return { rating: "poor", trustLevel: "minimal", feeRate: 0.025, requiresHITL: true };
 }
 
-// ─── Agent FICO Engine ──────────────────────────────────────────────────────
+// ─── Agent Credit Score Engine ──────────────────────────────────────────────
 
-export class AgentFICO {
+export class AgentCreditScore {
   readonly config: FICOConfig;
 
   constructor(config?: Partial<FICOConfig>) {
@@ -588,3 +592,10 @@ function extractCategory(reason: string): string {
   const firstWord = lower.split(/\s+/)[0]?.replace(/[^a-z]/g, "");
   return firstWord || "unknown";
 }
+
+// ─── Backward-compatibility alias ───────────────────────────────────────────
+// `AgentFICO` is the legacy export name. It remains available for existing
+// users but will be removed in a future major version. New code should use
+// `AgentCreditScore`.
+/** @deprecated Use `AgentCreditScore` instead. */
+export const AgentFICO = AgentCreditScore;

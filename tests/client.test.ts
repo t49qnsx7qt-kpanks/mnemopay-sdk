@@ -29,8 +29,12 @@ beforeAll(async () => {
 
   const agent = MnemoPay.quick("client-test-agent", {
     fraud: {
-      maxChargeAmount: 500,
-      riskScoreThreshold: 1.0,
+      blockThreshold: 1.0,
+      flagThreshold: 1.0,
+      maxChargesPerMinute: 100000,
+      maxChargesPerHour: 1000000,
+      maxChargesPerDay: 10000000,
+      maxDailyVolume: 100000000,
       settlementHoldMinutes: 0,
       disputeWindowMinutes: 0,
     },

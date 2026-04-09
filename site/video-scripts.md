@@ -61,13 +61,13 @@ All videos use Jerry's Digital Twin. Each script maps to a specific generated im
 "14 production modules. 5,000 transactions per second. Penny-precise math. We stress-tested it with a thousand random transactions — fee plus net equals gross every single time."
 
 [52-58s] CUT — walking toward camera, intense
-"The agent economy needs its own credit bureau. Memory IS the credit file. We're building the FICO score for AI agents."
+"The agent economy needs its own reputation layer. Memory IS the history file. We're building the Agent Credit Score for AI agents."
 
 [58-60s] END CARD — MnemoPay logo + npm install + "Start free"
 
 ---
 
-## VIDEO 3: "Agent FICO" (30 sec)
+## VIDEO 3: "Agent Credit Score" (30 sec)
 **Image:** ad-trust.png (close-up, gold watch, crossed arms)
 **Platform:** Twitter/X, Instagram Stories
 **Vibe:** Premium. Authority. Trust.
@@ -88,7 +88,7 @@ All videos use Jerry's Digital Twin. Each script maps to a specific generated im
 [22-28s] CUT — back to close-up, uncrosses arms
 "The only SDK that combines memory and payments. That's how you build a credit file for a machine."
 
-[28-30s] END CARD — "Agent FICO. Coming." + mnemopay.com
+[28-30s] END CARD — "Agent Credit Score. Coming." + mnemopay.com
 
 ---
 
@@ -160,7 +160,7 @@ All videos use Jerry's Digital Twin. Each script maps to a specific generated im
 - Monday: Video 1 "The Vault" — IG Reels + TikTok
 - Tuesday: Video 5 "The Builder" — Twitter/X + Reddit
 - Wednesday: Video 2 "The Deal" — LinkedIn + YouTube
-- Thursday: Video 3 "Agent FICO" — IG Stories + Twitter/X
+- Thursday: Video 3 "Agent Credit Score" — IG Stories + Twitter/X
 - Friday: Video 4 "Global" — YouTube Shorts + TikTok
 
 **Hashtags:** #AIagents #agentbanking #devtools #mnemopay #agentpayments #openSource #buildInPublic
