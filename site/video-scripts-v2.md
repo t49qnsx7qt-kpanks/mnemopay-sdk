@@ -18,7 +18,7 @@ Ask it who the customer was.
 
 **[Slight head tilt.]**
 
-It doesn't know. It never knew. Every session — completely blank. Like a banker with amnesia handling your money.
+It doesn't know. It never knew. Every session — completely blank. Like a cashier with amnesia handling your money.
 
 **[Walks toward camera.]**
 
@@ -85,11 +85,11 @@ getbizsuite.com/mnemopay
 
 **[SCENE: Tight on crossed arms, luxury watch. Dark, moody lighting.]**
 
-You walk into a bank. They pull your credit score. Seven hundred and fifty. Approved.
+You hire a contractor. You check their reviews. Four point eight stars. Approved.
 
 **[Camera pulls back slightly.]**
 
-An AI agent walks into a bank. They pull its credit score.
+An AI agent shows up to handle your money. You check its track record.
 
 **[Beat.]**
 

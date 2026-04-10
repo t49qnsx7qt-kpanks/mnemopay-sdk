@@ -1859,7 +1859,8 @@ export { GenericCheckoutStrategy } from "./commerce/checkout/strategies/generic.
 export { loadProfileFromEnv, validateProfile } from "./commerce/checkout/profile.js";
 export { AdaptiveEngine, DEFAULT_ADAPTIVE_CONFIG } from "./adaptive.js";
 export type { AdaptiveConfig, AgentInsight, BusinessMetrics, AdaptationRecord, AdaptiveEvent, AdaptiveEventType } from "./adaptive.js";
-export { AgentCreditScore, AgentFICO, DEFAULT_FICO_CONFIG } from "./fico.js";
+export { AgentCreditScore, AgentFICO, DEFAULT_AGENT_CREDIT_CONFIG, DEFAULT_FICO_CONFIG } from "./fico.js";
+export type { AgentCreditInput, AgentCreditResult, AgentCreditComponent, AgentCreditConfig, AgentCreditTransaction } from "./fico.js";
 export type { FICOInput, FICOResult, FICOComponent, FICOConfig, FICOTransaction } from "./fico.js";
 export { MerkleTree } from "./integrity.js";
 export type { MerkleLeaf, MerkleProof, IntegritySnapshot, TamperResult, IntegrityAuditEntry } from "./integrity.js";

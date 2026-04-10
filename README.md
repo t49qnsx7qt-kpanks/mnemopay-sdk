@@ -23,7 +23,7 @@ const score = fico.compute({ transactions: [tx], createdAt: new Date(), ...});
 // → { score: 672, rating: "good", feeRate: 0.015, trustLevel: "standard" }
 ```
 
-14 modules. Hash-chained ledger. Replay detection. Reputation streaks. 100K-operation stress tested. Apache 2.0 licensed.
+14 modules. Hash-chained ledger. Replay detection. Reputation streaks. 200K-operation stress tested. Apache 2.0 licensed.
 
 ---
 
@@ -272,7 +272,7 @@ Combined with Merkle integrity on memories and HMAC on transactions, MnemoPay gi
 - **Escrow flow** — charge -> hold -> settle -> refund (same shape as Stripe/Square)
 - **Volume-tiered fees** — 1.9% / 1.5% / 1.0% based on cumulative volume
 - **3 payment rails** — Paystack (Africa), Stripe (global), Lightning (BTC)
-- **Cent-precise integer math** — stress-tested with 100,000 transactions across 10 concurrent agents, zero drift
+- **Cent-precise integer math** — stress-tested with 200,000 transactions across 50 concurrent agents, zero drift
 
 ## Identity (KYA Compliance)
 
@@ -420,6 +420,7 @@ npm test    # full test suite across 12 files
 - `geo-fraud.test.ts` — geo signals, trust, sanctions
 - `identity.test.ts` — KYA, tokens, permissions
 - `production-100k.test.ts` — 100K operations, 10 concurrent agents, hash-chain verification, zero drift
+- `stress-200k.test.ts` — 200K real-world stress: 50 agents, burst traffic, race conditions, refund storms, memory leak detection
 - `ledger.test.ts` — double-entry, reconciliation
 - `network.test.ts` — multi-agent, deals, supply chains
 - `paystack.test.ts` — rail, webhooks, transfers

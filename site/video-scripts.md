@@ -83,10 +83,10 @@ All videos use Jerry's Digital Twin. Each script maps to a specific generated im
 "AI agents have no score. No history. Every session, they start at zero. That's a hundred-billion-dollar problem."
 
 [12-22s] CUT — code + graph overlay
-"MnemoPay tracks every transaction, every memory, every interaction. Successful deals strengthen trust. Failed ones decay it. It's the FICO score for AI agents."
+"MnemoPay tracks every transaction, every memory, every interaction. Successful deals strengthen trust. Failed ones decay it. It's a credit score for AI agents."
 
 [22-28s] CUT — back to close-up, uncrosses arms
-"The only SDK that combines memory and payments. That's how you build a credit file for a machine."
+"To our knowledge, the only open-source SDK that combines memory and payments. That's how you build a credit file for a machine."
 
 [28-30s] END CARD — "Agent Credit Score. Coming." + getbizsuite.com/mnemopay
 
@@ -163,4 +163,4 @@ All videos use Jerry's Digital Twin. Each script maps to a specific generated im
 - Thursday: Video 3 "Agent Credit Score" — IG Stories + Twitter/X
 - Friday: Video 4 "Global" — YouTube Shorts + TikTok
 
-**Hashtags:** #AIagents #agentbanking #devtools #mnemopay #agentpayments #openSource #buildInPublic
+**Hashtags:** #AIagents #agentcommerce #devtools #mnemopay #agentpayments #openSource #buildInPublic

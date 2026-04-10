@@ -25,7 +25,7 @@
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export interface FICOTransaction {
+export interface AgentCreditTransaction {
   id: string;
   amount: number;
   status: "pending" | "completed" | "refunded" | "disputed" | "expired";
@@ -36,9 +36,9 @@ export interface FICOTransaction {
   riskScore?: number;
 }
 
-export interface FICOInput {
+export interface AgentCreditInput {
   /** All transactions for this agent */
-  transactions: FICOTransaction[];
+  transactions: AgentCreditTransaction[];
   /** Account creation timestamp */
   createdAt: Date;
   /** Total confirmed fraud flags */
@@ -57,7 +57,7 @@ export interface FICOInput {
   memoriesCount?: number;
 }
 
-export interface FICOComponent {
+export interface AgentCreditComponent {
   /** Raw component score 0-100 */
   score: number;
   /** Weight applied to this component */
@@ -68,7 +68,7 @@ export interface FICOComponent {
   factors: string[];
 }
 
-export interface FICOResult {
+export interface AgentCreditResult {
   /** Final FICO score 300-850 */
   score: number;
   /** Rating: exceptional | very_good | good | fair | poor */
@@ -81,11 +81,11 @@ export interface FICOResult {
   requiresHITL: boolean;
   /** Breakdown of all five components */
   components: {
-    paymentHistory: FICOComponent;
-    creditUtilization: FICOComponent;
-    historyLength: FICOComponent;
-    behaviorDiversity: FICOComponent;
-    fraudRecord: FICOComponent;
+    paymentHistory: AgentCreditComponent;
+    creditUtilization: AgentCreditComponent;
+    historyLength: AgentCreditComponent;
+    behaviorDiversity: AgentCreditComponent;
+    fraudRecord: AgentCreditComponent;
   };
   /** Number of transactions used for scoring */
   transactionCount: number;
@@ -97,7 +97,7 @@ export interface FICOResult {
   generatedAt: string;
 }
 
-export interface FICOConfig {
+export interface AgentCreditConfig {
   /** Weight for payment history. Default 0.35 */
   w1: number;
   /** Weight for credit utilization. Default 0.20 */
@@ -120,7 +120,7 @@ export interface FICOConfig {
   maxExpectedCategories: number;
 }
 
-export const DEFAULT_FICO_CONFIG: FICOConfig = {
+export const DEFAULT_AGENT_CREDIT_CONFIG: AgentCreditConfig = {
   w1: 0.35,
   w2: 0.20,
   w3: 0.15,
@@ -137,8 +137,8 @@ export const DEFAULT_FICO_CONFIG: FICOConfig = {
 
 const SCORE_TIERS: Array<{
   min: number;
-  rating: FICOResult["rating"];
-  trustLevel: FICOResult["trustLevel"];
+  rating: AgentCreditResult["rating"];
+  trustLevel: AgentCreditResult["trustLevel"];
   feeRate: number;
   hitl: boolean;
 }> = [
@@ -150,8 +150,8 @@ const SCORE_TIERS: Array<{
 ];
 
 function interpretScore(score: number): {
-  rating: FICOResult["rating"];
-  trustLevel: FICOResult["trustLevel"];
+  rating: AgentCreditResult["rating"];
+  trustLevel: AgentCreditResult["trustLevel"];
   feeRate: number;
   requiresHITL: boolean;
 } {
@@ -168,10 +168,10 @@ function interpretScore(score: number): {
 // ─── Agent Credit Score Engine ──────────────────────────────────────────────
 
 export class AgentCreditScore {
-  readonly config: FICOConfig;
+  readonly config: AgentCreditConfig;
 
-  constructor(config?: Partial<FICOConfig>) {
-    this.config = { ...DEFAULT_FICO_CONFIG, ...config };
+  constructor(config?: Partial<AgentCreditConfig>) {
+    this.config = { ...DEFAULT_AGENT_CREDIT_CONFIG, ...config };
 
     // Validate weights sum to 1.0 (within floating point tolerance)
     const weightSum = this.config.w1 + this.config.w2 + this.config.w3 + this.config.w4 + this.config.w5;
@@ -189,7 +189,7 @@ export class AgentCreditScore {
    * Compute Agent FICO score from transaction history and agent metadata.
    * Deterministic: same inputs always produce the same score.
    */
-  compute(input: FICOInput): FICOResult {
+  compute(input: AgentCreditInput): AgentCreditResult {
     // Input validation — reject garbage, clamp edge cases
     this._validateInput(input);
 
@@ -250,7 +250,7 @@ export class AgentCreditScore {
 
   // ── Component 1: Payment History (35%) ──────────────────────────────────
 
-  private _computePaymentHistory(txs: FICOTransaction[], now: number): Omit<FICOComponent, "weight" | "weighted"> {
+  private _computePaymentHistory(txs: AgentCreditTransaction[], now: number): Omit<AgentCreditComponent, "weight" | "weighted"> {
     const factors: string[] = [];
 
     if (txs.length === 0) {
@@ -324,7 +324,7 @@ export class AgentCreditScore {
 
   // ── Component 2: Credit Utilization (20%) ───────────────────────────────
 
-  private _computeCreditUtilization(txs: FICOTransaction[], budgetCap: number, periodDays: number, now: number): Omit<FICOComponent, "weight" | "weighted"> {
+  private _computeCreditUtilization(txs: AgentCreditTransaction[], budgetCap: number, periodDays: number, now: number): Omit<AgentCreditComponent, "weight" | "weighted"> {
     const factors: string[] = [];
 
     if (txs.length === 0) {
@@ -371,7 +371,7 @@ export class AgentCreditScore {
 
   // ── Component 3: History Length (15%) ────────────────────────────────────
 
-  private _computeHistoryLength(createdAt: Date, txs: FICOTransaction[], now: number): Omit<FICOComponent, "weight" | "weighted"> {
+  private _computeHistoryLength(createdAt: Date, txs: AgentCreditTransaction[], now: number): Omit<AgentCreditComponent, "weight" | "weighted"> {
     const factors: string[] = [];
 
     const ageDays = (now - createdAt.getTime()) / 86_400_000;
@@ -407,7 +407,7 @@ export class AgentCreditScore {
 
   // ── Component 4: Behavior Diversity (15%) ───────────────────────────────
 
-  private _computeBehaviorDiversity(txs: FICOTransaction[], memoriesCount: number): Omit<FICOComponent, "weight" | "weighted"> {
+  private _computeBehaviorDiversity(txs: AgentCreditTransaction[], memoriesCount: number): Omit<AgentCreditComponent, "weight" | "weighted"> {
     const factors: string[] = [];
 
     if (txs.length === 0) {
@@ -460,7 +460,7 @@ export class AgentCreditScore {
 
   // ── Component 5: Fraud Record (15%) ─────────────────────────────────────
 
-  private _computeFraudRecord(fraudFlags: number, disputeCount: number, disputesLost: number, warnings: number): Omit<FICOComponent, "weight" | "weighted"> {
+  private _computeFraudRecord(fraudFlags: number, disputeCount: number, disputesLost: number, warnings: number): Omit<AgentCreditComponent, "weight" | "weighted"> {
     const factors: string[] = [];
 
     // Start at 100, deduct for each negative event
@@ -504,36 +504,36 @@ export class AgentCreditScore {
 
   // ── Input Validation ────────────────────────────────────────────────────
 
-  private _validateInput(input: FICOInput): void {
+  private _validateInput(input: AgentCreditInput): void {
     if (!input || typeof input !== "object") {
-      throw new Error("FICOInput is required");
+      throw new Error("AgentCreditInput is required");
     }
     if (!Array.isArray(input.transactions)) {
-      throw new Error("FICOInput.transactions must be an array");
+      throw new Error("AgentCreditInput.transactions must be an array");
     }
     if (!(input.createdAt instanceof Date) || isNaN(input.createdAt.getTime())) {
-      throw new Error("FICOInput.createdAt must be a valid Date");
+      throw new Error("AgentCreditInput.createdAt must be a valid Date");
     }
     if (typeof input.fraudFlags !== "number" || !Number.isFinite(input.fraudFlags) || input.fraudFlags < 0) {
-      throw new Error("FICOInput.fraudFlags must be a non-negative number");
+      throw new Error("AgentCreditInput.fraudFlags must be a non-negative number");
     }
     if (typeof input.disputeCount !== "number" || !Number.isFinite(input.disputeCount) || input.disputeCount < 0) {
-      throw new Error("FICOInput.disputeCount must be a non-negative number");
+      throw new Error("AgentCreditInput.disputeCount must be a non-negative number");
     }
     if (typeof input.disputesLost !== "number" || !Number.isFinite(input.disputesLost) || input.disputesLost < 0) {
-      throw new Error("FICOInput.disputesLost must be a non-negative number");
+      throw new Error("AgentCreditInput.disputesLost must be a non-negative number");
     }
     if (input.disputesLost > input.disputeCount) {
-      throw new Error("FICOInput.disputesLost cannot exceed disputeCount");
+      throw new Error("AgentCreditInput.disputesLost cannot exceed disputeCount");
     }
     if (typeof input.warnings !== "number" || !Number.isFinite(input.warnings) || input.warnings < 0) {
-      throw new Error("FICOInput.warnings must be a non-negative number");
+      throw new Error("AgentCreditInput.warnings must be a non-negative number");
     }
     if (input.budgetCap !== undefined && (typeof input.budgetCap !== "number" || !Number.isFinite(input.budgetCap) || input.budgetCap <= 0)) {
-      throw new Error("FICOInput.budgetCap must be a positive number");
+      throw new Error("AgentCreditInput.budgetCap must be a positive number");
     }
     if (input.budgetPeriodDays !== undefined && (typeof input.budgetPeriodDays !== "number" || !Number.isFinite(input.budgetPeriodDays) || input.budgetPeriodDays <= 0)) {
-      throw new Error("FICOInput.budgetPeriodDays must be a positive number");
+      throw new Error("AgentCreditInput.budgetPeriodDays must be a positive number");
     }
     // Validate individual transactions
     for (const tx of input.transactions) {
@@ -550,14 +550,14 @@ export class AgentCreditScore {
    * Serialize FICO result for storage/transmission.
    * Strips non-essential data to reduce payload.
    */
-  static serialize(result: FICOResult): string {
+  static serialize(result: AgentCreditResult): string {
     return JSON.stringify(result);
   }
 
   /**
    * Deserialize with validation — never trust stored scores.
    */
-  static deserialize(json: string): FICOResult {
+  static deserialize(json: string): AgentCreditResult {
     const data = JSON.parse(json);
     if (typeof data.score !== "number" || data.score < 300 || data.score > 850) {
       throw new Error("Invalid FICO score: must be 300-850");
@@ -598,9 +598,21 @@ function extractCategory(reason: string): string {
   return firstWord || "unknown";
 }
 
-// ─── Backward-compatibility alias ───────────────────────────────────────────
-// `AgentFICO` is the legacy export name. It remains available for existing
-// users but will be removed in a future major version. New code should use
-// `AgentCreditScore`.
+// ─── Backward-compatibility aliases ─────────────────────────────────────────
+// These legacy names are kept for existing users. They will be removed in
+// a future major version. New code should use the `AgentCredit*` names.
+
 /** @deprecated Use `AgentCreditScore` instead. */
 export const AgentFICO = AgentCreditScore;
+/** @deprecated Use `AgentCreditTransaction` instead. */
+export type FICOTransaction = AgentCreditTransaction;
+/** @deprecated Use `AgentCreditInput` instead. */
+export type FICOInput = AgentCreditInput;
+/** @deprecated Use `AgentCreditComponent` instead. */
+export type FICOComponent = AgentCreditComponent;
+/** @deprecated Use `AgentCreditResult` instead. */
+export type FICOResult = AgentCreditResult;
+/** @deprecated Use `AgentCreditConfig` instead. */
+export type FICOConfig = AgentCreditConfig;
+/** @deprecated Use `DEFAULT_AGENT_CREDIT_CONFIG` instead. */
+export const DEFAULT_FICO_CONFIG = DEFAULT_AGENT_CREDIT_CONFIG;

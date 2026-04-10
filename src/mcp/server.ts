@@ -29,7 +29,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { MnemoPay, MnemoPayLite, RateLimiter, constantTimeEqual, AgentFICO, MerkleTree, BehavioralEngine, EWMADetector } from "../index.js";
+import { MnemoPay, MnemoPayLite, RateLimiter, constantTimeEqual, AgentCreditScore, MerkleTree, BehavioralEngine, EWMADetector } from "../index.js";
 import { StripeRail, LightningRail, MockRail } from "../rails/index.js";
 import { PaystackRail } from "../rails/paystack.js";
 import type { PaymentRail } from "../rails/index.js";
@@ -519,6 +519,61 @@ const TOOLS = [
       },
       required: ["paymentMethodId"],
     },
+  },
+  // ── Payouts (Paystack) ─────────────────────────────────────────────────────
+  {
+    name: "payout_create",
+    description:
+      "Initiate a bank transfer (payout) via Paystack. First creates a transfer recipient, " +
+      "then initiates the transfer. Only works with Paystack rail.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        accountName: { type: "string", description: "Recipient's name" },
+        accountNumber: { type: "string", description: "Bank account number" },
+        bankCode: { type: "string", description: "Bank code (e.g., '058' for GTBank)" },
+        amount: { type: "number", description: "Amount in NGN" },
+        reason: { type: "string", description: "Reason for the transfer" },
+      },
+      required: ["accountName", "accountNumber", "bankCode", "amount", "reason"],
+    },
+  },
+  {
+    name: "payout_status",
+    description:
+      "Check the status of a Paystack transfer/payout by transfer code.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        transferCode: { type: "string", description: "Transfer code from payout_create (e.g., TRF_...)" },
+      },
+      required: ["transferCode"],
+    },
+  },
+  // ── Webhooks ──────────────────────────────────────────────────────────────
+  {
+    name: "webhook_register",
+    description:
+      "Register a webhook URL to receive payment events (charge.success, transfer.success, etc.). " +
+      "Events are stored in-memory and dispatched when matching events occur.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "Callback URL to receive events" },
+        events: {
+          type: "array",
+          items: { type: "string" },
+          description: "Event types to subscribe to: charge.success, charge.failed, settle, refund, transfer.success, transfer.failed",
+        },
+      },
+      required: ["url", "events"],
+    },
+  },
+  {
+    name: "webhook_list",
+    description:
+      "List all registered webhook subscriptions.",
+    inputSchema: { type: "object" as const, properties: {} },
   },
   // ── Receipts & Export ─────────────────────────────────────────────────────
   {
@@ -1016,7 +1071,7 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
     // ── Agent FICO ─────────────────────────────────────────────────────────
 
     case "agent_fico_score": {
-      const fico = new AgentFICO();
+      const fico = new AgentCreditScore();
       const txHistory = await agent.history(1000);
       const profile = await agent.profile();
       const result = fico.compute({
@@ -1099,6 +1154,72 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
       return JSON.stringify(result, null, 2);
     }
 
+    // ── Payouts (Paystack) ──────────────────────────────────────────────
+
+    case "payout_create": {
+      const rail = (agent as any).paymentRail;
+      if (!rail || rail.name !== "paystack") throw new Error("payout_create requires Paystack rail. Set MNEMOPAY_PAYMENT_RAIL=paystack");
+      const recipient = await rail.createTransferRecipient(
+        args.accountName,
+        args.accountNumber,
+        args.bankCode,
+      );
+      const transfer = await rail.initiateTransfer(
+        recipient.recipientCode,
+        args.amount,
+        args.reason,
+        (agent as any).agentId,
+      );
+      return JSON.stringify({
+        status: "initiated",
+        transferCode: transfer.externalId,
+        reference: transfer.reference,
+        amount: transfer.amount,
+        recipientCode: recipient.recipientCode,
+        recipientName: recipient.name,
+        transferStatus: transfer.transferStatus,
+      }, null, 2);
+    }
+
+    case "payout_status": {
+      const rail = (agent as any).paymentRail;
+      if (!rail || rail.name !== "paystack") throw new Error("payout_status requires Paystack rail");
+      const response = await rail.request("GET", `/transfer/verify/${encodeURIComponent(args.transferCode)}`);
+      return JSON.stringify({
+        transferCode: args.transferCode,
+        status: response.data?.status ?? "unknown",
+        amount: response.data?.amount ? response.data.amount / 100 : null,
+        recipient: response.data?.recipient?.details?.account_name,
+        createdAt: response.data?.createdAt,
+        updatedAt: response.data?.updatedAt,
+      }, null, 2);
+    }
+
+    // ── Webhooks ────────────────────────────────────────────────────────
+
+    case "webhook_register": {
+      const id = `wh_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`;
+      _webhooks.set(id, { id, url: args.url, events: args.events, createdAt: Date.now() });
+      return JSON.stringify({
+        webhookId: id,
+        url: args.url,
+        events: args.events,
+        status: "registered",
+        message: "Webhook will receive POST requests when matching events occur.",
+      });
+    }
+
+    case "webhook_list": {
+      const hooks = Array.from(_webhooks.values()).map(w => ({
+        webhookId: w.id,
+        url: w.url,
+        events: w.events,
+        createdAt: new Date(w.createdAt).toISOString(),
+      }));
+      if (hooks.length === 0) return "No webhooks registered.";
+      return JSON.stringify(hooks, null, 2);
+    }
+
     case "shop_checkout": {
       const { CheckoutExecutor } = await import("../commerce/checkout/index.js");
       const { loadProfileFromEnv } = await import("../commerce/checkout/profile.js");
@@ -1157,6 +1278,17 @@ interface PendingChargeRequest {
 
 const pendingApprovals = new Map<string, PendingApproval>();
 const pendingChargeRequests = new Map<string, PendingChargeRequest>();
+
+// ── Webhook registry ───────────────────────────────────────────────────────
+
+interface WebhookSubscription {
+  id: string;
+  url: string;
+  events: string[];
+  createdAt: number;
+}
+
+const _webhooks = new Map<string, WebhookSubscription>();
 
 // Auto-expire pending approvals after 10 minutes
 setInterval(() => {
@@ -1226,7 +1358,7 @@ export async function startServer(): Promise<void> {
   const agent = createAgent();
 
   const server = new Server(
-    { name: "mnemopay", version: "1.0.0-beta.1" },
+    { name: "mnemopay", version: "1.2.0" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
@@ -1729,7 +1861,7 @@ export default function createSandboxServer(): Server {
   const agent = MnemoPay.quick("smithery-sandbox");
 
   const server = new Server(
-    { name: "mnemopay", version: "1.0.0-beta.1" },
+    { name: "mnemopay", version: "1.2.0" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 

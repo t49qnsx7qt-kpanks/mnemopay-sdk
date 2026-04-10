@@ -78,7 +78,7 @@
     "ai-agent",
     "agent-payments",
     "agent-memory",
-    "agent-banking",
+    "agent-ledger",
     "agent-identity",
     "agent-wallet",
     "ai-wallet",
@@ -117,7 +117,7 @@
     "ed25519",
     "hitl",
     "human-in-the-loop",
-    "agent-fico",
+    "agent-credit-scoring",
     "credit-score",
     "firecrawl"
   ],
