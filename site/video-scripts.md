@@ -88,7 +88,7 @@ All videos use Jerry's Digital Twin. Each script maps to a specific generated im
 [22-28s] CUT — back to close-up, uncrosses arms
 "The only SDK that combines memory and payments. That's how you build a credit file for a machine."
 
-[28-30s] END CARD — "Agent Credit Score. Coming." + mnemopay.com
+[28-30s] END CARD — "Agent Credit Score. Coming." + getbizsuite.com/mnemopay
 
 ---
 
