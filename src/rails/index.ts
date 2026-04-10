@@ -268,6 +268,55 @@ export class LightningRail implements PaymentRail {
   private btcPriceUsd: number;
 
   /**
+   * Check whether a hostname resolves to a private, reserved, or otherwise
+   * dangerous network address. Covers IPv6-mapped IPv4, numeric/hex/octal
+   * IP bypass tricks, cloud metadata endpoints, and RFC1918 ranges.
+   */
+  static isPrivateOrReserved(hostname: string): boolean {
+    const h = hostname.toLowerCase().replace(/\[|\]/g, "");
+
+    // Direct matches
+    const blocked = [
+      "localhost", "0.0.0.0", "[::]", "::1", "::ffff:127.0.0.1",
+      "metadata.google.internal", "169.254.169.254",
+    ];
+    if (blocked.some(b => h === b || h.includes(b))) return true;
+
+    // IPv4 numeric/hex/octal bypass
+    // Parse as number — if it resolves to a private range, block it
+    const asNum = Number(h);
+    if (!isNaN(asNum) && asNum >= 0) return true; // Block ALL numeric IPs
+
+    // Hex IPs
+    if (/^0x[0-9a-f]+$/i.test(h)) return true;
+
+    // Octal IPs (starts with 0)
+    if (/^0\d+(\.\d+){0,3}$/.test(h)) return true;
+
+    // IPv6-mapped IPv4
+    if (/::ffff:/i.test(h)) return true;
+
+    // IPv6 loopback
+    if (h === "::1" || h === "[::1]") return true;
+
+    // Suffix-based blocks
+    if (h.endsWith(".internal") || h.endsWith(".local")) return true;
+
+    // RFC1918 ranges and other reserved IPv4
+    const parts = h.split(".").map(Number);
+    if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+      if (parts[0] === 127) return true;
+      if (parts[0] === 10) return true;
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+      if (parts[0] === 192 && parts[1] === 168) return true;
+      if (parts[0] === 169 && parts[1] === 254) return true;
+      if (parts[0] === 0) return true;
+    }
+
+    return false;
+  }
+
+  /**
    * @param lndRestUrl — LND REST API URL (e.g. "https://localhost:8080")
    * @param macaroon — Admin macaroon hex string
    * @param btcPriceUsd — BTC price in USD for conversion (updated externally)
@@ -284,18 +333,7 @@ export class LightningRail implements PaymentRail {
       throw new Error("LND URL must use http or https protocol");
     }
     // SSRF protection: block private/internal network targets
-    const host = parsed.hostname.toLowerCase();
-    const ssrfBlocked = [
-      "localhost", "127.0.0.1", "0.0.0.0", "[::1]", "[::0]",
-      "169.254.169.254", // Cloud metadata (AWS/GCP/Azure)
-      "metadata.google.internal",
-    ];
-    if (ssrfBlocked.includes(host) ||
-        host.endsWith(".internal") ||
-        host.endsWith(".local") ||
-        /^10\./.test(host) ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-        /^192\.168\./.test(host)) {
+    if (LightningRail.isPrivateOrReserved(parsed.hostname)) {
       throw new Error("LND URL must not target private/internal network addresses");
     }
     this.baseUrl = `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/$/, "")}`;
@@ -346,9 +384,15 @@ export class LightningRail implements PaymentRail {
   }
 
   async capturePayment(externalId: string, _amount: number): Promise<PaymentRailResult> {
-    // Check if invoice is settled
+    // externalId is the r_hash (base64 payment hash) from createHold.
+    // LND REST requires the r_hash as URL-safe base64 in the path.
+    const rHashUrlSafe = externalId
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
     const invoice = await this.lndRequest(
-      `/v1/invoice/${encodeURIComponent(externalId)}`,
+      `/v1/invoice/${rHashUrlSafe}`,
       "GET"
     );
 

@@ -280,7 +280,7 @@ export class BehavioralEngine {
     if (amount <= 0) throw new Error("Amount must be positive for framing comparison");
     const gain = this.prospectValue(amount);
     const loss = this.prospectValue(-amount);
-    const ratio = Math.abs(loss.value) / gain.value;
+    const ratio = gain.value > 0 ? Math.abs(loss.value) / gain.value : this.config.lambda;
     return {
       gainValue: gain.value,
       lossValue: loss.value,

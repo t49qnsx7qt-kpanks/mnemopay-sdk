@@ -269,6 +269,9 @@ export class EWMADetector {
     this.mean = state.mean;
     this.variance = state.variance;
     this.count = Math.floor(state.count);
+    if (state.lastValue !== undefined && (typeof state.lastValue !== "number" || !Number.isFinite(state.lastValue))) {
+      throw new Error("Invalid lastValue");
+    }
     this.lastValue = state.lastValue ?? 0;
   }
 }
@@ -494,17 +497,16 @@ export class CanarySystem {
       if (oldest) this.canaries.delete(oldest.id);
     }
 
-    // Use crypto.randomUUID when available for unpredictable canary IDs
-    // A compromised agent that can predict canary IDs can avoid traps
-    let randomSuffix: string;
-    try {
-      randomSuffix = require("crypto").randomBytes(6).toString("hex");
-    } catch {
-      randomSuffix = Math.random().toString(36).slice(2, 8);
-    }
+    // Use crypto.randomBytes for unpredictable canary IDs and amounts.
+    // A compromised agent that can predict canary IDs can avoid traps.
+    // No fallback to Math.random() — canaries MUST be unpredictable.
+    const cryptoMod = require("crypto");
+    const randomSuffix = cryptoMod.randomBytes(6).toString("hex");
+    // Crypto-random amount between $1-100 (uniform, unpredictable)
+    const randomAmount = (cryptoMod.randomBytes(2).readUInt16BE(0) % 9900 + 100) / 100;
     const canary: CanaryTransaction = {
       id: `canary-${Date.now()}-${randomSuffix}`,
-      amount: Math.round((Math.random() * 99 + 1) * 100) / 100, // $1-100
+      amount: Math.round(randomAmount * 100) / 100, // $1-100
       type,
       plantedAt: Date.now(),
       triggered: false,

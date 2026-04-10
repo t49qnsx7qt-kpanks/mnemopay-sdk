@@ -101,44 +101,46 @@ export interface IdentityVerification {
 
 // ─── Crypto Utilities ───────────────────────────────────────────────────────
 
-import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import {
+  randomBytes,
+  timingSafeEqual,
+  generateKeyPairSync,
+  sign as cryptoSign,
+  verify as cryptoVerify,
+  createPublicKey,
+  createPrivateKey,
+  KeyObject,
+} from "crypto";
 
 function generateKeyPair(): { publicKey: string; privateKey: string } {
-  // 32 random bytes for private key
-  const privateKeyBuf = randomBytes(32);
-  const privateKey = privateKeyBuf.toString("hex");
-
-  // Derive public key deterministically from private key via HMAC-SHA256
-  const publicKey = createHmac("sha256", privateKeyBuf)
-    .update("mnemopay-v1-public-key-derivation")
-    .digest("hex");
-
-  return { publicKey, privateKey };
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  return {
+    publicKey: (publicKey as KeyObject).export({ type: "spki", format: "der" }).toString("hex"),
+    privateKey: (privateKey as KeyObject).export({ type: "pkcs8", format: "der" }).toString("hex"),
+  };
 }
 
-function signMessage(message: string, privateKey: string): string {
-  // HMAC-SHA256 signature using the agent's private key
-  return createHmac("sha256", Buffer.from(privateKey, "hex"))
-    .update(message)
-    .digest("hex");
+function signMessage(message: string, privateKeyHex: string): string {
+  const privateKey = createPrivateKey({
+    key: Buffer.from(privateKeyHex, "hex"),
+    format: "der",
+    type: "pkcs8",
+  });
+  return cryptoSign(null, Buffer.from(message), privateKey).toString("hex");
 }
 
 /**
- * Constant-time HMAC signature verification.
- * Prevents timing side-channel attacks where an attacker measures response
- * time to brute-force signatures byte by byte.
+ * Verify a signature using Ed25519 public key.
+ * True asymmetric verification — does not require the private key.
  */
-function verifySignature(message: string, signature: string, publicKey: string): boolean {
+function verifySignature(message: string, signature: string, publicKeyHex: string): boolean {
   try {
-    // Recompute expected signature from the public key (which is the HMAC of the private key)
-    // For verification, we compare the provided signature against one we compute
-    const expected = createHmac("sha256", Buffer.from(publicKey, "hex"))
-      .update(message)
-      .digest("hex");
-    const sigBuf = Buffer.from(signature, "hex");
-    const expBuf = Buffer.from(expected, "hex");
-    if (sigBuf.length !== expBuf.length) return false;
-    return timingSafeEqual(sigBuf, expBuf);
+    const publicKey = createPublicKey({
+      key: Buffer.from(publicKeyHex, "hex"),
+      format: "der",
+      type: "spki",
+    });
+    return cryptoVerify(null, Buffer.from(message), publicKey, Buffer.from(signature, "hex"));
   } catch {
     return false;
   }
@@ -460,13 +462,11 @@ export class IdentityRegistry {
     // Check nonce hasn't been used (prevents replay within the window)
     if (this.usedNonces.has(nonce)) return { valid: false, reason: "Nonce already used (replay detected)" };
 
-    // Verify signature (constant-time)
+    // Verify signature using public key (true asymmetric verification)
     const payload = `${nonce}:${timestamp}:${message}`;
-    const expected = signMessage(payload, identity.privateKey);
-    const sigBuf = Buffer.from(signature, "hex");
-    const expBuf = Buffer.from(expected, "hex");
-    if (sigBuf.length !== expBuf.length) return { valid: false, reason: "Invalid signature" };
-    if (!timingSafeEqual(sigBuf, expBuf)) return { valid: false, reason: "Invalid signature" };
+    if (!verifySignature(payload, signature, identity.publicKey)) {
+      return { valid: false, reason: "Invalid signature" };
+    }
 
     // Record nonce to prevent replay
     this.usedNonces.set(nonce, Date.now());
@@ -527,10 +527,19 @@ export class IdentityRegistry {
     tokens: CapabilityToken[];
   }): IdentityRegistry {
     const registry = new IdentityRegistry();
+    if (!Array.isArray(data?.identities) || !Array.isArray(data?.tokens)) {
+      throw new Error("Invalid IdentityRegistry data: expected identities and tokens arrays");
+    }
     for (const id of data.identities) {
+      if (!id.agentId || typeof id.agentId !== "string") throw new Error("Invalid identity: missing agentId");
+      if (!id.publicKey || typeof id.publicKey !== "string") throw new Error("Invalid identity: missing publicKey");
+      if (!id.ownerId || typeof id.ownerId !== "string") throw new Error("Invalid identity: missing ownerId");
+      if (!id.kya || typeof id.kya !== "object") throw new Error("Invalid identity: missing KYA record");
       registry.identities.set(id.agentId, id);
     }
     for (const token of data.tokens) {
+      if (!token.id || typeof token.id !== "string") throw new Error("Invalid token: missing id");
+      if (!token.agentId || typeof token.agentId !== "string") throw new Error("Invalid token: missing agentId");
       registry.tokens.set(token.id, token);
       if (!registry.agentTokens.has(token.agentId)) {
         registry.agentTokens.set(token.agentId, new Set());

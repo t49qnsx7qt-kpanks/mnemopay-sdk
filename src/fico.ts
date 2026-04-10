@@ -532,6 +532,9 @@ export class AgentCreditScore {
     if (input.budgetCap !== undefined && (typeof input.budgetCap !== "number" || !Number.isFinite(input.budgetCap) || input.budgetCap <= 0)) {
       throw new Error("FICOInput.budgetCap must be a positive number");
     }
+    if (input.budgetPeriodDays !== undefined && (typeof input.budgetPeriodDays !== "number" || !Number.isFinite(input.budgetPeriodDays) || input.budgetPeriodDays <= 0)) {
+      throw new Error("FICOInput.budgetPeriodDays must be a positive number");
+    }
     // Validate individual transactions
     for (const tx of input.transactions) {
       if (typeof tx.amount !== "number" || !Number.isFinite(tx.amount)) {
@@ -560,9 +563,11 @@ export class AgentCreditScore {
       throw new Error("Invalid FICO score: must be 300-850");
     }
     // Re-clamp all component scores on load (defense in depth)
-    for (const key of ["paymentHistory", "creditUtilization", "historyLength", "behaviorDiversity", "fraudRecord"] as const) {
-      if (data.components?.[key]) {
-        data.components[key].score = clamp(data.components[key].score);
+    if (data.components && typeof data.components === "object") {
+      for (const key of ["paymentHistory", "creditUtilization", "historyLength", "behaviorDiversity", "fraudRecord"] as const) {
+        if (data.components[key] && typeof data.components[key].score === "number") {
+          data.components[key].score = clamp(data.components[key].score);
+        }
       }
     }
     return data;

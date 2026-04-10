@@ -475,9 +475,15 @@ export class MnemoPayLite extends EventEmitter {
       if (raw.auditLog) {
         this.auditLog = raw.auditLog.map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) }));
       }
-      // Restore ledger entries
+      // Restore ledger entries — verify balance integrity on load
       if (raw.ledger && Array.isArray(raw.ledger)) {
-        (this as any).ledger = new Ledger(raw.ledger);
+        const restoredLedger = new Ledger(raw.ledger);
+        const summary = restoredLedger.verify();
+        if (!summary.balanced) {
+          this.log(`WARNING: Ledger imbalance detected on load: ${summary.imbalance}. Ledger may be corrupted.`);
+          this.audit("ledger:imbalance_detected", { imbalance: summary.imbalance, entryCount: summary.entryCount });
+        }
+        (this as any).ledger = restoredLedger;
         this.log(`Restored ${raw.ledger.length} ledger entries`);
       }
       // Restore identity registry
@@ -960,11 +966,10 @@ export class MnemoPayLite extends EventEmitter {
         tx.status = "completed";
         tx.completedAt = new Date();
         this._wallet = Math.round(newBalance * 100) / 100; // 2-decimal precision
+        // Boost reputation inside lock to prevent race condition on concurrent settles
+        this._reputation = Math.min(this._reputation + 0.01, 1.0);
       });
       await this._walletLock;
-
-      // 4. Boost reputation
-      this._reputation = Math.min(this._reputation + 0.01, 1.0);
 
       // 5. Reinforce recently-accessed memories (feedback loop)
       const oneHourAgo = Date.now() - 3_600_000;
@@ -1772,6 +1777,11 @@ export { MnemoPayNetwork } from "./network.js";
 export type { NetworkAgent, DealResult, NetworkStats, NetworkConfig } from "./network.js";
 export { CommerceEngine, MockCommerceProvider } from "./commerce.js";
 export type { ShoppingMandate, ProductResult, PurchaseOrder, CommerceProvider, SearchOptions, ApprovalCallback } from "./commerce.js";
+export { CheckoutExecutor } from "./commerce/checkout/index.js";
+export type { CheckoutResult, CheckoutContext, CheckoutStrategy, CheckoutExecutorConfig, BuyerProfile } from "./commerce/checkout/index.js";
+export { ShopifyCheckoutStrategy } from "./commerce/checkout/strategies/shopify.js";
+export { GenericCheckoutStrategy } from "./commerce/checkout/strategies/generic.js";
+export { loadProfileFromEnv, validateProfile } from "./commerce/checkout/profile.js";
 export { AdaptiveEngine, DEFAULT_ADAPTIVE_CONFIG } from "./adaptive.js";
 export type { AdaptiveConfig, AgentInsight, BusinessMetrics, AdaptationRecord, AdaptiveEvent, AdaptiveEventType } from "./adaptive.js";
 export { AgentCreditScore, AgentFICO, DEFAULT_FICO_CONFIG } from "./fico.js";

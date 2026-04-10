@@ -698,7 +698,7 @@ export class AdaptiveEngine {
   ): AdaptationRecord {
     const isLocked = this.isLocked(parameter);
     return {
-      id: `adapt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `adapt_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`,
       parameter,
       previousValue: Math.round(previousValue * 10000) / 10000,
       newValue: Math.round(newValue * 10000) / 10000,

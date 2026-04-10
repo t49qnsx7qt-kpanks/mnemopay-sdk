@@ -252,6 +252,7 @@ export class CommerceEngine {
   private externalOrderMap: Map<string, string> = new Map(); // externalOrderId → orderId
   private searchLimiter = new CommerceRateLimiter(20, 60_000);  // 20 searches/min
   private purchaseLimiter = new CommerceRateLimiter(5, 60_000);  // 5 purchases/min
+  private orderLocks: Set<string> = new Set();
 
   constructor(agent: any, provider?: CommerceProvider) {
     // Runtime validation: agent must implement required MnemoPayLite interface
@@ -261,6 +262,19 @@ export class CommerceEngine {
     }
     this.agent = agent;
     this.provider = provider ?? new MockCommerceProvider();
+  }
+
+  // ── Order Locking ──────────────────────────────────────────────────────
+
+  private acquireOrderLock(orderId: string): void {
+    if (this.orderLocks.has(orderId)) {
+      throw new Error(`Order ${orderId} is being processed by another operation`);
+    }
+    this.orderLocks.add(orderId);
+  }
+
+  private releaseOrderLock(orderId: string): void {
+    this.orderLocks.delete(orderId);
   }
 
   // ── Mandate Management ──────────────────────────────────────────────────
@@ -415,7 +429,7 @@ export class CommerceEngine {
         return order;
       }
     }
-    order.approved = true;
+    // DON'T set approved=true yet — wait until escrow succeeds
 
     // Create escrow hold via MnemoPay charge
     const tx = await this.agent.charge(
@@ -423,6 +437,7 @@ export class CommerceEngine {
       `Purchase: ${product.title} from ${product.merchant}`,
     );
     order.txId = tx.id;
+    order.approved = true;  // NOW set approved — funds are locked
     order.status = "escrowed";
     order.updatedAt = new Date();
 
@@ -457,18 +472,26 @@ export class CommerceEngine {
         { importance: 0.6, tags: ["purchase", product.category ?? "shopping"] },
       );
 
-      this.totalSpent += product.price;
+      this.totalSpent = Math.round((this.totalSpent + product.price) * 100) / 100;
     } catch (err: any) {
       // Purchase failed — refund escrow
       order.status = "failed";
       order.failureReason = err.message;
       order.updatedAt = new Date();
 
-      try {
-        await this.agent.refund(tx.id);
-      } catch {
-        // Refund best-effort, log it
-        this.agent.audit("commerce:refund:failed", { orderId, txId: tx.id });
+      if (order.txId) {
+        try {
+          await this.agent.refund(order.txId);
+        } catch (refundErr: any) {
+          // Critical: funds stuck in escrow. Mark order distinctly so it can be recovered.
+          order.failureReason = `${err.message} [ESCROW STUCK: refund also failed: ${refundErr.message}]`;
+          this.agent.audit("commerce:escrow:stuck", {
+            orderId: order.id,
+            txId: order.txId,
+            originalError: err.message,
+            refundError: refundErr.message,
+          });
+        }
       }
 
       this.agent.audit("commerce:purchase:failed", {
@@ -486,30 +509,35 @@ export class CommerceEngine {
   async confirmDelivery(orderId: string): Promise<PurchaseOrder> {
     const order = this.orders.get(orderId);
     if (!order) throw new Error(`Order not found: ${orderId}`);
-    if (order.status === "delivered") throw new Error("Order already delivered");
-    if (order.status === "cancelled" || order.status === "failed") {
-      throw new Error(`Cannot confirm delivery on ${order.status} order`);
+    this.acquireOrderLock(orderId);
+    try {
+      if (order.status === "delivered") throw new Error("Order already delivered");
+      if (order.status === "cancelled" || order.status === "failed") {
+        throw new Error(`Cannot confirm delivery on ${order.status} order`);
+      }
+
+      // Settle the escrow
+      await this.agent.settle(order.txId);
+      order.status = "delivered";
+      order.updatedAt = new Date();
+
+      this.agent.audit("commerce:delivery:confirmed", {
+        orderId,
+        txId: order.txId,
+        product: order.product.title,
+        price: order.product.price,
+      });
+
+      // Reinforce memory of successful purchase
+      await this.agent.remember(
+        `Delivery confirmed: "${order.product.title}" from ${order.product.merchant}. Satisfied.`,
+        { importance: 0.5, tags: ["delivery", "satisfied"] },
+      );
+
+      return order;
+    } finally {
+      this.releaseOrderLock(orderId);
     }
-
-    // Settle the escrow
-    await this.agent.settle(order.txId);
-    order.status = "delivered";
-    order.updatedAt = new Date();
-
-    this.agent.audit("commerce:delivery:confirmed", {
-      orderId,
-      txId: order.txId,
-      product: order.product.title,
-      price: order.product.price,
-    });
-
-    // Reinforce memory of successful purchase
-    await this.agent.remember(
-      `Delivery confirmed: "${order.product.title}" from ${order.product.merchant}. Satisfied.`,
-      { importance: 0.5, tags: ["delivery", "satisfied"] },
-    );
-
-    return order;
   }
 
   /**
@@ -518,26 +546,31 @@ export class CommerceEngine {
   async cancelOrder(orderId: string, reason?: string): Promise<PurchaseOrder> {
     const order = this.orders.get(orderId);
     if (!order) throw new Error(`Order not found: ${orderId}`);
-    if (order.status === "delivered") throw new Error("Cannot cancel a delivered order");
-    if (order.status === "cancelled") throw new Error("Order already cancelled");
+    this.acquireOrderLock(orderId);
+    try {
+      if (order.status === "delivered") throw new Error("Cannot cancel a delivered order");
+      if (order.status === "cancelled") throw new Error("Order already cancelled");
 
-    // Refund escrow
-    if (order.txId) {
-      await this.agent.refund(order.txId);
-      this.totalSpent = Math.max(0, this.totalSpent - order.product.price);
+      // Refund escrow
+      if (order.txId) {
+        await this.agent.refund(order.txId);
+        this.totalSpent = Math.max(0, Math.round((this.totalSpent - order.product.price) * 100) / 100);
+      }
+
+      order.status = "cancelled";
+      order.failureReason = reason ?? "Cancelled by user";
+      order.updatedAt = new Date();
+
+      this.agent.audit("commerce:order:cancelled", {
+        orderId,
+        txId: order.txId,
+        reason: order.failureReason,
+      });
+
+      return order;
+    } finally {
+      this.releaseOrderLock(orderId);
     }
-
-    order.status = "cancelled";
-    order.failureReason = reason ?? "Cancelled by user";
-    order.updatedAt = new Date();
-
-    this.agent.audit("commerce:order:cancelled", {
-      orderId,
-      txId: order.txId,
-      reason: order.failureReason,
-    });
-
-    return order;
   }
 
   /**

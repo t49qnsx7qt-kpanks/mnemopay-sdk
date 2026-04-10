@@ -537,10 +537,12 @@ export class FraudGuard {
     stats.count++;
     this.agentStats.set(agentId, stats);
 
-    // Track IP
+    // Track IP (capped at 500 unique IPs per agent)
     if (ctx?.ip) {
       const ips = this.agentIps.get(agentId) || new Set();
-      ips.add(ctx.ip);
+      if (ips.size < 500) {
+        ips.add(ctx.ip);
+      }
       this.agentIps.set(agentId, ips);
     }
 
@@ -941,7 +943,8 @@ export class FraudGuard {
       const consistency = maxCountryCount / profile.totalTxCount;
       // Smooth ramp: need 10+ tx from same country for full trust
       const maturity = Math.min(profile.totalTxCount / 10, 1.0);
-      profile.trustScore = Math.round(consistency * maturity * 100) / 100;
+      const rawTrust = consistency * maturity;
+      profile.trustScore = Number.isFinite(rawTrust) ? Math.round(rawTrust * 100) / 100 : 0;
     }
 
     this.geoProfiles.set(agentId, profile);

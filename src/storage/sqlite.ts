@@ -378,7 +378,11 @@ export class JSONFileStorage implements StorageAdapter {
         })),
         fraudGuard: raw.fraudGuard,
       };
-    } catch {
+    } catch (err: any) {
+      // Log corruption — never silently lose financial data
+      if (typeof process !== "undefined" && process.stderr) {
+        process.stderr.write(`[MNEMOPAY WARNING] Failed to load agent state from ${this.filePath}: ${err?.message}\n`);
+      }
       return null;
     }
   }
@@ -407,12 +411,17 @@ export class JSONFileStorage implements StorageAdapter {
       const tmpPath = this.filePath + ".tmp";
       fs.writeFileSync(tmpPath, data, "utf-8");
       fs.renameSync(tmpPath, this.filePath);
-    } catch {
+    } catch (err: any) {
       // Fallback: direct write
       try {
         const fs = require("fs");
         fs.writeFileSync(this.filePath, JSON.stringify(state), "utf-8");
-      } catch { /* swallow in browser */ }
+      } catch {
+        // Log critical failure — never silently lose data in non-browser environments
+        if (typeof process !== "undefined" && process.stderr) {
+          process.stderr.write(`[MNEMOPAY CRITICAL] Failed to persist agent state: ${err?.message}\n`);
+        }
+      }
     }
   }
 

@@ -30,6 +30,9 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { MnemoPay, MnemoPayLite, RateLimiter, constantTimeEqual, AgentFICO, MerkleTree, BehavioralEngine, EWMADetector } from "../index.js";
+import { StripeRail, LightningRail, MockRail } from "../rails/index.js";
+import { PaystackRail } from "../rails/paystack.js";
+import type { PaymentRail } from "../rails/index.js";
 import type { RequestContext } from "../fraud.js";
 
 // ─── Security: MCP-level rate limiter ────────────────────────────────────────
@@ -77,11 +80,45 @@ function createAgent(): Agent {
     });
   }
 
+  // ── Payment rail selection ────────────────────────────────────────────────
+  // Set MNEMOPAY_PAYMENT_RAIL to "stripe", "paystack", or "lightning".
+  // Defaults to MockRail when no rail/keys are configured (backwards compatible).
+  const railName = (process.env.MNEMOPAY_PAYMENT_RAIL || "mock").toLowerCase();
+  let paymentRail: PaymentRail;
+
+  switch (railName) {
+    case "stripe": {
+      const key = process.env.STRIPE_SECRET_KEY;
+      if (!key) throw new Error("STRIPE_SECRET_KEY required when MNEMOPAY_PAYMENT_RAIL=stripe");
+      const currency = process.env.STRIPE_CURRENCY || "usd";
+      paymentRail = new StripeRail(key, currency);
+      break;
+    }
+    case "paystack": {
+      const key = process.env.PAYSTACK_SECRET_KEY;
+      if (!key) throw new Error("PAYSTACK_SECRET_KEY required when MNEMOPAY_PAYMENT_RAIL=paystack");
+      const currency = (process.env.PAYSTACK_CURRENCY || "NGN") as any;
+      paymentRail = new PaystackRail(key, { currency });
+      break;
+    }
+    case "lightning": {
+      const url = process.env.LIGHTNING_LND_URL;
+      const macaroon = process.env.LIGHTNING_MACAROON;
+      if (!url || !macaroon) throw new Error("LIGHTNING_LND_URL and LIGHTNING_MACAROON required when MNEMOPAY_PAYMENT_RAIL=lightning");
+      const btcPrice = Number(process.env.LIGHTNING_BTC_PRICE) || 60000;
+      paymentRail = new LightningRail(url, macaroon, btcPrice);
+      break;
+    }
+    default:
+      paymentRail = new MockRail();
+  }
+
   const recall = (process.env.MNEMOPAY_RECALL as "score" | "vector" | "hybrid") || undefined;
   const agent = MnemoPay.quick(agentId, {
     debug: process.env.DEBUG === "true",
     recall,
     openaiApiKey: process.env.OPENAI_API_KEY,
+    paymentRail,
   });
 
   // Enable file persistence — always on by default.
@@ -373,6 +410,141 @@ const TOOLS = [
       },
     },
   },
+  // ── Approval / HITL tools ──────────────────────────────────────────────────
+  {
+    name: "shop_pending_approvals",
+    description:
+      "List all purchases and charge requests waiting for your approval. " +
+      "Items expire after 10 minutes if not approved.",
+    inputSchema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "shop_approve",
+    description:
+      "Approve a pending purchase. Funds will be escrowed and purchase executed.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orderId: { type: "string", description: "Order ID from shop_pending_approvals" },
+      },
+      required: ["orderId"],
+    },
+  },
+  {
+    name: "shop_reject",
+    description:
+      "Reject a pending purchase. Order will be cancelled, no money moves.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        orderId: { type: "string", description: "Order ID to reject" },
+      },
+      required: ["orderId"],
+    },
+  },
+  {
+    name: "charge_request",
+    description:
+      "Request a charge that requires user approval before executing. " +
+      "Unlike charge(), this queues the payment for review. " +
+      "Use charge_approve or charge_reject to finalize.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        amount: { type: "number", description: "Amount in USD" },
+        reason: { type: "string", description: "Why the charge is needed" },
+      },
+      required: ["amount", "reason"],
+    },
+  },
+  {
+    name: "charge_approve",
+    description:
+      "Approve a pending charge request. Executes the real charge.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        requestId: { type: "string", description: "Request ID from charge_request" },
+      },
+      required: ["requestId"],
+    },
+  },
+  {
+    name: "charge_reject",
+    description:
+      "Reject a pending charge request. No money moves.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        requestId: { type: "string", description: "Request ID to reject" },
+      },
+      required: ["requestId"],
+    },
+  },
+  // ── Payment method management ─────────────────────────────────────────────
+  {
+    name: "payment_method_add",
+    description:
+      "Create a Stripe customer and SetupIntent to collect a payment method. " +
+      "Returns a client_secret for Stripe.js to confirm. Only works with Stripe rail.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        email: { type: "string", description: "Customer email" },
+        name: { type: "string", description: "Customer name (optional)" },
+      },
+      required: ["email"],
+    },
+  },
+  {
+    name: "payment_method_list",
+    description:
+      "List saved payment methods for a Stripe customer.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        customerId: { type: "string", description: "Stripe customer ID (cus_...)" },
+      },
+      required: ["customerId"],
+    },
+  },
+  {
+    name: "payment_method_remove",
+    description:
+      "Detach a payment method from a Stripe customer.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paymentMethodId: { type: "string", description: "Payment method ID (pm_...)" },
+      },
+      required: ["paymentMethodId"],
+    },
+  },
+  // ── Receipts & Export ─────────────────────────────────────────────────────
+  {
+    name: "receipt_get",
+    description:
+      "Get a formatted receipt for a transaction.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        txId: { type: "string", description: "Transaction ID" },
+      },
+      required: ["txId"],
+    },
+  },
+  {
+    name: "history_export",
+    description:
+      "Export full transaction history as JSON or CSV.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        format: { type: "string", enum: ["json", "csv"], description: "Export format (default: json)" },
+        limit: { type: "number", description: "Max transactions (default: all)" },
+      },
+    },
+  },
   // ── Agent FICO ─────────────────────────────────────────────────────────────
   {
     name: "agent_fico_score",
@@ -434,6 +606,24 @@ const TOOLS = [
           description: "Previous snapshot hash to compare against (optional — omit for first check)",
         },
       },
+    },
+  },
+  // ── Checkout Executor ──────────────────────────────────────────────────────
+  {
+    name: "shop_checkout",
+    description:
+      "Complete a purchase on a merchant website using browser automation. " +
+      "Navigates to the product URL, adds to cart, fills shipping/payment, " +
+      "and completes checkout. Requires MNEMOPAY_BUYER_* env vars for buyer profile. " +
+      "Supports Shopify natively; falls back to generic checkout for other sites.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        productUrl: { type: "string", description: "Full URL of the product to purchase" },
+        headless: { type: "boolean", description: "Run browser in headless mode (default: true)" },
+        screenshotDir: { type: "string", description: "Directory to save debug screenshots" },
+      },
+      required: ["productUrl"],
     },
   },
   // ── Anomaly Detection ──────────────────────────────────────────────────────
@@ -591,6 +781,36 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
       if (order.status === "cancelled") {
         return `Order cancelled: ${order.failureReason}`;
       }
+
+      // If using a real provider (firecrawl/shopify), the purchase may need
+      // browser checkout to actually complete. Attempt it if buyer profile is configured.
+      const providerName = commerce["provider"]?.name;
+      if (product.url && (providerName === "firecrawl" || providerName === "shopify")) {
+        try {
+          const { CheckoutExecutor } = await import("../commerce/checkout/index.js");
+          const { loadProfileFromEnv } = await import("../commerce/checkout/profile.js");
+          const buyerProfile = loadProfileFromEnv();
+          if (buyerProfile) {
+            const executor = new CheckoutExecutor({ profile: buyerProfile, headless: true });
+            const checkoutResult = await executor.checkout(product.url);
+            if (checkoutResult.success) {
+              return JSON.stringify({
+                orderId: order.id,
+                product: order.product.title,
+                price: order.product.price,
+                status: "purchased",
+                escrowTxId: order.txId,
+                externalOrderId: checkoutResult.orderId,
+                confirmationUrl: checkoutResult.confirmationUrl,
+                totalCharged: checkoutResult.totalCharged,
+                message: "Purchase completed via browser checkout. Funds in escrow until delivery confirmed.",
+                remainingBudget: commerce.remainingBudget,
+              });
+            }
+          }
+        } catch { /* checkout executor not available — return standard result */ }
+      }
+
       return JSON.stringify({
         orderId: order.id,
         product: order.product.title,
@@ -623,6 +843,174 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
         (o.trackingUrl ? ` Track: ${o.trackingUrl}` : "")
       ).join("\n");
       return `${list}\n\nSpent: $${summary.totalSpent.toFixed(2)} | Remaining: $${summary.remainingBudget.toFixed(2)} | Orders: ${summary.orderCount}`;
+    }
+
+    // ── Approval / HITL handlers ───────────────────────────────────────────
+
+    case "shop_pending_approvals": {
+      const shopApprovals = Array.from(pendingApprovals.entries()).map(([id, entry]) => ({
+        orderId: id,
+        product: entry.order.product?.title,
+        price: entry.order.product?.price,
+        merchant: entry.order.product?.merchant,
+        waitingSince: new Date(entry.createdAt).toISOString(),
+        expiresIn: Math.max(0, Math.round((600_000 - (Date.now() - entry.createdAt)) / 1000)) + "s",
+      }));
+      const chargeRequests = Array.from(pendingChargeRequests.entries()).map(([id, entry]) => ({
+        requestId: id,
+        amount: entry.amount,
+        reason: entry.reason,
+        waitingSince: new Date(entry.createdAt).toISOString(),
+        expiresIn: Math.max(0, Math.round((600_000 - (Date.now() - entry.createdAt)) / 1000)) + "s",
+      }));
+      if (shopApprovals.length === 0 && chargeRequests.length === 0) {
+        return "No pending approvals.";
+      }
+      return JSON.stringify({ shopApprovals, chargeRequests }, null, 2);
+    }
+
+    case "shop_approve": {
+      const entry = pendingApprovals.get(args.orderId);
+      if (!entry) throw new Error(`No pending approval for order ${args.orderId}`);
+      entry.resolve(true);
+      pendingApprovals.delete(args.orderId);
+      return JSON.stringify({ status: "approved", orderId: args.orderId, message: "Purchase approved. Escrow and purchase executing." });
+    }
+
+    case "shop_reject": {
+      const entry = pendingApprovals.get(args.orderId);
+      if (!entry) throw new Error(`No pending approval for order ${args.orderId}`);
+      entry.resolve(false);
+      pendingApprovals.delete(args.orderId);
+      return JSON.stringify({ status: "rejected", orderId: args.orderId, message: "Purchase rejected. No money moved." });
+    }
+
+    case "charge_request": {
+      const requestId = `cr_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`;
+      pendingChargeRequests.set(requestId, {
+        id: requestId,
+        amount: args.amount,
+        reason: args.reason,
+        context: args.context,
+        payOptions: args.payOptions,
+        createdAt: Date.now(),
+      });
+      return JSON.stringify({
+        requestId,
+        amount: args.amount,
+        reason: args.reason,
+        status: "pending_approval",
+        message: `Charge of $${args.amount.toFixed(2)} queued for approval. Use charge_approve("${requestId}") to execute.`,
+        expiresIn: "10 minutes",
+      });
+    }
+
+    case "charge_approve": {
+      const req = pendingChargeRequests.get(args.requestId);
+      if (!req) throw new Error(`No pending charge request ${args.requestId}`);
+      pendingChargeRequests.delete(args.requestId);
+      // Execute the real charge
+      const tx = await agent.charge(req.amount, req.reason, req.context, req.payOptions);
+      return JSON.stringify({
+        status: "charged",
+        requestId: args.requestId,
+        txId: tx.id,
+        amount: tx.amount,
+        reason: req.reason,
+        rail: (agent as any).paymentRail?.name,
+        message: "Charge executed. Funds held in escrow. Use settle() to finalize.",
+      });
+    }
+
+    case "charge_reject": {
+      const req = pendingChargeRequests.get(args.requestId);
+      if (!req) throw new Error(`No pending charge request ${args.requestId}`);
+      pendingChargeRequests.delete(args.requestId);
+      return JSON.stringify({
+        status: "rejected",
+        requestId: args.requestId,
+        message: `Charge of $${req.amount.toFixed(2)} for "${req.reason}" rejected. No money moved.`,
+      });
+    }
+
+    // ── Payment method management ─────────────────────────────────────────
+
+    case "payment_method_add": {
+      const rail = (agent as any).paymentRail;
+      if (!rail || rail.name !== "stripe") throw new Error("payment_method_add requires Stripe rail. Set MNEMOPAY_PAYMENT_RAIL=stripe");
+      const customer = await rail.createCustomer(args.email, args.name);
+      const setup = await rail.createSetupIntent(customer.customerId);
+      return JSON.stringify({
+        customerId: customer.customerId,
+        setupIntentId: setup.setupIntentId,
+        clientSecret: setup.clientSecret,
+        message: "Use this clientSecret with Stripe.js to collect the card. Then pass customerId + paymentMethodId to charge().",
+      });
+    }
+
+    case "payment_method_list": {
+      const rail = (agent as any).paymentRail;
+      if (!rail || rail.name !== "stripe") throw new Error("payment_method_list requires Stripe rail");
+      const stripe = (rail as any).stripe;
+      const methods = await stripe.paymentMethods.list({ customer: args.customerId, type: "card" });
+      const cards = methods.data.map((pm: any) => ({
+        id: pm.id,
+        brand: pm.card?.brand,
+        last4: pm.card?.last4,
+        expMonth: pm.card?.exp_month,
+        expYear: pm.card?.exp_year,
+      }));
+      if (cards.length === 0) return "No saved payment methods.";
+      return JSON.stringify(cards, null, 2);
+    }
+
+    case "payment_method_remove": {
+      const rail = (agent as any).paymentRail;
+      if (!rail || rail.name !== "stripe") throw new Error("payment_method_remove requires Stripe rail");
+      const stripe = (rail as any).stripe;
+      await stripe.paymentMethods.detach(args.paymentMethodId);
+      return JSON.stringify({ status: "removed", paymentMethodId: args.paymentMethodId });
+    }
+
+    // ── Receipts & Export ────────────────────────────────────────────────
+
+    case "receipt_get": {
+      const txHistory = await agent.history(10000);
+      const tx = txHistory.find((t: any) => t.id === args.txId);
+      if (!tx) throw new Error(`Transaction ${args.txId} not found`);
+      const profile = await agent.profile();
+      const receipt = [
+        "═══════════════════════════════════════",
+        "           MNEMOPAY RECEIPT            ",
+        "═══════════════════════════════════════",
+        `Transaction ID: ${tx.id}`,
+        `Date:           ${tx.createdAt}`,
+        `Agent:          ${tx.agentId || profile.id}`,
+        `Amount:         $${tx.amount.toFixed(2)}`,
+        `Status:         ${tx.status}`,
+        `Reason:         ${tx.reason || "N/A"}`,
+        tx.platformFee ? `Platform Fee:   $${tx.platformFee.toFixed(2)}` : null,
+        tx.netAmount ? `Net Amount:     $${tx.netAmount.toFixed(2)}` : null,
+        tx.externalId ? `External Ref:   ${tx.externalId}` : null,
+        `Rail:           ${(agent as any).paymentRail?.name || "mock"}`,
+        "═══════════════════════════════════════",
+      ].filter(Boolean).join("\n");
+      return receipt;
+    }
+
+    case "history_export": {
+      const format = args.format || "json";
+      const limit = args.limit || 10000;
+      const txHistory = await agent.history(limit);
+      if (format === "csv") {
+        const railName = (agent as any).paymentRail?.name || "mock";
+        const headers = "id,date,amount,status,reason,rail,externalId,platformFee,netAmount";
+        const rows = txHistory.map((tx: any) =>
+          [tx.id, tx.createdAt, tx.amount, tx.status, `"${(tx.reason || "").replace(/"/g, '""')}"`, railName, tx.externalId || "", tx.platformFee || "", tx.netAmount || ""].join(",")
+        );
+        return [headers, ...rows].join("\n");
+      }
+      return JSON.stringify(txHistory, null, 2);
     }
 
     // ── Agent FICO ─────────────────────────────────────────────────────────
@@ -711,6 +1099,35 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
       return JSON.stringify(result, null, 2);
     }
 
+    case "shop_checkout": {
+      const { CheckoutExecutor } = await import("../commerce/checkout/index.js");
+      const { loadProfileFromEnv } = await import("../commerce/checkout/profile.js");
+      const profile = loadProfileFromEnv();
+      if (!profile) {
+        throw new Error(
+          "Buyer profile not configured. Set MNEMOPAY_BUYER_NAME, MNEMOPAY_BUYER_EMAIL, " +
+          "MNEMOPAY_BUYER_ADDRESS_LINE1, MNEMOPAY_BUYER_ADDRESS_CITY, MNEMOPAY_BUYER_ADDRESS_STATE, " +
+          "MNEMOPAY_BUYER_ADDRESS_ZIP, MNEMOPAY_BUYER_ADDRESS_COUNTRY env vars."
+        );
+      }
+      const executor = new CheckoutExecutor({
+        profile,
+        headless: args.headless ?? true,
+        screenshotDir: args.screenshotDir,
+      });
+      const result = await executor.checkout(args.productUrl);
+      return JSON.stringify({
+        success: result.success,
+        orderId: result.orderId,
+        totalCharged: result.totalCharged,
+        confirmationUrl: result.confirmationUrl,
+        steps: result.steps,
+        elapsedMs: result.elapsedMs,
+        failureReason: result.failureReason,
+        screenshots: result.screenshots,
+      }, null, 2);
+    }
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -721,6 +1138,42 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
 const _merkleTree = new MerkleTree();
 const _ewmaDetector = new EWMADetector(0.15, 2.5, 3.5, 10);
 
+// ── Approval queues (HITL) ──────────────────────────────────────────────────
+
+interface PendingApproval {
+  order: any;
+  resolve: (approved: boolean) => void;
+  createdAt: number;
+}
+
+interface PendingChargeRequest {
+  id: string;
+  amount: number;
+  reason: string;
+  context?: any;
+  payOptions?: any;
+  createdAt: number;
+}
+
+const pendingApprovals = new Map<string, PendingApproval>();
+const pendingChargeRequests = new Map<string, PendingChargeRequest>();
+
+// Auto-expire pending approvals after 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of pendingApprovals) {
+    if (now - entry.createdAt > 600_000) {
+      entry.resolve(false); // auto-reject expired approvals
+      pendingApprovals.delete(id);
+    }
+  }
+  for (const [id, entry] of pendingChargeRequests) {
+    if (now - entry.createdAt > 600_000) {
+      pendingChargeRequests.delete(id);
+    }
+  }
+}, 60_000);
+
 // ── Commerce singleton ──────────────────────────────────────────────────────
 
 let _commerceEngine: any = null;
@@ -728,7 +1181,41 @@ let _commerceEngine: any = null;
 async function getCommerceEngine(agent: Agent): Promise<any> {
   if (!_commerceEngine) {
     const { CommerceEngine } = await import("../commerce.js");
-    _commerceEngine = new CommerceEngine(agent);
+
+    // ── Commerce provider selection ──────────────────────────────────────
+    // Set MNEMOPAY_COMMERCE_PROVIDER to "firecrawl", "shopify", or "mock".
+    const providerName = (process.env.MNEMOPAY_COMMERCE_PROVIDER || "mock").toLowerCase();
+    let provider: any;
+
+    switch (providerName) {
+      case "firecrawl": {
+        const { FirecrawlProvider } = await import("../commerce/providers/firecrawl.js");
+        const apiKey = process.env.FIRECRAWL_API_KEY;
+        if (!apiKey) throw new Error("FIRECRAWL_API_KEY required when MNEMOPAY_COMMERCE_PROVIDER=firecrawl");
+        provider = new FirecrawlProvider({ apiKey });
+        break;
+      }
+      case "shopify": {
+        const { ShopifyProvider } = await import("../commerce/providers/shopify.js");
+        const domain = process.env.SHOPIFY_STORE_DOMAIN;
+        const token = process.env.SHOPIFY_STOREFRONT_TOKEN;
+        if (!domain || !token) throw new Error("SHOPIFY_STORE_DOMAIN and SHOPIFY_STOREFRONT_TOKEN required when MNEMOPAY_COMMERCE_PROVIDER=shopify");
+        provider = new ShopifyProvider({ storeDomain: domain, storefrontToken: token });
+        break;
+      }
+      default:
+        provider = undefined; // CommerceEngine uses MockCommerceProvider
+    }
+
+    _commerceEngine = new CommerceEngine(agent, provider);
+
+    // ── Wire approval callback (HITL) ────────────────────────────────────
+    _commerceEngine.onApprovalRequired(async (order: any) => {
+      // Queue the order for user approval instead of auto-approving
+      return new Promise<boolean>((resolve) => {
+        pendingApprovals.set(order.id, { order, resolve, createdAt: Date.now() });
+      });
+    });
   }
   return _commerceEngine;
 }

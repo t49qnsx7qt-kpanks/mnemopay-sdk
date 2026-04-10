@@ -711,7 +711,7 @@ describe("Identity — Replay Protection", () => {
     expect(parts.length).toBe(3);
     expect(parts[0]).toMatch(/^[a-f0-9]{32}$/); // nonce: 16 bytes hex
     expect(parseInt(parts[1], 10)).toBeGreaterThan(0); // timestamp
-    expect(parts[2]).toMatch(/^[a-f0-9]{64}$/); // HMAC-SHA256 hex
+    expect(parts[2]).toMatch(/^[a-f0-9]{128}$/); // Ed25519 signature (64 bytes hex)
   });
 
   it("verifySignedMessage succeeds for valid fresh signature", () => {

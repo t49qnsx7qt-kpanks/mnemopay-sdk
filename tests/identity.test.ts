@@ -20,8 +20,8 @@ describe("IdentityRegistry — Agent Identity & Capability Tokens", () => {
       const id = registry.createIdentity("agent-1", "owner-1", "owner@example.com");
       expect(id.agentId).toBe("agent-1");
       expect(id.ownerId).toBe("owner-1");
-      expect(id.publicKey).toHaveLength(64); // 32 bytes hex
-      expect(id.privateKey).toHaveLength(64);
+      expect(id.publicKey).toHaveLength(88); // Ed25519 SPKI DER (44 bytes hex)
+      expect(id.privateKey).toHaveLength(96); // Ed25519 PKCS8 DER (48 bytes hex)
       expect(id.publicKey).not.toBe(id.privateKey);
       expect(id.verified).toBe(false);
       expect(id.kya.ownerEmail).toBe("owner@example.com");

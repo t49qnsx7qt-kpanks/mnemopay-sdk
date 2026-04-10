@@ -104,6 +104,8 @@ export class PaystackRail implements PaymentRail {
 
   /** Reference-based idempotency guard with time-bounded eviction */
   private processedRefs: Map<string, number> = new Map(); // ref → timestamp
+  /** In-flight captures to prevent concurrent verify races */
+  private inFlightCaptures: Map<string, Promise<PaystackVerifyResult>> = new Map();
   private static readonly MAX_PROCESSED_REFS = 10_000;
   private static readonly REF_TTL_MS = 24 * 60 * 60_000; // 24h
 
@@ -141,7 +143,7 @@ export class PaystackRail implements PaymentRail {
       throw new Error("Amount must be a positive finite number");
     }
 
-    const reference = `mnemo_${agentId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const reference = `mnemo_${agentId}_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`;
     const amountInMinor = this.toMinorUnits(amount);
     const email = options?.email ?? `${agentId}@mnemopay.agent`;
 
@@ -205,8 +207,21 @@ export class PaystackRail implements PaymentRail {
       throw new Error("Transaction reference is required");
     }
 
+    // Deduplicate concurrent captures for the same reference
+    const inflight = this.inFlightCaptures.get(externalId);
+    if (inflight) return inflight;
+
+    const promise = this._doCapture(externalId);
+    this.inFlightCaptures.set(externalId, promise);
+    try {
+      return await promise;
+    } finally {
+      this.inFlightCaptures.delete(externalId);
+    }
+  }
+
+  private async _doCapture(externalId: string): Promise<PaystackVerifyResult> {
     // Idempotency: check if already processed
-    // Evict expired refs before check
     this._evictExpiredRefs();
     if (this.processedRefs.has(externalId)) {
       // Re-verify to return current state
@@ -326,7 +341,7 @@ export class PaystackRail implements PaymentRail {
       throw new Error("Transfer amount must be a positive finite number");
     }
 
-    const reference = `mnemo_xfer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const reference = `mnemo_xfer_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`;
 
     const response = await this.request("POST", "/transfer", {
       source: "balance",

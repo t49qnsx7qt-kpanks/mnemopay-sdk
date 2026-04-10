@@ -1,7 +1,7 @@
 {
   "name": "@mnemopay/sdk",
-  "version": "1.0.1",
-  "description": "The trust & reputation layer for AI agents — Agent Credit Score (300-850), behavioral finance (prospect theory), Merkle memory integrity, EWMA anomaly detection, canary honeypots, payments, identity, escrow commerce, adaptive engine. 707+ tests.",
+  "version": "1.1.0",
+  "description": "Production payment infrastructure for AI agents — real Stripe/Paystack/Lightning rails, autonomous shopping with escrow, Agent Credit Score (300-850), Ed25519 identity, behavioral finance, Merkle integrity, EWMA anomaly detection, HITL approval, browser checkout. 716+ tests.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -40,6 +40,18 @@
     "./client": {
       "import": "./dist/client.js",
       "types": "./dist/client.d.ts"
+    },
+    "./commerce": {
+      "import": "./dist/commerce.js",
+      "types": "./dist/commerce.d.ts"
+    },
+    "./commerce/checkout": {
+      "import": "./dist/commerce/checkout/index.js",
+      "types": "./dist/commerce/checkout/index.d.ts"
+    },
+    "./commerce/providers": {
+      "import": "./dist/commerce/providers/index.js",
+      "types": "./dist/commerce/providers/index.d.ts"
     }
   },
   "bin": {
@@ -99,7 +111,16 @@
     "langgraph",
     "agent-credit-score",
     "fintech",
-    "agent-escrow"
+    "agent-escrow",
+    "shopify",
+    "autonomous-shopping",
+    "browser-checkout",
+    "ed25519",
+    "hitl",
+    "human-in-the-loop",
+    "agent-fico",
+    "credit-score",
+    "firecrawl"
   ],
   "author": "Jerry Omiagbo <jeremiah@getbizsuite.com>",
   "license": "Apache-2.0",

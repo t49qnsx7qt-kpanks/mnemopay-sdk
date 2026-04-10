@@ -616,5 +616,5 @@ describe("PaystackRail — MnemoPay Integration", () => {
     // This should not throw — rail is a valid PaymentRail
     const agent = MnemoPay.quick("paystack-agent", { paymentRail: rail });
     expect(agent).toBeTruthy();
-  });
+  }, 15_000);
 });

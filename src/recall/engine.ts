@@ -68,7 +68,7 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
     normB += b[i] * b[i];
   }
   const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  if (denom === 0) return 0;
+  if (denom < 1e-10) return 0; // epsilon-based check for denormalized floats
   return dot / denom;
 }
 
@@ -197,6 +197,17 @@ export class RecallEngine {
       scoreWeight: config.scoreWeight ?? 0.4,
       vectorWeight: config.vectorWeight ?? 0.6,
     };
+
+    // Validate hybrid weights sum to ~1.0
+    const weightSum = this.config.scoreWeight + this.config.vectorWeight;
+    if (Math.abs(weightSum - 1.0) > 0.01) {
+      throw new Error(`Hybrid weights must sum to ~1.0 (got ${weightSum.toFixed(2)})`);
+    }
+
+    // Validate OpenAI API key is present when needed
+    if (this.config.strategy !== "score" && this.config.embeddingProvider === "openai" && !this.config.openaiApiKey) {
+      throw new Error("OpenAI API key required for vector/hybrid recall strategy with OpenAI provider");
+    }
   }
 
   get strategy(): RecallStrategy {
