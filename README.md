@@ -23,7 +23,7 @@ const score = fico.compute({ transactions: [tx], createdAt: new Date(), ...});
 // → { score: 672, rating: "good", feeRate: 0.015, trustLevel: "standard" }
 ```
 
-14 modules. Hardened against the 10/10 critical issues from our v0.9.2 audit. Production-ready. Apache 2.0 licensed.
+14 modules. Hash-chained ledger. Replay detection. Reputation streaks. 100K-operation stress tested. Apache 2.0 licensed.
 
 ---
 
@@ -216,7 +216,9 @@ canary.check(trap.id, "rogue-agent");
 
 ---
 
-## Memory (Neuroscience-backed)
+## Memory (Compounding Knowledge Base)
+
+Not a traditional RAG lookup. MnemoPay memories compound — every transaction strengthens associated context, weak memories decay, strong ones consolidate. The same pattern Karpathy describes as "LLM Wiki" but applied to payments and trust.
 
 - **Ebbinghaus forgetting curve** — memories decay naturally over time
 - **Hebbian reinforcement** — successful transactions strengthen associated memories
@@ -224,13 +226,53 @@ canary.check(trap.id, "rogue-agent");
 - **Semantic recall** — find memories by relevance, not just recency
 - **100KB per memory** — store rich context, not just strings
 
+## Reputation Streaks & Badges
+
+Agents earn trust over time. Consecutive successful settlements build streaks that unlock badges and reduce fees.
+
+```ts
+const rep = await agent.reputation();
+console.log(rep.streak);
+// → { currentStreak: 47, bestStreak: 312, streakBonus: 0.094 }
+
+console.log(rep.badges);
+// → [
+//   { id: "first_settlement", name: "First Settlement", earnedAt: 1712700000000 },
+//   { id: "streak_50", name: "Streak Master", earnedAt: 1712900000000 },
+//   { id: "volume_10k", name: "High Roller", earnedAt: 1713100000000 },
+// ]
+```
+
+| Badge | Requirement |
+|---|---|
+| First Settlement | Complete 1 settlement |
+| Streak 10 | 10 consecutive settlements |
+| Streak 50 | 50 consecutive settlements |
+| Volume $1K | $1,000+ total settled |
+| Volume $10K | $10,000+ total settled |
+| Perfect Record | 100+ settlements, 0 disputes |
+
+Streaks reset on refunds or disputes. Streak bonuses compound reputation up to +10%.
+
+## Hash-Chained Ledger
+
+Every ledger entry links to the previous via SHA-256 hash chain. If any entry is modified, the chain breaks and `verify()` catches it instantly.
+
+```ts
+const summary = agent.ledger.verify();
+console.log(summary.chainValid);     // true
+console.log(summary.chainIntegrity); // 1.0 (100% of links verified)
+```
+
+Combined with Merkle integrity on memories and HMAC on transactions, MnemoPay gives you three independent tamper-detection systems.
+
 ## Payments (cent-precise double-entry)
 
 - **Double-entry bookkeeping** — every debit has a credit, always balances to zero
 - **Escrow flow** — charge -> hold -> settle -> refund (same shape as Stripe/Square)
 - **Volume-tiered fees** — 1.9% / 1.5% / 1.0% based on cumulative volume
 - **3 payment rails** — Paystack (Africa), Stripe (global), Lightning (BTC)
-- **Cent-precise integer math** — stress-tested with 1,000 random transactions, zero drift
+- **Cent-precise integer math** — stress-tested with 100,000 transactions across 10 concurrent agents, zero drift
 
 ## Identity (KYA Compliance)
 
@@ -343,7 +385,7 @@ import { mnemoPayTools } from "@mnemopay/sdk/langgraph";
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│                    MnemoPay SDK v1.0.0-beta.1              │
+│                    MnemoPay SDK v1.2.0                     │
 ├──────────┬──────────┬───────────┬──────────────────────────┤
 │  Memory  │ Payments │ Identity  │  Agent Credit Score (300-850)    │
 │          │          │           │  5-component scoring     │
@@ -373,10 +415,11 @@ import { mnemoPayTools } from "@mnemopay/sdk/langgraph";
 npm test    # full test suite across 12 files
 ```
 
-- `core.test.ts` — memory, payments, lifecycle, FICO, behavioral, Merkle, EWMA, canaries, stress tests
-- `fraud.test.ts` — velocity, anomaly, fees, disputes
+- `core.test.ts` — memory, payments, lifecycle, FICO, behavioral, Merkle, EWMA, canaries, streaks, badges
+- `fraud.test.ts` — velocity, anomaly, fees, disputes, replay detection
 - `geo-fraud.test.ts` — geo signals, trust, sanctions
 - `identity.test.ts` — KYA, tokens, permissions
+- `production-100k.test.ts` — 100K operations, 10 concurrent agents, hash-chain verification, zero drift
 - `ledger.test.ts` — double-entry, reconciliation
 - `network.test.ts` — multi-agent, deals, supply chains
 - `paystack.test.ts` — rail, webhooks, transfers
