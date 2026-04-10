@@ -1,7 +1,7 @@
 MnemoPay SDK
 Copyright (c) 2025-2026 Jerry Omiagbo. All rights reserved.
 
-Original author: Jerry Omiagbo (jerry@mnemopay.com)
+Original author: Jerry Omiagbo (jeremiah@getbizsuite.com)
 First published: March 2025 (npm: @mnemopay/sdk v0.1.0)
 GitHub: https://github.com/mnemopay/mnemopay-sdk
 
@@ -37,4 +37,4 @@ ORIGINAL INVENTIONS DOCUMENTED HEREIN:
 Each npm publish creates an immutable, timestamped record on the npm registry
 that serves as additional proof of prior art and original authorship.
 
-For attribution inquiries: jerry@mnemopay.com
+For attribution inquiries: jeremiah@getbizsuite.com
