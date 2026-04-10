@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mnemopay": {
+      "command": "npx",
+      "args": ["-y", "@mnemopay/sdk"],
+      "env": {
+        "MNEMOPAY_PERSIST_DIR": ".mnemopay"
+      }
+    }
+  }
+}

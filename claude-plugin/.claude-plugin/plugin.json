@@ -1,0 +1,13 @@
+{
+  "name": "mnemopay",
+  "description": "Payment infrastructure for AI agents — Agent Credit Score (300-850), real payment rails (Stripe/Paystack/Lightning), autonomous shopping with escrow, hash-chained ledger, behavioral finance. 100K-operation stress tested.",
+  "version": "1.2.0",
+  "author": {
+    "name": "Jerry Omiagbo",
+    "url": "https://github.com/mnemopay"
+  },
+  "homepage": "https://github.com/mnemopay/mnemopay-sdk",
+  "repository": "https://github.com/mnemopay/mnemopay-sdk",
+  "license": "Apache-2.0",
+  "tags": ["payments", "finance", "agents", "credit-score", "escrow", "shopping", "stripe", "paystack"]
+}
