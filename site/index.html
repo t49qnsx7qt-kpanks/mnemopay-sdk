@@ -405,9 +405,9 @@
   <section class="hero">
     <div class="container">
       <div class="hero-content">
-        <div class="hero-badge"><span class="dot"></span> v1.1.0 &mdash; Production</div>
-        <h1>Production payment infrastructure for <span class="gradient">AI agents</span></h1>
-        <p>Your agents can charge customers, shop autonomously, and settle through Stripe, Paystack, or Lightning. Every purchase goes through escrow with human approval. Each agent builds a credit score. Battle-tested and running in production.</p>
+        <div class="hero-badge"><span class="dot"></span> v1.2.0 &mdash; 100K stress tested</div>
+        <h1>The trust layer for <span class="gradient">AI agents that handle money</span></h1>
+        <p>Credit scores, hash-chained ledgers, reputation streaks, behavioral finance, and real payment rails in one SDK. Your agents charge through Stripe, Paystack, or Lightning. Every purchase goes through escrow. Bad actors get blocked automatically. 100,000-operation stress tested with zero drift.</p>
         <div class="hero-actions">
           <div class="install-cmd" onclick="navigator.clipboard.writeText('npm install @mnemopay/sdk');this.querySelector('.copy').textContent='copied!'">
             <span class="dollar">$</span>
@@ -425,10 +425,10 @@
 
   <!-- STATS -->
   <section class="stats">
-    <div class="stat"><div class="num">3</div><div class="label">Payment rails</div></div>
+    <div class="stat"><div class="num">100K+</div><div class="label">Ops stress tested</div></div>
     <div class="stat"><div class="num">300-850</div><div class="label">Agent Credit Score</div></div>
-    <div class="stat"><div class="num">Escrow</div><div class="label">Human-approved</div></div>
-    <div class="stat"><div class="num">MCP</div><div class="label">+ npm + middleware</div></div>
+    <div class="stat"><div class="num">3</div><div class="label">Payment rails</div></div>
+    <div class="stat"><div class="num">SHA-256</div><div class="label">Hash-chained ledger</div></div>
     <div class="stat"><div class="num">$0</div><div class="label">To start</div></div>
   </section>
 
@@ -539,8 +539,8 @@ await agent.settle(tx.id);</code></pre>
         </div>
         <div class="feature">
           <div class="feature-icon">&#129504;</div>
-          <h3>Agent Memory</h3>
-          <p>Agents remember context across sessions. Preferences, past transactions, counterparty history. Memory decays naturally so stale data doesn't pollute decisions.</p>
+          <h3>Compounding Memory</h3>
+          <p>Not a traditional RAG lookup. Memories compound -- successful transactions strengthen associated context, weak memories decay naturally. Every interaction makes the agent smarter, not just more informed.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">&#129309;</div>
@@ -554,8 +554,18 @@ await agent.settle(tx.id);</code></pre>
         </div>
         <div class="feature">
           <div class="feature-icon">&#128274;</div>
-          <h3>Tamper-Proof Ledger</h3>
-          <p>Every transaction is cryptographically linked. If someone modifies a record, you'll know. Dispute resolution built in for when things go sideways.</p>
+          <h3>Hash-Chained Ledger</h3>
+          <p>Every ledger entry links to the previous via SHA-256. If any entry is modified, the chain breaks instantly. Combined with Merkle integrity on memories and HMAC on transactions -- three independent tamper-detection layers.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">&#127942;</div>
+          <h3>Reputation Streaks</h3>
+          <p>Agents earn badges and build streaks through consecutive successful settlements. Streak bonuses compound reputation up to +10%. Refunds or disputes reset the streak. Six badge types from First Settlement to Perfect Record.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">&#128165;</div>
+          <h3>Replay Detection</h3>
+          <p>SHA-256 transaction fingerprinting catches duplicate submissions within 60 seconds. 3+ replays in 5 minutes triggers critical severity. Auto-prunes, capped at 10K entries. Zero false negatives at 100K scale.</p>
         </div>
       </div>
     </div>
