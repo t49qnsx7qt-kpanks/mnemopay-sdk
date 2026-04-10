@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MnemoPay — Give Your AI Agents Real Superpowers</title>
-  <meta name="description" content="The trust & reputation layer for AI agents. Agent Credit Score, behavioral finance, Merkle memory integrity, EWMA anomaly detection. 14 modules. Production-ready. Open source.">
-  <meta property="og:title" content="MnemoPay — AI Agent Superpowers">
-  <meta property="og:description" content="The trust & reputation layer for AI agents. Agent Credit Score (300-850), behavioral finance, Merkle integrity, anomaly detection. 14 modules.">
+  <title>MnemoPay — Production Payment Infrastructure for AI Agents</title>
+  <meta name="description" content="Production payment infrastructure for AI agents. Stripe, Paystack, Lightning. Autonomous shopping with escrow. Agent Credit Score (300-850). Open source.">
+  <meta property="og:title" content="MnemoPay — Payment Infrastructure for AI Agents">
+  <meta property="og:description" content="Production payment infrastructure for AI agents. Real payment rails. Autonomous shopping with human-approved escrow. Agent Credit Score. Open source.">
   <meta property="og:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="MnemoPay — Give Your AI Agents Real Superpowers">
-  <meta name="twitter:description" content="Agent Credit Score + Behavioral Finance + Merkle Integrity. 14 modules. The trust & reputation layer for AI agents.">
+  <meta name="twitter:title" content="MnemoPay — Payment Infrastructure for AI Agents">
+  <meta name="twitter:description" content="Real payment rails. Autonomous shopping. Agent Credit Score. Production infrastructure for AI agents that handle money.">
   <meta name="twitter:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -355,7 +355,7 @@
     "name": "MnemoPay",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Any",
-    "description": "The trust & reputation layer for AI agents. Agent Credit Score, behavioral finance, Merkle memory integrity, EWMA anomaly detection. 14 modules.",
+    "description": "Production payment infrastructure for AI agents. Stripe, Paystack, Lightning. Autonomous shopping with escrow. Agent Credit Score (300-850). Open source.",
     "url": "https://getbizsuite.com/mnemopay/",
     "image": "https://getbizsuite.com/mnemopay/img/hero-ceo.png",
     "offers": [
@@ -405,9 +405,9 @@
   <section class="hero">
     <div class="container">
       <div class="hero-content">
-        <div class="hero-badge"><span class="dot"></span> v1.0.0-beta.1 &mdash; Production-ready</div>
-        <h1>Give your AI agents <span class="gradient">real superpowers</span></h1>
-        <p>The trust & reputation layer for AI agents. Memory + Payments + Identity + Agent Credit Score + Behavioral Finance in one SDK. Your agent builds a reputation score, detects fraud in real time, and proves its memory hasn't been tampered with.</p>
+        <div class="hero-badge"><span class="dot"></span> v1.1.0 &mdash; Production</div>
+        <h1>Production payment infrastructure for <span class="gradient">AI agents</span></h1>
+        <p>Your agents can charge customers, shop autonomously, and settle through Stripe, Paystack, or Lightning. Every purchase goes through escrow with human approval. Each agent builds a credit score. Battle-tested and running in production.</p>
         <div class="hero-actions">
           <div class="install-cmd" onclick="navigator.clipboard.writeText('npm install @mnemopay/sdk');this.querySelector('.copy').textContent='copied!'">
             <span class="dollar">$</span>
@@ -425,10 +425,10 @@
 
   <!-- STATS -->
   <section class="stats">
-    <div class="stat"><div class="num">14</div><div class="label">Modules shipped</div></div>
-    <div class="stat"><div class="num">707</div><div class="label">Tests passing</div></div>
-    <div class="stat"><div class="num">10/10</div><div class="label">Feature score</div></div>
-    <div class="stat"><div class="num">$87M+</div><div class="label">Competitors funded</div></div>
+    <div class="stat"><div class="num">3</div><div class="label">Payment rails</div></div>
+    <div class="stat"><div class="num">300-850</div><div class="label">Agent Credit Score</div></div>
+    <div class="stat"><div class="num">Escrow</div><div class="label">Human-approved</div></div>
+    <div class="stat"><div class="num">MCP</div><div class="label">+ npm + middleware</div></div>
     <div class="stat"><div class="num">$0</div><div class="label">To start</div></div>
   </section>
 
@@ -437,7 +437,7 @@
     <div class="container" style="max-width: 1100px; margin: 0 auto; padding: 0 24px;">
       <div style="display: inline-block; padding: 6px 14px; border-radius: 999px; background: rgba(124, 92, 255, 0.2); color: #a48bff; font-size: 0.85rem; font-weight: 600; margin-bottom: 18px;">FOR MCP SERVER AUTHORS</div>
       <h2 style="font-size: 2.4rem; line-height: 1.15; margin: 0 0 18px; font-weight: 800;">Charge per-call for your MCP server.<br/><span style="background: linear-gradient(90deg, #7c5cff, #22d3ee); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Down to 0.1¢ per tool invocation.</span></h2>
-      <p style="font-size: 1.15rem; color: #c5c9e0; max-width: 720px; line-height: 1.6; margin: 0 0 32px;">Stripe's fees make sub-cent payments impossible. Lightning makes them trivial. MnemoPay gives your MCP server a billing layer in two lines of code — with Agent Credit Score gating freeloaders automatically.</p>
+      <p style="font-size: 1.15rem; color: #c5c9e0; max-width: 720px; line-height: 1.6; margin: 0 0 32px;">Stripe's fees make sub-cent payments impossible. Lightning makes them trivial. MnemoPay gives your MCP server a billing layer in two lines of code -- agents with low credit scores get blocked automatically.</p>
       <pre style="background: #05070f; border: 1px solid #1e2540; border-radius: 12px; padding: 24px; overflow-x: auto; font-size: 0.95rem; color: #e0e4f0; margin: 0 0 28px;"><code>import MnemoPay from "@mnemopay/sdk";
 const agent = MnemoPay.quick("my-mcp-server");
 
@@ -456,17 +456,19 @@ await agent.settle(tx.id);</code></pre>
   <section class="code-section">
     <div class="container">
       <div class="section-header">
-        <h2>5 lines to agent commerce.</h2>
-        <p>Memory, payments, identity, credit scoring, behavioral finance, tamper-proof integrity.</p>
+        <h2>Real Stripe charge in 6 lines.</h2>
+        <p>Not a mock. Not a testnet. Actual money moves.</p>
       </div>
       <pre><code><span class="kw">import</span> MnemoPay <span class="kw">from</span> <span class="str">"@mnemopay/sdk"</span>;
 
-<span class="kw">const</span> agent = MnemoPay.<span class="fn">quick</span>(<span class="str">"my-agent"</span>);
+<span class="kw">const</span> agent = MnemoPay.<span class="fn">quick</span>(<span class="str">"billing-agent"</span>, {
+  <span class="fn">stripe</span>: { <span class="fn">secretKey</span>: process.env.STRIPE_SECRET_KEY }
+});
 
-<span class="aw">await</span> agent.<span class="fn">remember</span>(<span class="str">"User prefers monthly billing"</span>);
-<span class="kw">const</span> tx = <span class="aw">await</span> agent.<span class="fn">charge</span>(<span class="num">25</span>, <span class="str">"Monthly API access"</span>);
+<span class="kw">const</span> tx = <span class="aw">await</span> agent.<span class="fn">charge</span>(<span class="num">49.00</span>, <span class="str">"Pro plan — monthly"</span>);
+<span class="cm">// Escrow holds funds until you approve</span>
 <span class="aw">await</span> agent.<span class="fn">settle</span>(tx.id);
-<span class="cm">// Memory + money + reputation. Ledger balanced. Done.</span></code></pre>
+<span class="cm">// Money moves. Ledger balanced. Credit score updated.</span></code></pre>
     </div>
   </section>
 
@@ -491,12 +493,12 @@ await agent.settle(tx.id);</code></pre>
         <div class="step">
           <div class="step-num">3</div>
           <h4>Transact</h4>
-          <p>charge(), settle(), refund(). Real money flows. Double-entry ledger tracks every penny.</p>
+          <p>charge(), settle(), refund(). Real money through Stripe, Paystack, or Lightning. Escrow holds funds until humans approve.</p>
         </div>
         <div class="step">
           <div class="step-num">4</div>
           <h4>Scale</h4>
-          <p>Add payment rails (Paystack, Stripe, Lightning). Multi-agent networks. Fraud detection.</p>
+          <p>Autonomous shopping, multi-agent commerce, credit scoring. Your agents handle money like professionals.</p>
         </div>
       </div>
     </div>
@@ -506,59 +508,54 @@ await agent.settle(tx.id);</code></pre>
   <section class="features" id="features">
     <div class="container">
       <div class="section-header">
-        <h2>Everything your agent needs</h2>
-        <p>10 integrated features. $87M in competitor funding. None have more than 3.</p>
+        <h2>What it actually does</h2>
+        <p>Not a wrapper around Stripe. A full payment system built for agents.</p>
       </div>
       <div class="features-grid">
         <div class="feature">
-          <div class="feature-icon">&#129504;</div>
-          <h3>Cognitive Memory</h3>
-          <p>Neuroscience-backed. Ebbinghaus forgetting curve for natural decay. Hebbian reinforcement strengthens memories through use. Automatic consolidation prunes what doesn't matter.</p>
-        </div>
-        <div class="feature">
           <div class="feature-icon">&#128176;</div>
-          <h3>Real Payments</h3>
-          <p>Charge, escrow, settle, refund. Double-entry ledger that always balances to zero. Penny-precise across 1,000-cycle stress tests. Luca Pacioli's 1494 system, battle-tested.</p>
+          <h3>Real Payment Rails</h3>
+          <p>Stripe (global), Paystack (Africa), Lightning (BTC micropayments). Same API regardless of rail. Charge, escrow, settle, refund. Double-entry ledger keeps every penny accounted for.</p>
         </div>
         <div class="feature">
-          <div class="feature-icon">&#128737;</div>
-          <h3>Agent Identity (KYA)</h3>
-          <p>Know Your Agent compliance. Cryptographic keypairs, capability tokens, scoped permissions, spend limits, counterparty whitelists, instant kill switch.</p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">&#128270;</div>
-          <h3>Fraud Detection</h3>
-          <p>Velocity checks, anomaly scoring, geo-enhanced risk assessment with trust dampening. OFAC sanctions. Behavioral fingerprinting. Optional ML with Isolation Forest.</p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">&#129309;</div>
-          <h3>Multi-Agent Commerce</h3>
-          <p>One call: net.transact(buyer, seller, amount, reason). Both agents remember the deal. Tested with 100 agents and 10-step supply chains.</p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">&#127757;</div>
-          <h3>Global Payment Rails</h3>
-          <p>Paystack (Africa), Stripe (global), Lightning (BTC). Same API. Plug in any rail. Volume-tiered fees. Real money, real rails, real settlements.</p>
+          <div class="feature-icon">&#128722;</div>
+          <h3>Autonomous Shopping</h3>
+          <p>Agents search products, compare prices across merchants, and buy what they need. Every purchase goes through escrow -- humans approve before money moves. No unsupervised spending.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">&#128200;</div>
           <h3>Agent Credit Score (300-850)</h3>
-          <p>The first credit score for AI agents. 5 components mirroring human FICO: payment history (35%), utilization (20%), age (15%), diversity (15%), fraud record (15%). Fee tiers from 1.0% to 2.5%.</p>
+          <p>Like FICO, but for AI agents. Tracks payment history, spending patterns, and reliability over time. Higher scores get lower fees. Bad actors get blocked automatically.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">&#128737;</div>
+          <h3>Ed25519 Agent Identity</h3>
+          <p>Every agent gets a cryptographic identity. Scoped permissions, spend limits, counterparty whitelists, and a kill switch if something goes wrong.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">&#128270;</div>
+          <h3>Fraud Detection</h3>
+          <p>Velocity checks, anomaly scoring, geo-based risk assessment. Flags suspicious patterns before money moves. Battle-tested against adversarial inputs.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">&#129504;</div>
-          <h3>Behavioral Finance</h3>
-          <p>Nobel Prize-winning economics for agents. Prospect theory (Kahneman &amp; Tversky), quasi-hyperbolic discounting (Laibson), SMarT savings (Thaler), regret prediction, anti-herd alerting.</p>
+          <h3>Agent Memory</h3>
+          <p>Agents remember context across sessions. Preferences, past transactions, counterparty history. Memory decays naturally so stale data doesn't pollute decisions.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">&#129309;</div>
+          <h3>Multi-Agent Commerce</h3>
+          <p>Agents transact with each other directly. Buyer-seller flows, dispute resolution, reputation tracking. Works across agent networks.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">&#127757;</div>
+          <h3>MCP Server</h3>
+          <p>Works with Claude, Cursor, or any MCP-compatible client out of the box. Also ships as npm middleware for OpenAI, Anthropic, and LangChain.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">&#128274;</div>
-          <h3>Memory Integrity (Merkle)</h3>
-          <p>Tamper-evident memory using SHA-256 Merkle trees. Detects injection, deletion, modification, replay, and reordering attacks. Prove any memory exists without revealing others.</p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">&#128680;</div>
-          <h3>Anomaly Detection</h3>
-          <p>Three independent systems: EWMA streaming detection (Roberts 1959), behavioral fingerprinting for hijack detection, and canary honeypot transactions for compromise detection.</p>
+          <h3>Tamper-Proof Ledger</h3>
+          <p>Every transaction is cryptographically linked. If someone modifies a record, you'll know. Dispute resolution built in for when things go sideways.</p>
         </div>
       </div>
     </div>
@@ -569,21 +566,20 @@ await agent.settle(tx.id);</code></pre>
     <div class="container">
       <div class="section-header">
         <h2>How MnemoPay compares</h2>
-        <p>$87M+ in competitor funding. None have the full stack.</p>
+        <p>Competitors raised $87M+ combined. None ship the full stack.</p>
       </div>
       <table class="comp-table">
         <thead>
           <tr>
             <th>Product</th>
-            <th>Memory</th>
-            <th>Payments</th>
+            <th>Real Rails</th>
+            <th>Shopping</th>
+            <th>Escrow</th>
+            <th>Credit Score</th>
             <th>Identity</th>
-            <th>Agent Credit Score</th>
-            <th>Behavioral</th>
-            <th>Merkle</th>
-            <th>Anomaly</th>
-            <th>Ledger</th>
-            <th>Multi-Agent</th>
+            <th>Fraud</th>
+            <th>Memory</th>
+            <th>MCP</th>
             <th>Score</th>
           </tr>
         </thead>
@@ -598,51 +594,46 @@ await agent.settle(tx.id);</code></pre>
             <td class="check">&#10003;</td>
             <td class="check">&#10003;</td>
             <td class="check">&#10003;</td>
-            <td class="check">&#10003;</td>
-            <td><strong>10/10</strong></td>
+            <td><strong>8/8</strong></td>
           </tr>
           <tr>
             <td>Mem0 ($24M)</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
+            <td class="cross">&#10007;</td>
             <td class="check">&#10003;</td>
             <td class="cross">&#10007;</td>
-            <td class="cross">&#10007;</td>
-            <td class="cross">&#10007;</td>
-            <td class="cross">&#10007;</td>
-            <td class="cross">&#10007;</td>
-            <td class="cross">&#10007;</td>
-            <td class="cross">&#10007;</td>
-            <td class="cross">&#10007;</td>
-            <td>1/10</td>
+            <td>1/8</td>
           </tr>
           <tr>
             <td>Skyfire ($9.5M)</td>
-            <td class="cross">&#10007;</td>
-            <td class="check">&#10003;</td>
             <td class="check">&#10003;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
+            <td class="check">&#10003;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
-            <td>2/10</td>
+            <td>2/8</td>
           </tr>
           <tr>
             <td>Kite ($33M)</td>
-            <td class="cross">&#10007;</td>
-            <td class="check">&#10003;</td>
             <td class="check">&#10003;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
+            <td class="check">&#10003;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
-            <td>2/10</td>
+            <td>2/8</td>
           </tr>
           <tr>
             <td>Stripe Toolkit</td>
-            <td class="cross">&#10007;</td>
             <td class="check">&#10003;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
@@ -651,11 +642,10 @@ await agent.settle(tx.id);</code></pre>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
-            <td>1/10</td>
+            <td>1/8</td>
           </tr>
           <tr>
             <td>Payman ($14M)</td>
-            <td class="cross">&#10007;</td>
             <td class="check">&#10003;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
@@ -664,7 +654,7 @@ await agent.settle(tx.id);</code></pre>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
             <td class="cross">&#10007;</td>
-            <td>1/10</td>
+            <td>1/8</td>
           </tr>
         </tbody>
       </table>
@@ -712,11 +702,11 @@ await agent.settle(tx.id);</code></pre>
           <div class="fee">1.9% per settled transaction</div>
           <p class="desc">Everything you need to build and test.</p>
           <ul>
-            <li><span class="tick">&#10003;</span> Full SDK &mdash; all 6 feature layers</li>
+            <li><span class="tick">&#10003;</span> Full SDK &mdash; all features</li>
             <li><span class="tick">&#10003;</span> Unlimited agents</li>
-            <li><span class="tick">&#10003;</span> In-memory mode (dev/test)</li>
-            <li><span class="tick">&#10003;</span> All payment rails</li>
-            <li><span class="tick">&#10003;</span> Fraud detection</li>
+            <li><span class="tick">&#10003;</span> Stripe, Paystack, Lightning</li>
+            <li><span class="tick">&#10003;</span> Autonomous shopping + escrow</li>
+            <li><span class="tick">&#10003;</span> Agent Credit Score</li>
             <li><span class="tick">&#10003;</span> MCP server</li>
             <li><span class="tick">&#10003;</span> Community support</li>
           </ul>
@@ -762,8 +752,8 @@ await agent.settle(tx.id);</code></pre>
   <!-- CTA -->
   <section class="cta-section">
     <div class="container">
-      <h2>Your agents deserve superpowers</h2>
-      <p>14 modules. $0 to start. Production-ready today.</p>
+      <h2>Your agents can handle money now</h2>
+      <p>Real rails. Real escrow. $0 to start.</p>
       <div class="cta-actions">
         <a href="https://www.npmjs.com/package/@mnemopay/sdk" class="btn btn-primary btn-large">Get Started Free</a>
         <a href="https://github.com/mnemopay/mnemopay-sdk" class="btn btn-ghost btn-large">Read the Docs</a>

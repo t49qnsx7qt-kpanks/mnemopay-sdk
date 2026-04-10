@@ -2,7 +2,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "MnemoPay",
-  "description": "AI agent trust & reputation SDK — memory, payments, identity, Agent Credit Score, fraud detection, ledger, multi-agent commerce",
+  "description": "Production payment infrastructure for AI agents. Stripe, Paystack, Lightning. Autonomous shopping with escrow. Agent Credit Score (300-850).",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Cross-platform",
   "offers": {
@@ -18,12 +18,5 @@
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
   "url": "https://getbizsuite.com/mnemopay",
   "downloadUrl": "https://www.npmjs.com/package/@mnemopay/sdk",
-  "softwareVersion": "0.8.0",
-  "aggregateRating": {
-    "@type": "AggregateRating",
-    "ratingValue": "5",
-    "ratingCount": "342",
-    "bestRating": "5",
-    "description": "342 passing tests"
-  }
+  "softwareVersion": "1.1.0"
 }
