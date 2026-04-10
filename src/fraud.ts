@@ -192,6 +192,67 @@ export interface GeoFraudConfig {
   currencyRegions: Record<string, string[]>;
 }
 
+// ─── Replay Detection ──────────────────────────────────────────────────────
+
+/**
+ * Detects duplicate (replayed) transactions by fingerprinting
+ * agentId + amount + reason + counterpartyId. Ported from GridStamp's
+ * anti-spoofing layer.
+ */
+class ReplayDetector {
+  private fingerprints: Map<string, number[]> = new Map();
+
+  check(agentId: string, amount: number, reason: string, counterpartyId?: string): FraudSignal | null {
+    const raw = `${agentId}|${amount}|${reason}|${counterpartyId ?? ""}`;
+    const fp = require("crypto").createHash("sha256").update(raw).digest("hex") as string;
+    const now = Date.now();
+
+    // Prune entries older than 5 minutes
+    const existing = this.fingerprints.get(fp);
+    if (existing) {
+      const pruned = existing.filter(t => now - t < 300_000);
+      if (pruned.length === 0) {
+        this.fingerprints.delete(fp);
+      } else {
+        this.fingerprints.set(fp, pruned);
+      }
+    }
+
+    const timestamps = this.fingerprints.get(fp) || [];
+    let signal: FraudSignal | null = null;
+
+    // 3+ occurrences in 5 minutes → critical
+    if (timestamps.length >= 3) {
+      signal = {
+        type: "replay_detected",
+        severity: "critical",
+        description: `Transaction replayed ${timestamps.length} times in 5 minutes (agent=${agentId}, amount=${amount})`,
+        weight: 0.9,
+      };
+    // Same fingerprint within 60 seconds → high
+    } else if (timestamps.length > 0 && now - timestamps[timestamps.length - 1] < 60_000) {
+      signal = {
+        type: "replay_detected",
+        severity: "high",
+        description: `Duplicate transaction detected within 60s (agent=${agentId}, amount=${amount})`,
+        weight: 0.6,
+      };
+    }
+
+    // Push current timestamp
+    timestamps.push(now);
+    this.fingerprints.set(fp, timestamps);
+
+    // Cap map at 10,000 entries to prevent unbounded growth
+    if (this.fingerprints.size > 10_000) {
+      const firstKey = this.fingerprints.keys().next().value;
+      if (firstKey !== undefined) this.fingerprints.delete(firstKey);
+    }
+
+    return signal;
+  }
+}
+
 // ─── Fraud Guard ────────────────────────────────────────────────────────────
 
 export class FraudGuard {
@@ -223,6 +284,8 @@ export class FraudGuard {
   readonly transactionGraph: TransactionGraph | null;
   /** Behavioral fingerprinting — only loaded when ml: true */
   readonly behaviorProfile: BehaviorProfile | null;
+  /** Transaction replay detection (ported from GridStamp anti-spoofing) */
+  private replayDetector: ReplayDetector;
 
   constructor(config?: Partial<FraudConfig>) {
     // Typo guard — warn if caller passed keys that don't exist on FraudConfig.
@@ -262,6 +325,7 @@ export class FraudGuard {
       this.transactionGraph = null;
       this.behaviorProfile = null;
     }
+    this.replayDetector = new ReplayDetector();
   }
 
   // ── Risk Assessment ────────────────────────────────────────────────────
@@ -277,8 +341,16 @@ export class FraudGuard {
     accountCreatedAt: Date,
     pendingCount: number,
     ctx?: RequestContext,
+    reason?: string,
+    counterpartyId?: string,
   ): RiskAssessment {
     const signals: FraudSignal[] = [];
+
+    // 0a. Replay detection (ported from GridStamp anti-spoofing)
+    if (reason !== undefined) {
+      const replaySignal = this.replayDetector.check(agentId, amount, reason, counterpartyId);
+      if (replaySignal) signals.push(replaySignal);
+    }
 
     // 0. Hard block check
     if (this.blockedAgents.has(agentId)) {

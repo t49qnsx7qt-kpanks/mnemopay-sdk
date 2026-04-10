@@ -50,6 +50,8 @@ export interface LedgerEntry {
   createdAt: string;
   /** Sequence number for ordering (monotonically increasing) */
   seq: number;
+  /** SHA-256 hash of the previous entry for tamper-evident chain (undefined for genesis entry) */
+  prevEntryHash?: string;
 }
 
 export interface AccountBalance {
@@ -79,6 +81,10 @@ export interface LedgerSummary {
   entryCount: number;
   /** All account balances */
   accounts: AccountBalance[];
+  /** Whether the hash chain is valid (undefined if no chained entries exist) */
+  chainValid?: boolean;
+  /** Ratio of valid chain links (0.0–1.0, undefined if no chained entries) */
+  chainIntegrity?: number;
 }
 
 export interface TransferResult {
@@ -86,11 +92,33 @@ export interface TransferResult {
   txRef: string;
 }
 
+// ─── Hash Chain ─────────────────────────────────────────────────────────────
+
+/**
+ * Compute a SHA-256 hash of a ledger entry's critical fields.
+ * Used to build a tamper-evident chain across entries.
+ */
+export function hashEntry(entry: LedgerEntry): string {
+  const { createHash } = require("crypto") as typeof import("crypto");
+  const payload = [
+    entry.id,
+    entry.txRef,
+    entry.account,
+    String(entry.debit),
+    String(entry.credit),
+    entry.currency,
+    String(entry.seq),
+    entry.prevEntryHash ?? "",
+  ].join("|");
+  return createHash("sha256").update(payload).digest("hex");
+}
+
 // ─── Ledger ─────────────────────────────────────────────────────────────────
 
 export class Ledger {
   private entries: LedgerEntry[] = [];
   private seq = 0;
+  private lastEntryHash: string | undefined;
 
   constructor(existingEntries?: LedgerEntry[]) {
     if (existingEntries) {
@@ -106,6 +134,10 @@ export class Ledger {
       this.seq = this.entries.length > 0
         ? Math.max(...this.entries.map(e => e.seq)) + 1
         : 0;
+      // Compute lastEntryHash from the final entry for chain continuity
+      if (this.entries.length > 0) {
+        this.lastEntryHash = hashEntry(this.entries[this.entries.length - 1]);
+      }
     }
   }
 
@@ -143,7 +175,10 @@ export class Ledger {
       counterAccount: toAccount,
       createdAt: now,
       seq: this.seq++,
+      prevEntryHash: this.lastEntryHash,
     };
+
+    const debitHash = hashEntry(debitEntry);
 
     const creditEntry: LedgerEntry = {
       id: crypto.randomUUID(),
@@ -158,9 +193,11 @@ export class Ledger {
       counterAccount: fromAccount,
       createdAt: now,
       seq: this.seq++,
+      prevEntryHash: debitHash,
     };
 
     this.entries.push(debitEntry, creditEntry);
+    this.lastEntryHash = hashEntry(creditEntry);
     return { entries: [debitEntry, creditEntry], txRef };
   }
 
@@ -393,6 +430,8 @@ export class Ledger {
 
     const imbalance = Math.round((totalDebits - totalCredits) * 100) / 100;
 
+    const chainResult = this.verifyChain();
+
     return {
       totalDebits: Math.round(totalDebits * 100) / 100,
       totalCredits: Math.round(totalCredits * 100) / 100,
@@ -400,6 +439,51 @@ export class Ledger {
       balanced: imbalance === 0,
       entryCount: this.entries.length,
       accounts: Array.from(accountMap.values()),
+      chainValid: chainResult.valid,
+      chainIntegrity: chainResult.chainIntegrity,
+    };
+  }
+
+  // ── Chain Verification ───────────────────────────────────────────────────
+
+  /**
+   * Walk all entries and verify that each entry's prevEntryHash matches the
+   * hash of the previous entry. Legacy entries without prevEntryHash are skipped.
+   */
+  verifyChain(): { valid: boolean; brokenLinks: number[]; chainIntegrity: number } {
+    const brokenLinks: number[] = [];
+    let chainedCount = 0;
+    let validCount = 0;
+
+    for (let i = 0; i < this.entries.length; i++) {
+      const entry = this.entries[i];
+      // Skip legacy entries without hash chain data
+      if (entry.prevEntryHash === undefined) continue;
+
+      chainedCount++;
+
+      if (i === 0) {
+        // First entry in the ledger with prevEntryHash — nothing to verify against
+        validCount++;
+        continue;
+      }
+
+      const prevEntry = this.entries[i - 1];
+      const expectedHash = hashEntry(prevEntry);
+
+      if (entry.prevEntryHash === expectedHash) {
+        validCount++;
+      } else {
+        brokenLinks.push(i);
+      }
+    }
+
+    const chainIntegrity = chainedCount === 0 ? 1.0 : validCount / chainedCount;
+
+    return {
+      valid: brokenLinks.length === 0,
+      brokenLinks,
+      chainIntegrity,
     };
   }
 

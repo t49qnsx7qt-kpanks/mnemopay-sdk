@@ -88,6 +88,8 @@ export interface PersistedState {
     createdAt: string;
   }>;
   fraudGuard?: any;
+  streak?: { currentStreak: number; bestStreak: number; lastSettlement: number; streakBonus: number };
+  badges?: Array<{ id: string; name: string; description: string; earnedAt: number }>;
 }
 
 // ─── SQLite Storage ─────────────────────────────────────────────────────────

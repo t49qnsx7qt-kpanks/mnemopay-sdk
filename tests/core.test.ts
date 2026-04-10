@@ -322,15 +322,17 @@ describe("Reputation-Gated Payments", () => {
   });
 
   it("should increase ceiling as reputation grows", async () => {
-    // Build reputation: settle 10 transactions → +0.10 reputation
+    // Build reputation: settle 10 transactions → base +0.10 + streak bonuses
     for (let i = 0; i < 10; i++) {
       const tx = await agent.charge(1, `Service ${i}`);
       await agent.settle(tx.id);
     }
     const bal = await agent.balance();
-    expect(bal.reputation).toBeCloseTo(0.60, 1);
-    // New ceiling: 0.60 * 500 = $300
-    const tx = await agent.charge(290, "Higher ceiling");
+    // With streak bonuses: 0.50 + 10*0.01 + sum(0.002..0.020) ≈ 0.71
+    expect(bal.reputation).toBeGreaterThan(0.60);
+    expect(bal.reputation).toBeLessThan(0.80);
+    // New ceiling: ~0.71 * 500 = ~$355
+    const tx = await agent.charge(350, "Higher ceiling");
     expect(tx.status).toBe("pending");
   });
 

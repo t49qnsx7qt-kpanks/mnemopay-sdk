@@ -157,6 +157,33 @@ export interface AuditEntry {
 
 // ─── Reputation ────────────────────────────────────────────────────────────
 
+export interface AgentStreak {
+  /** Consecutive successful settlements */
+  currentStreak: number;
+  /** All-time longest streak */
+  bestStreak: number;
+  /** Last settlement timestamp */
+  lastSettlement: number;
+  /** Streak bonus applied to reputation (0-0.1) */
+  streakBonus: number;
+}
+
+export interface AgentBadge {
+  id: string;
+  name: string;
+  description: string;
+  earnedAt: number;
+}
+
+export const BADGE_DEFINITIONS = [
+  { id: "first_settlement", name: "First Settlement", description: "Completed first successful settlement", threshold: (_streak: number, _v: number, _d: number, settled: number) => settled >= 1 },
+  { id: "streak_10", name: "Hot Streak", description: "10 consecutive settlements without refund or dispute", threshold: (streak: number, _v: number, _d: number, _settled: number) => streak >= 10 },
+  { id: "streak_50", name: "Unstoppable", description: "50 consecutive settlements", threshold: (streak: number, _v: number, _d: number, _settled: number) => streak >= 50 },
+  { id: "volume_1k", name: "Thousand Dollar Agent", description: "$1,000+ total settled volume", threshold: (_streak: number, v: number, _d: number, _settled: number) => v >= 1000 },
+  { id: "volume_10k", name: "Heavy Hitter", description: "$10,000+ total settled volume", threshold: (_streak: number, v: number, _d: number, _settled: number) => v >= 10000 },
+  { id: "perfect_record", name: "Spotless", description: "100+ settlements with 0 disputes", threshold: (_streak: number, _v: number, d: number, settled: number) => settled >= 100 && d === 0 },
+] as const;
+
 export interface ReputationReport {
   agentId: string;
   /** Overall reputation score 0-1 */
@@ -179,6 +206,10 @@ export interface ReputationReport {
   ageHours: number;
   /** Generated at */
   generatedAt: Date;
+  /** Settlement streak info (GridStamp cross-pollination) */
+  streak?: AgentStreak;
+  /** Earned badges */
+  badges?: AgentBadge[];
 }
 
 function reputationTier(score: number): ReputationReport["tier"] {
@@ -324,6 +355,10 @@ export class MnemoPayLite extends EventEmitter {
   readonly identity: IdentityRegistry;
   /** Adaptive business intelligence — learns from operations, optimizes within secure bounds */
   readonly adaptive: AdaptiveEngine;
+  /** Settlement streak tracking (GridStamp cross-pollination) */
+  private _streak: AgentStreak = { currentStreak: 0, bestStreak: 0, lastSettlement: 0, streakBonus: 0 };
+  /** Earned achievement badges */
+  private _badges: AgentBadge[] = [];
 
   constructor(agentId: string, decay = 0.05, debug = false, recallConfig?: Partial<RecallEngineConfig>, fraudConfig?: Partial<FraudConfig>, paymentRail?: PaymentRail, requireCounterparty = false, storage?: StorageAdapter) {
     super();
@@ -472,6 +507,8 @@ export class MnemoPayLite extends EventEmitter {
       if (raw.wallet !== undefined) this._wallet = raw.wallet;
       if (raw.reputation !== undefined) this._reputation = raw.reputation;
       if (raw.createdAt) this._createdAt = new Date(raw.createdAt);
+      if (raw.streak && typeof raw.streak === "object") this._streak = { ...this._streak, ...raw.streak };
+      if (raw.badges && Array.isArray(raw.badges)) this._badges = raw.badges;
       if (raw.auditLog) {
         this.auditLog = raw.auditLog.map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) }));
       }
@@ -541,6 +578,8 @@ export class MnemoPayLite extends EventEmitter {
           createdAt: a.createdAt.toISOString(),
         })) as any,
         fraudGuard: this.fraud.serialize(),
+        streak: this._streak,
+        badges: this._badges,
       });
     } catch (e) {
       this.log(`Failed to save to storage: ${e}`);
@@ -597,6 +636,22 @@ export class MnemoPayLite extends EventEmitter {
     }
   }
 
+  private _checkBadges(): void {
+    const settled = Array.from(this.transactions.values()).filter(t => t.status === "completed");
+    const settledCount = settled.length;
+    const totalVolume = settled.reduce((sum, t) => sum + (t.netAmount ?? t.amount), 0);
+    const disputeCount = Array.from(this.transactions.values()).filter(t => t.status === "disputed").length;
+    const earnedIds = new Set(this._badges.map(b => b.id));
+
+    for (const def of BADGE_DEFINITIONS) {
+      if (earnedIds.has(def.id)) continue;
+      if (def.threshold(this._streak.currentStreak, totalVolume, disputeCount, settledCount)) {
+        this._badges.push({ id: def.id, name: def.name, description: def.description, earnedAt: Date.now() });
+        this.audit("badge:earned", { badgeId: def.id, name: def.name });
+      }
+    }
+  }
+
   private _saveToDisk(): void {
     // Use storage adapter if available
     if (this.storageAdapter) {
@@ -617,6 +672,8 @@ export class MnemoPayLite extends EventEmitter {
         fraudGuard: this.fraud.serialize(),
         ledger: this.ledger.serialize(),
         identity: this.identity.serialize(),
+        streak: this._streak,
+        badges: this._badges,
         savedAt: new Date().toISOString(),
       });
       // Atomic write with backup: .bak → .tmp → main
@@ -968,8 +1025,19 @@ export class MnemoPayLite extends EventEmitter {
         this._wallet = Math.round(newBalance * 100) / 100; // 2-decimal precision
         // Boost reputation inside lock to prevent race condition on concurrent settles
         this._reputation = Math.min(this._reputation + 0.01, 1.0);
+        // Streak tracking (GridStamp cross-pollination)
+        this._streak.currentStreak++;
+        if (this._streak.currentStreak > this._streak.bestStreak) {
+          this._streak.bestStreak = this._streak.currentStreak;
+        }
+        this._streak.lastSettlement = Date.now();
+        this._streak.streakBonus = Math.min(this._streak.currentStreak * 0.002, 0.1);
+        this._reputation = Math.min(this._reputation + this._streak.streakBonus, 1.0);
       });
       await this._walletLock;
+
+      // 5a. Check badge eligibility
+      this._checkBadges();
 
       // 5. Reinforce recently-accessed memories (feedback loop)
       const oneHourAgo = Date.now() - 3_600_000;
@@ -1036,6 +1104,9 @@ export class MnemoPayLite extends EventEmitter {
       const refundAmount = tx.netAmount ?? tx.amount;
       this._wallet = Math.max(this._wallet - refundAmount, 0);
       this._reputation = Math.max(this._reputation - 0.05, 0);
+      // Reset streak on refund
+      this._streak.currentStreak = 0;
+      this._streak.streakBonus = 0;
 
       // Ledger: reverse the net settlement
       this.ledger.recordRefund(this.agentId, tx.id, refundAmount, tx.counterpartyId);
@@ -1096,6 +1167,8 @@ export class MnemoPayLite extends EventEmitter {
         // Ledger first, then wallet (atomic ordering)
         this._wallet = Math.max(this._wallet - refundAmount, 0);
         this._reputation = Math.max(this._reputation - 0.05, 0);
+        this._streak.currentStreak = 0;
+        this._streak.streakBonus = 0;
         tx.status = "refunded";
       }
     } else {
@@ -1220,9 +1293,11 @@ export class MnemoPayLite extends EventEmitter {
       avgMemoryImportance: Math.round(avgImportance * 100) / 100,
       ageHours: Math.round(ageHours * 10) / 10,
       generatedAt: new Date(),
+      streak: { ...this._streak },
+      badges: [...this._badges],
     };
 
-    this.log(`Reputation: ${report.tier} (${report.score.toFixed(2)}), ${report.settledCount} settled, rate: ${(report.settlementRate * 100).toFixed(0)}%`);
+    this.log(`Reputation: ${report.tier} (${report.score.toFixed(2)}), ${report.settledCount} settled, rate: ${(report.settlementRate * 100).toFixed(0)}%, streak: ${this._streak.currentStreak}`);
     return report;
   }
 
@@ -1769,7 +1844,7 @@ export { MockRail, StripeRail, LightningRail, PaystackRail, NIGERIAN_BANKS } fro
 export type { PaymentRail, PaymentRailResult, HoldOptions, PaystackConfig, PaystackCurrency, PaystackHoldResult, PaystackVerifyResult, PaystackTransferRecipient, PaystackTransferResult, PaystackWebhookEvent } from "./rails/index.js";
 export { SQLiteStorage, JSONFileStorage } from "./storage/sqlite.js";
 export type { StorageAdapter, PersistedState } from "./storage/sqlite.js";
-export { Ledger } from "./ledger.js";
+export { Ledger, hashEntry } from "./ledger.js";
 export type { LedgerEntry, LedgerSummary, AccountBalance, Currency, AccountType, TransferResult } from "./ledger.js";
 export { IdentityRegistry, constantTimeEqual } from "./identity.js";
 export type { AgentIdentity, CapabilityToken, Permission, IdentityVerification, KYARecord } from "./identity.js";
