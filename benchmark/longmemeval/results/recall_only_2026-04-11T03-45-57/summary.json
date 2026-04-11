@@ -1,0 +1,58 @@
+{
+  "recallStrategy": "score",
+  "recallLimit": 20,
+  "totalQuestions": 500,
+  "answerInRecalled": {
+    "count": 322,
+    "pct": "64.4"
+  },
+  "sessionHitRate": {
+    "count": 500,
+    "pct": "100.0"
+  },
+  "byType": {
+    "temporal-reasoning": {
+      "total": 133,
+      "answerHit": 75,
+      "answerHitPct": "56.4",
+      "sessionHit": 133,
+      "sessionHitPct": "100.0"
+    },
+    "multi-session": {
+      "total": 133,
+      "answerHit": 73,
+      "answerHitPct": "54.9",
+      "sessionHit": 133,
+      "sessionHitPct": "100.0"
+    },
+    "knowledge-update": {
+      "total": 78,
+      "answerHit": 65,
+      "answerHitPct": "83.3",
+      "sessionHit": 78,
+      "sessionHitPct": "100.0"
+    },
+    "single-session-preference": {
+      "total": 30,
+      "answerHit": 4,
+      "answerHitPct": "13.3",
+      "sessionHit": 30,
+      "sessionHitPct": "100.0"
+    },
+    "single-session-assistant": {
+      "total": 56,
+      "answerHit": 43,
+      "answerHitPct": "76.8",
+      "sessionHit": 56,
+      "sessionHitPct": "100.0"
+    },
+    "single-session-user": {
+      "total": 70,
+      "answerHit": 62,
+      "answerHitPct": "88.6",
+      "sessionHit": 70,
+      "sessionHitPct": "100.0"
+    }
+  },
+  "timeMs": 15977
+}

@@ -1,0 +1,878 @@
+[
+  {
+    "qid": "gpt4_2655b836",
+    "qtype": "temporal-reasoning",
+    "question": "What was the first issue I had with my new car after its first service?",
+    "answer": "GPS system not functioning correctly",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_4be1b6b4_3",
+      "answer_4be1b6b4_1",
+      "answer_4be1b6b4_2"
+    ],
+    "answerSessions": [
+      "answer_4be1b6b4_2",
+      "answer_4be1b6b4_3",
+      "answer_4be1b6b4_1"
+    ],
+    "recallCount": 7
+  },
+  {
+    "qid": "gpt4_2487a7cb",
+    "qtype": "temporal-reasoning",
+    "question": "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
+    "answer": "'Data Analysis using Python' webinar",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_1c6b85ea_1",
+      "answer_1c6b85ea_2"
+    ],
+    "answerSessions": [
+      "answer_1c6b85ea_1",
+      "answer_1c6b85ea_2"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "gpt4_76048e76",
+    "qtype": "temporal-reasoning",
+    "question": "Which vehicle did I take care of first in February, the bike or the car?",
+    "answer": "bike",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_b535969f_1",
+      "answer_b535969f_2"
+    ],
+    "answerSessions": [
+      "answer_b535969f_2",
+      "answer_b535969f_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_2312f94c",
+    "qtype": "temporal-reasoning",
+    "question": "Which device did I got first, the Samsung Galaxy S22 or the Dell XPS 13?",
+    "answer": "Samsung Galaxy S22",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_5328c3c2_2",
+      "answer_5328c3c2_1"
+    ],
+    "answerSessions": [
+      "answer_5328c3c2_1",
+      "answer_5328c3c2_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "0bb5a684",
+    "qtype": "temporal-reasoning",
+    "question": "How many days before the team meeting I was preparing for did I attend the workshop on 'Effective Communication in the Workplace'?",
+    "answer": "7 days. 8 days (including the last day) is also acceptable.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_e936197f_2",
+      "answer_e936197f_1"
+    ],
+    "answerSessions": [
+      "answer_e936197f_1",
+      "answer_e936197f_2"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "08f4fc43",
+    "qtype": "temporal-reasoning",
+    "question": "How many days had passed between the Sunday mass at St. Mary's Church and the Ash Wednesday service at the cathedral?",
+    "answer": "30 days. 31 days (including the last day) is also acceptable.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_6ea1541e_2",
+      "answer_6ea1541e_1"
+    ],
+    "answerSessions": [
+      "answer_6ea1541e_2",
+      "answer_6ea1541e_1"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "2c63a862",
+    "qtype": "temporal-reasoning",
+    "question": "How many days did it take for me to find a house I loved after starting to work with Rachel?",
+    "answer": "14 days. 15 days (including the last day) is also acceptable.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_d39b7977_2",
+      "answer_d39b7977_1"
+    ],
+    "answerSessions": [
+      "answer_d39b7977_1",
+      "answer_d39b7977_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_385a5000",
+    "qtype": "temporal-reasoning",
+    "question": "Which seeds were started first, the tomatoes or the marigolds?",
+    "answer": "Tomatoes",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_7a4a93f1_1",
+      "answer_7a4a93f1_2"
+    ],
+    "answerSessions": [
+      "answer_7a4a93f1_2",
+      "answer_7a4a93f1_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "2a1811e2",
+    "qtype": "temporal-reasoning",
+    "question": "How many days had passed between the Hindu festival of Holi and the Sunday mass at St. Mary's Church?",
+    "answer": "21 days. 22 days (including the last day) is also acceptable.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_1cc3cd0c_2",
+      "answer_1cc3cd0c_1"
+    ],
+    "answerSessions": [
+      "answer_1cc3cd0c_2",
+      "answer_1cc3cd0c_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "bbf86515",
+    "qtype": "temporal-reasoning",
+    "question": "How many days before the 'Rack Fest' did I participate in the 'Turbocharged Tuesdays' event?",
+    "answer": "4 days.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_b3763b6b_2",
+      "answer_b3763b6b_1"
+    ],
+    "answerSessions": [
+      "answer_b3763b6b_1",
+      "answer_b3763b6b_2"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "gpt4_5dcc0aab",
+    "qtype": "temporal-reasoning",
+    "question": "Which pair of shoes did I clean last month?",
+    "answer": "white Adidas sneakers",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_099c1b6c_5",
+      "answer_099c1b6c_4",
+      "answer_099c1b6c_2",
+      "answer_099c1b6c_1",
+      "answer_099c1b6c_3"
+    ],
+    "answerSessions": [
+      "answer_099c1b6c_3",
+      "answer_099c1b6c_1",
+      "answer_099c1b6c_2",
+      "answer_099c1b6c_4",
+      "answer_099c1b6c_5"
+    ],
+    "recallCount": 10
+  },
+  {
+    "qid": "gpt4_0b2f1d21",
+    "qtype": "temporal-reasoning",
+    "question": "Which event happened first, the purchase of the coffee maker or the malfunction of the stand mixer?",
+    "answer": "The malfunction of the stand mixer",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_c4e5d969_2",
+      "answer_c4e5d969_1"
+    ],
+    "answerSessions": [
+      "answer_c4e5d969_1",
+      "answer_c4e5d969_2"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "f0853d11",
+    "qtype": "temporal-reasoning",
+    "question": "How many days had passed between the 'Walk for Hunger' event and the 'Coastal Cleanup' event?",
+    "answer": "14 days. 8 days (including the last day) is also acceptable.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_932ea3bf_2",
+      "answer_932ea3bf_1"
+    ],
+    "answerSessions": [
+      "answer_932ea3bf_2",
+      "answer_932ea3bf_1"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "gpt4_6ed717ea",
+    "qtype": "temporal-reasoning",
+    "question": "Which item did I purchase first, the dog bed for Max or the training pads for Luna?",
+    "answer": "Training pads for Luna",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_d50a8a33_1",
+      "answer_d50a8a33_2"
+    ],
+    "answerSessions": [
+      "answer_d50a8a33_2",
+      "answer_d50a8a33_1"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "gpt4_70e84552",
+    "qtype": "temporal-reasoning",
+    "question": "Which task did I complete first, fixing the fence or trimming the goats' hooves?",
+    "answer": "Fixing the fence",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_b3070ec4_1",
+      "answer_b3070ec4_2"
+    ],
+    "answerSessions": [
+      "answer_b3070ec4_1",
+      "answer_b3070ec4_2"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "a3838d2b",
+    "qtype": "temporal-reasoning",
+    "question": "How many charity events did I participate in before the 'Run for the Cure' event?",
+    "answer": "4",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_4ffa04a2_3",
+      "answer_4ffa04a2_4",
+      "answer_4ffa04a2_5",
+      "answer_4ffa04a2_1",
+      "answer_4ffa04a2_2",
+      "answer_4ffa04a2_6"
+    ],
+    "answerSessions": [
+      "answer_4ffa04a2_1",
+      "answer_4ffa04a2_6",
+      "answer_4ffa04a2_5",
+      "answer_4ffa04a2_4",
+      "answer_4ffa04a2_2",
+      "answer_4ffa04a2_3"
+    ],
+    "recallCount": 14
+  },
+  {
+    "qid": "gpt4_93159ced",
+    "qtype": "temporal-reasoning",
+    "question": "How long have I been working before I started my current job at NovaTech?",
+    "answer": "4 years and 9 months",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_e5131a1b_2",
+      "answer_e5131a1b_1"
+    ],
+    "answerSessions": [
+      "answer_e5131a1b_1",
+      "answer_e5131a1b_2"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "gpt4_2d58bcd6",
+    "qtype": "temporal-reasoning",
+    "question": "Which book did I finish reading first, 'The Hate U Give' or 'The Nightingale'?",
+    "answer": "'The Hate U Give'",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_3e11e0ae_2",
+      "answer_3e11e0ae_1"
+    ],
+    "answerSessions": [
+      "answer_3e11e0ae_2",
+      "answer_3e11e0ae_1"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "gpt4_65aabe59",
+    "qtype": "temporal-reasoning",
+    "question": "Which device did I set up first, the smart thermostat or the mesh network system?",
+    "answer": "Smart thermostat",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_30dfe889_1",
+      "answer_30dfe889_2"
+    ],
+    "answerSessions": [
+      "answer_30dfe889_2",
+      "answer_30dfe889_1"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "982b5123",
+    "qtype": "temporal-reasoning",
+    "question": "How many months ago did I book the Airbnb in San Francisco?",
+    "answer": "Five months ago",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_ab603dd5_1",
+      "answer_ab603dd5_2"
+    ],
+    "answerSessions": [
+      "answer_ab603dd5_2",
+      "answer_ab603dd5_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "b9cfe692",
+    "qtype": "temporal-reasoning",
+    "question": "How long did I take to finish 'The Seven Husbands of Evelyn Hugo' and 'The Nightingale' combined?",
+    "answer": "5.5 weeks",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_5e3bb940_2",
+      "answer_5e3bb940_3",
+      "answer_5e3bb940_1"
+    ],
+    "answerSessions": [
+      "answer_5e3bb940_1",
+      "answer_5e3bb940_3",
+      "answer_5e3bb940_2"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "gpt4_4edbafa2",
+    "qtype": "temporal-reasoning",
+    "question": "What was the date on which I attended the first BBQ event in June?",
+    "answer": "June 3rd",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_0a00c163_2",
+      "answer_0a00c163_1"
+    ],
+    "answerSessions": [
+      "answer_0a00c163_1",
+      "answer_0a00c163_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "c8090214",
+    "qtype": "temporal-reasoning",
+    "question": "How many days before I bought the iPhone 13 Pro did I attend the Holiday Market?",
+    "answer": "7 days. 8 days (including the last day) is also acceptable.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_70dc7d08_2",
+      "answer_70dc7d08_1"
+    ],
+    "answerSessions": [
+      "answer_70dc7d08_1",
+      "answer_70dc7d08_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_483dd43c",
+    "qtype": "temporal-reasoning",
+    "question": "Which show did I start watching first, 'The Crown' or 'Game of Thrones'?",
+    "answer": "'Game of Thrones'",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_fb793c87_1",
+      "answer_fb793c87_2"
+    ],
+    "answerSessions": [
+      "answer_fb793c87_2",
+      "answer_fb793c87_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "e4e14d04",
+    "qtype": "temporal-reasoning",
+    "question": "How long had I been a member of 'Book Lovers Unite' when I attended the meetup?",
+    "answer": "Two weeks",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_cf425855_1",
+      "answer_cf425855_2"
+    ],
+    "answerSessions": [
+      "answer_cf425855_2",
+      "answer_cf425855_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "c9f37c46",
+    "qtype": "temporal-reasoning",
+    "question": "How long had I been watching stand-up comedy specials regularly when I attended the open mic night at the local comedy club?",
+    "answer": "2 months",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_cdba3d9f_2",
+      "answer_cdba3d9f_1"
+    ],
+    "answerSessions": [
+      "answer_cdba3d9f_1",
+      "answer_cdba3d9f_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_2c50253f",
+    "qtype": "temporal-reasoning",
+    "question": "What time do I wake up on Tuesdays and Thursdays?",
+    "answer": "6:45 AM",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_9af4e346_1",
+      "answer_9af4e346_2"
+    ],
+    "answerSessions": [
+      "answer_9af4e346_1",
+      "answer_9af4e346_2"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "dcfa8644",
+    "qtype": "temporal-reasoning",
+    "question": "How many days had passed since I bought my Adidas running shoes when I realized one of the shoelaces on my old Converse sneakers had broken?",
+    "answer": "14 days. 15 days (including the last day) is also acceptable.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_5e3eeb12_2",
+      "answer_5e3eeb12_1"
+    ],
+    "answerSessions": [
+      "answer_5e3eeb12_1",
+      "answer_5e3eeb12_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_b4a80587",
+    "qtype": "temporal-reasoning",
+    "question": "Which event happened first, the road trip to the coast or the arrival of the new prime lens?",
+    "answer": "The arrival of the new prime lens",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_b9d9150e_1",
+      "answer_b9d9150e_2"
+    ],
+    "answerSessions": [
+      "answer_b9d9150e_2",
+      "answer_b9d9150e_1"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "gpt4_9a159967",
+    "qtype": "temporal-reasoning",
+    "question": "Which airline did I fly with the most in March and April?",
+    "answer": "United Airlines",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_8a42fedf_2",
+      "answer_8a42fedf_3",
+      "answer_8a42fedf_1"
+    ],
+    "answerSessions": [
+      "answer_8a42fedf_1",
+      "answer_8a42fedf_3",
+      "answer_8a42fedf_2"
+    ],
+    "recallCount": 7
+  },
+  {
+    "qid": "cc6d1ec1",
+    "qtype": "temporal-reasoning",
+    "question": "How long had I been bird watching when I attended the bird watching workshop?",
+    "answer": "Two months",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_be73098b_2",
+      "answer_be73098b_1"
+    ],
+    "answerSessions": [
+      "answer_be73098b_1",
+      "answer_be73098b_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_8c8961ae",
+    "qtype": "temporal-reasoning",
+    "question": "Which trip did I take first, the one to Europe with family or the solo trip to Thailand?",
+    "answer": "The solo trip to Thailand",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_72d9aa58_2",
+      "answer_72d9aa58_1"
+    ],
+    "answerSessions": [
+      "answer_72d9aa58_2",
+      "answer_72d9aa58_1"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "gpt4_d9af6064",
+    "qtype": "temporal-reasoning",
+    "question": "Which device did I set up first, the smart thermostat or the new router?",
+    "answer": "new router",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_da704e79_1",
+      "answer_da704e79_2"
+    ],
+    "answerSessions": [
+      "answer_da704e79_1",
+      "answer_da704e79_2"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "gpt4_7de946e7",
+    "qtype": "temporal-reasoning",
+    "question": "Which health issue did I deal with first, the persistent cough or the skin tag removal?",
+    "answer": "Persistent cough",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_6a78e959_2",
+      "answer_6a78e959_1"
+    ],
+    "answerSessions": [
+      "answer_6a78e959_1",
+      "answer_6a78e959_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "d01c6aa8",
+    "qtype": "temporal-reasoning",
+    "question": "How old was I when I moved to the United States?",
+    "answer": "27",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_991d55e5_2",
+      "answer_991d55e5_1"
+    ],
+    "answerSessions": [
+      "answer_991d55e5_1",
+      "answer_991d55e5_2"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "993da5e2",
+    "qtype": "temporal-reasoning",
+    "question": "How long had I been using the new area rug when I rearranged my living room furniture?",
+    "answer": "One week. Answers ranging from 7 days to 10 days are also acceptable.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_54f0d6f9_1",
+      "answer_54f0d6f9_2"
+    ],
+    "answerSessions": [
+      "answer_54f0d6f9_2",
+      "answer_54f0d6f9_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "a3045048",
+    "qtype": "temporal-reasoning",
+    "question": "How many days before my best friend's birthday party did I order her gift?",
+    "answer": "7 days. 8 days (including the last day) is also acceptable.",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_016f6bd4_2",
+      "answer_016f6bd4_1"
+    ],
+    "answerSessions": [
+      "answer_016f6bd4_1",
+      "answer_016f6bd4_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_d31cdae3",
+    "qtype": "temporal-reasoning",
+    "question": "Which trip did the narrator take first, the solo trip to Europe or the family road trip across the American Southwest?",
+    "answer": "The family road trip across the American Southwest",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_8464304d_2",
+      "answer_8464304d_1"
+    ],
+    "answerSessions": [
+      "answer_8464304d_1",
+      "answer_8464304d_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_cd90e484",
+    "qtype": "temporal-reasoning",
+    "question": "How long did I use my new binoculars before I saw the American goldfinches returning to the area?",
+    "answer": "Two weeks",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_aa930b56_2",
+      "answer_aa930b56_1"
+    ],
+    "answerSessions": [
+      "answer_aa930b56_2",
+      "answer_aa930b56_1"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "gpt4_88806d6e",
+    "qtype": "temporal-reasoning",
+    "question": "Who did I meet first, Mark and Sarah or Tom?",
+    "answer": "Tom",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_e60a93ff_2",
+      "answer_e60a93ff_1"
+    ],
+    "answerSessions": [
+      "answer_e60a93ff_2",
+      "answer_e60a93ff_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_4cd9eba1",
+    "qtype": "temporal-reasoning",
+    "question": "How many weeks have I been accepted into the exchange program when I started attending the pre-departure orientation sessions?",
+    "answer": "one week",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_5fcca8bc_1",
+      "answer_5fcca8bc_2"
+    ],
+    "answerSessions": [
+      "answer_5fcca8bc_2",
+      "answer_5fcca8bc_1"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "gpt4_93f6379c",
+    "qtype": "temporal-reasoning",
+    "question": "Which group did I join first, 'Page Turners' or 'Marketing Professionals'?",
+    "answer": "Page Turners",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_544fe66c_2",
+      "answer_544fe66c_3",
+      "answer_544fe66c_1"
+    ],
+    "answerSessions": [
+      "answer_544fe66c_2",
+      "answer_544fe66c_1",
+      "answer_544fe66c_3"
+    ],
+    "recallCount": 9
+  },
+  {
+    "qid": "b29f3365",
+    "qtype": "temporal-reasoning",
+    "question": "How long had I been taking guitar lessons when I bought the new guitar amp?",
+    "answer": "Four weeks",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_436d4309_2",
+      "answer_436d4309_1"
+    ],
+    "answerSessions": [
+      "answer_436d4309_1",
+      "answer_436d4309_2"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_2f56ae70",
+    "qtype": "temporal-reasoning",
+    "question": "Which streaming service did I start using most recently?",
+    "answer": "Disney+",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_7a36e820_1",
+      "answer_7a36e820_2",
+      "answer_7a36e820_3"
+    ],
+    "answerSessions": [
+      "answer_7a36e820_2",
+      "answer_7a36e820_1",
+      "answer_7a36e820_3"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "6613b389",
+    "qtype": "temporal-reasoning",
+    "question": "How many months before my anniversary did Rachel get engaged?",
+    "answer": "2",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_aaf71ce2_1",
+      "answer_aaf71ce2_2",
+      "answer_aaf71ce2_3"
+    ],
+    "answerSessions": [
+      "answer_aaf71ce2_2",
+      "answer_aaf71ce2_1",
+      "answer_aaf71ce2_3"
+    ],
+    "recallCount": 6
+  },
+  {
+    "qid": "gpt4_78cf46a3",
+    "qtype": "temporal-reasoning",
+    "question": "Which event happened first, the narrator losing their phone charger or the narrator receiving their new phone case?",
+    "answer": "Receiving the new phone case",
+    "answerFound": false,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_5a78688d_1",
+      "answer_5a78688d_2"
+    ],
+    "answerSessions": [
+      "answer_5a78688d_2",
+      "answer_5a78688d_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_0a05b494",
+    "qtype": "temporal-reasoning",
+    "question": "Who did I meet first, the woman selling jam at the farmer's market or the tourist from Australia?",
+    "answer": "the woman selling jam at the farmer's market",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_a68db5db_2",
+      "answer_a68db5db_1"
+    ],
+    "answerSessions": [
+      "answer_a68db5db_2",
+      "answer_a68db5db_1"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "gpt4_1a1dc16d",
+    "qtype": "temporal-reasoning",
+    "question": "Which event happened first, the meeting with Rachel or the pride parade?",
+    "answer": "The meeting with Rachel",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_faad7d7a_1",
+      "answer_faad7d7a_2"
+    ],
+    "answerSessions": [
+      "answer_faad7d7a_2",
+      "answer_faad7d7a_1"
+    ],
+    "recallCount": 5
+  },
+  {
+    "qid": "gpt4_2f584639",
+    "qtype": "temporal-reasoning",
+    "question": "Which gift did I buy first, the necklace for my sister or the photo album for my mom?",
+    "answer": "the photo album for my mom",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_11a8f823_1",
+      "answer_11a8f823_2"
+    ],
+    "answerSessions": [
+      "answer_11a8f823_2",
+      "answer_11a8f823_1"
+    ],
+    "recallCount": 4
+  },
+  {
+    "qid": "gpt4_213fd887",
+    "qtype": "temporal-reasoning",
+    "question": "Which event did I participate in first, the volleyball league or the charity 5K run to raise money for a local children's hospital?",
+    "answer": "volleyball league",
+    "answerFound": true,
+    "sessionFound": true,
+    "recalledSessions": [
+      "answer_53582e7e_2",
+      "answer_53582e7e_1"
+    ],
+    "answerSessions": [
+      "answer_53582e7e_1",
+      "answer_53582e7e_2"
+    ],
+    "recallCount": 6
+  }
+]

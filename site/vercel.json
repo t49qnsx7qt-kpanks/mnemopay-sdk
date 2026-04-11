@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "**/*.html", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/", "dest": "/index.html" },
+    { "src": "/calculator", "dest": "/calculator.html" },
+    { "src": "/dashboard", "dest": "/dashboard.html" },
+    { "src": "/enterprise", "dest": "/enterprise.html" },
+    { "src": "/vs-kite", "dest": "/vs-kite.html" },
+    { "src": "/vs-mem0", "dest": "/vs-mem0.html" },
+    { "src": "/vs-skyfire", "dest": "/vs-skyfire.html" },
+    { "src": "/(.*)", "dest": "/$1" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "recallStrategy": "score",
+  "recallLimit": 20,
+  "totalQuestions": 50,
+  "answerInRecalled": {
+    "count": 31,
+    "pct": "62.0"
+  },
+  "sessionHitRate": {
+    "count": 50,
+    "pct": "100.0"
+  },
+  "byType": {
+    "temporal-reasoning": {
+      "total": 50,
+      "answerHit": 31,
+      "answerHitPct": "62.0",
+      "sessionHit": 50,
+      "sessionHitPct": "100.0"
+    }
+  },
+  "timeMs": 1921
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@mnemopay/benchmark-longmemeval",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LongMemEval (ICLR 2025) benchmark adapter for MnemoPay memory system",
+  "type": "module",
+  "scripts": {
+    "download": "bash scripts/download-data.sh",
+    "ingest": "tsx ingest.ts",
+    "evaluate": "tsx evaluate.ts",
+    "bench": "bash run.sh",
+    "bench:oracle": "bash run.sh oracle",
+    "bench:small": "bash run.sh s",
+    "bench:medium": "bash run.sh m"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@mnemopay/sdk": "file:../../"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
