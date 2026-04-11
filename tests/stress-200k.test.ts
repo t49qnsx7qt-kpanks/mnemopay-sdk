@@ -163,6 +163,10 @@ describe("200K Transaction Stress Test", () => {
   let startTime = 0;
 
   function trackHeap(): void {
+    // Force a GC cycle before sampling so we measure live objects, not
+    // dead-but-not-yet-collected old-space garbage.  --expose-gc is passed
+    // via vitest.config.ts poolOptions so gc() is always available here.
+    if (typeof (globalThis as any).gc === "function") (globalThis as any).gc();
     const current = heapMB();
     if (current > peakHeapMB) peakHeapMB = current;
   }

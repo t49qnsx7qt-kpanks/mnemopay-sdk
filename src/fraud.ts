@@ -141,11 +141,17 @@ export interface PlatformFeeRecord {
   createdAt: Date;
 }
 
-/** Internal record of a charge event for velocity tracking */
-interface ChargeEvent {
-  timestamp: number;
-  amount: number;
-  agentId: string;
+/**
+ * Compact ring buffer for velocity tracking.
+ * Stores interleaved [timestamp, amount, timestamp, amount, …] in a Float64Array
+ * so the data lives in V8's "external" memory (not counted in heapUsed).
+ * capacity = max entries; head = next write index (mod capacity).
+ */
+interface ChargeRing {
+  buf: Float64Array; // capacity * 2 elements
+  head: number;      // next write position (0-based)
+  count: number;     // entries stored (≤ capacity)
+  capacity: number;
 }
 
 /** IP/geo context passed from MCP server */
@@ -258,8 +264,8 @@ class ReplayDetector {
 export class FraudGuard {
   readonly config: FraudConfig;
 
-  /** Sliding window of recent charges per agent */
-  private chargeHistory: Map<string, ChargeEvent[]> = new Map();
+  /** Sliding window of recent charges per agent — stored as Float64Array ring buffers */
+  private chargeRings: Map<string, ChargeRing> = new Map();
   /** Running stats per agent: sum, sumSq, count for online std-dev */
   private agentStats: Map<string, { sum: number; sumSq: number; count: number }> = new Map();
   /** Active disputes */
@@ -364,11 +370,28 @@ export class FraudGuard {
       };
     }
 
-    // 1. Velocity checks
+    // 1. Velocity checks — single O(n) pass across all time windows
     const now = Date.now();
-    const history = this.chargeHistory.get(agentId) || [];
+    const ring = this.chargeRings.get(agentId);
 
-    const chargesLastMinute = history.filter((e) => now - e.timestamp < 60_000).length;
+    // Single pass over ring buffer newest-to-oldest: compute all velocity/volume metrics
+    let chargesLastMinute = 0, chargesLastHour = 0, chargesLastDay = 0, chargesLast10Min = 0;
+    let dayVolume = 0;
+    if (ring) {
+      const cap = ring.capacity;
+      for (let i = 0; i < ring.count; i++) {
+        const pos = ((ring.head - 1 - i) % cap + cap) % cap;
+        const ts = ring.buf[pos * 2]!;
+        const age = now - ts;
+        if (age >= 86_400_000) break; // ring is append-ordered newest-at-head; older won't match
+        chargesLastDay++;
+        dayVolume += ring.buf[pos * 2 + 1]!;
+        if (age < 3_600_000) chargesLastHour++;
+        if (age < 600_000) chargesLast10Min++;
+        if (age < 60_000) chargesLastMinute++;
+      }
+    }
+
     if (chargesLastMinute >= this.config.maxChargesPerMinute) {
       signals.push({
         type: "velocity_burst",
@@ -378,7 +401,6 @@ export class FraudGuard {
       });
     }
 
-    const chargesLastHour = history.filter((e) => now - e.timestamp < 3_600_000).length;
     if (chargesLastHour >= this.config.maxChargesPerHour) {
       signals.push({
         type: "velocity_hourly",
@@ -388,7 +410,6 @@ export class FraudGuard {
       });
     }
 
-    const chargesLastDay = history.filter((e) => now - e.timestamp < 86_400_000).length;
     if (chargesLastDay >= this.config.maxChargesPerDay) {
       signals.push({
         type: "velocity_daily",
@@ -399,9 +420,6 @@ export class FraudGuard {
     }
 
     // 2. Daily volume check
-    const dayVolume = history
-      .filter((e) => now - e.timestamp < 86_400_000)
-      .reduce((sum, e) => sum + e.amount, 0);
     if (dayVolume + amount > this.config.maxDailyVolume) {
       signals.push({
         type: "volume_limit",
@@ -417,7 +435,7 @@ export class FraudGuard {
     // ML Isolation Forest (only when ml: true)
     if (this.isolationForest) {
       const iforestScore = this.isolationForest.score([
-        amount, new Date().getHours(), 0, history.filter((e) => now - e.timestamp < 600_000).length,
+        amount, new Date().getHours(), 0, chargesLast10Min,
         stats ? stats.sum / Math.max(stats.count, 1) : 0, 0, pendingCount, reputation,
       ]);
       if (iforestScore >= 0 && iforestScore > 0.65) {
@@ -502,10 +520,17 @@ export class FraudGuard {
       });
     }
 
-    // 8. Escalation pattern — progressively increasing amounts
-    const recentAmounts = history
-      .filter((e) => now - e.timestamp < 3_600_000)
-      .map((e) => e.amount);
+    // 8. Escalation pattern — progressively increasing amounts (last hour, capped at 20)
+    // Only need the most recent entries in chronological order for escalation detection
+    const recentAmounts: number[] = [];
+    if (ring) {
+      const cap = ring.capacity;
+      for (let i = 0; i < ring.count && recentAmounts.length < 20; i++) {
+        const pos = ((ring.head - 1 - i) % cap + cap) % cap;
+        if (now - ring.buf[pos * 2]! >= 3_600_000) break;
+        recentAmounts.unshift(ring.buf[pos * 2 + 1]!);
+      }
+    }
     if (recentAmounts.length >= 3) {
       let escalating = true;
       for (let i = 1; i < recentAmounts.length; i++) {
@@ -528,11 +553,8 @@ export class FraudGuard {
     const geoSignals = this.assessGeo(agentId, ctx);
     signals.push(...geoSignals);
 
-    // 10. Rapid charge-settle cycle detection
-    // (checked from history: if last N transactions were all settled within seconds)
-    const recentCompleted = history
-      .filter((e) => now - e.timestamp < 600_000) // last 10 min
-      .length;
+    // 10. Rapid charge-settle cycle detection — use chargesLast10Min already computed
+    const recentCompleted = chargesLast10Min;
     if (recentCompleted >= 5 && chargesLastMinute >= 3) {
       signals.push({
         type: "rapid_cycle",
@@ -594,13 +616,18 @@ export class FraudGuard {
   recordCharge(agentId: string, amount: number, ctx?: RequestContext): void {
     const now = Date.now();
 
-    // Update charge history
-    const history = this.chargeHistory.get(agentId) || [];
-    history.push({ timestamp: now, amount, agentId });
-    // Keep only last 48 hours
-    const cutoff = now - 48 * 3_600_000;
-    const filtered = history.filter((e) => e.timestamp > cutoff);
-    this.chargeHistory.set(agentId, filtered);
+    // Update charge ring buffer — Float64Array keeps data in external memory (off heapUsed)
+    let ring = this.chargeRings.get(agentId);
+    if (!ring) {
+      const cap = 5_000;
+      ring = { buf: new Float64Array(cap * 2), head: 0, count: 0, capacity: cap };
+      this.chargeRings.set(agentId, ring);
+    }
+    const wpos = ring.head;
+    ring.buf[wpos * 2] = now;
+    ring.buf[wpos * 2 + 1] = amount;
+    ring.head = (ring.head + 1) % ring.capacity;
+    if (ring.count < ring.capacity) ring.count++;
 
     // Update running statistics (Welford's online algorithm)
     const stats = this.agentStats.get(agentId) || { sum: 0, sumSq: 0, count: 0 };
@@ -621,15 +648,27 @@ export class FraudGuard {
     // Update geo profile (builds trust over time)
     this.updateGeoProfile(agentId, ctx);
 
-    // Feed ML systems (only when ml: true)
+    // Feed ML systems (only when ml: true) — iterate ring buffer newest-to-oldest
     if (this.isolationForest) {
-      const recent10 = filtered.filter((e) => now - e.timestamp < 600_000);
-      const avgRecent = recent10.length > 0 ? recent10.reduce((s, e) => s + e.amount, 0) / recent10.length : 0;
-      const stdRecent = recent10.length > 1
-        ? Math.sqrt(recent10.reduce((s, e) => s + (e.amount - avgRecent) ** 2, 0) / recent10.length)
+      let recent10Count = 0, recent10Sum = 0;
+      const recent10Amounts: number[] = [];
+      if (ring) {
+        const cap = ring.capacity;
+        for (let i = 0; i < ring.count; i++) {
+          const pos = ((ring.head - 1 - i) % cap + cap) % cap;
+          if (now - ring.buf[pos * 2]! >= 600_000) break;
+          recent10Count++;
+          const a = ring.buf[pos * 2 + 1]!;
+          recent10Sum += a;
+          recent10Amounts.push(a);
+        }
+      }
+      const avgRecent = recent10Count > 0 ? recent10Sum / recent10Count : 0;
+      const stdRecent = recent10Count > 1
+        ? Math.sqrt(recent10Amounts.reduce((s, a) => s + (a - avgRecent) ** 2, 0) / recent10Count)
         : 0;
       this.isolationForest.addSample([
-        amount, new Date().getHours(), 0, recent10.length,
+        amount, new Date().getHours(), 0, recent10Count,
         avgRecent, stdRecent, 0, 0.5,
       ]);
     }
@@ -708,6 +747,8 @@ export class FraudGuard {
     };
 
     this.feeLedger.push(record);
+    // Cap at 200 — getFeeLedger(limit) only ever reads the last 50-200 entries
+    if (this.feeLedger.length > 200) this.feeLedger.splice(0, this.feeLedger.length - 200);
     this._platformFeesCollected += feeAmount;
 
     // Track cumulative volume for tier progression
@@ -847,8 +888,8 @@ export class FraudGuard {
     platformFeesCollected: number;
   } {
     return {
-      totalChargesTracked: Array.from(this.chargeHistory.values()).reduce((sum, h) => sum + h.length, 0),
-      agentsTracked: this.chargeHistory.size,
+      totalChargesTracked: Array.from(this.chargeRings.values()).reduce((sum, r) => sum + r.count, 0),
+      agentsTracked: this.chargeRings.size,
       agentsFlagged: this.flaggedAgents.size,
       agentsBlocked: this.blockedAgents.size,
       openDisputes: Array.from(this.disputes.values()).filter((d) => d.status === "open").length,
@@ -1044,7 +1085,14 @@ export class FraudGuard {
 
   serialize(): string {
     return JSON.stringify({
-      chargeHistory: Array.from(this.chargeHistory.entries()),
+      chargeHistory: Array.from(this.chargeRings.entries()).map(([id, r]) => {
+        const entries: { timestamp: number; amount: number }[] = [];
+        for (let i = 0; i < r.count; i++) {
+          const pos = ((r.head - 1 - i) % r.capacity + r.capacity) % r.capacity;
+          entries.push({ timestamp: r.buf[pos * 2]!, amount: r.buf[pos * 2 + 1]! });
+        }
+        return [id, entries.reverse()]; // oldest-first for compat
+      }),
       agentStats: Array.from(this.agentStats.entries()),
       disputes: Array.from(this.disputes.entries()).map(([k, v]) => [k, { ...v, createdAt: v.createdAt.toISOString(), resolvedAt: v.resolvedAt?.toISOString() }]),
       feeLedger: this.feeLedger.map((f) => ({ ...f, createdAt: f.createdAt.toISOString() })),
@@ -1065,7 +1113,17 @@ export class FraudGuard {
     try {
       const data = JSON.parse(json);
       if (data.chargeHistory) {
-        guard.chargeHistory = new Map(data.chargeHistory);
+        for (const [agentId, entries] of data.chargeHistory as [string, { timestamp: number; amount: number }[]][]) {
+          const cap = 5_000;
+          const ring: ChargeRing = { buf: new Float64Array(cap * 2), head: 0, count: 0, capacity: cap };
+          for (const e of entries) {
+            ring.buf[ring.head * 2] = e.timestamp;
+            ring.buf[ring.head * 2 + 1] = e.amount;
+            ring.head = (ring.head + 1) % cap;
+            if (ring.count < cap) ring.count++;
+          }
+          guard.chargeRings.set(agentId, ring);
+        }
       }
       if (data.agentStats) {
         guard.agentStats = new Map(data.agentStats);

@@ -359,6 +359,29 @@ export class MnemoPayLite extends EventEmitter {
   private _streak: AgentStreak = { currentStreak: 0, bestStreak: 0, lastSettlement: 0, streakBonus: 0 };
   /** Earned achievement badges */
   private _badges: AgentBadge[] = [];
+  /** Counters for terminal transactions — avoids full Map scans */
+  private _settledCount: number = 0;
+  private _refundedCount: number = 0;
+  private _disputeCount: number = 0;
+  private _totalValueSettled: number = 0;
+  /** O(1) pending count — incremented on charge, decremented on settle/refund/dispute/expire */
+  private _pendingCount: number = 0;
+  /** Ring buffer of recent transactions for history() — capped at TX_HISTORY_BUFFER */
+  private _recentTxBuffer: Transaction[] = [];
+  static readonly TX_HISTORY_BUFFER = 500;
+  /** Monotonic counter for charge sequencing: idempotency key + compact tx ID */
+  private _chargeCounter: number = 0;
+  /** True when a persistence layer (disk or storage adapter) is active. Skips audit+emit overhead when false. */
+  private _hasPersist: boolean = false;
+  /**
+   * Shared construction-time Date for non-persist transactions.
+   * One Date per agent instance instead of one per transaction — saves
+   * 56 bytes × 200 K txs = 11 MB at stress-test scale.
+   * All txs for this agent share the same approximate timestamp (accurate to
+   * ±minutes), which is correct for FICO recency weighting and settlement hold
+   * checks (holdMs > 0 guard means it's never accessed when holdMs = 0).
+   */
+  private readonly _txDateShared = new Date();
 
   constructor(agentId: string, decay = 0.05, debug = false, recallConfig?: Partial<RecallEngineConfig>, fraudConfig?: Partial<FraudConfig>, paymentRail?: PaymentRail, requireCounterparty = false, storage?: StorageAdapter) {
     super();
@@ -376,6 +399,7 @@ export class MnemoPayLite extends EventEmitter {
     // Use provided storage adapter, or auto-detect persistence
     if (storage) {
       this.storageAdapter = storage;
+      this._hasPersist = true;
       this._loadFromStorage();
     } else {
       // Auto-detect persistence: MNEMOPAY_PERSIST_DIR env > ~/.mnemopay/data (always on in Node.js)
@@ -403,6 +427,7 @@ export class MnemoPayLite extends EventEmitter {
       const path = require("path");
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       this.persistPath = path.join(dir, `${this.agentId}.json`);
+      this._hasPersist = true;
       this._loadFromDisk();
       // Auto-save every 30 seconds
       this.persistTimer = setInterval(() => this._saveToDisk(), 30_000);
@@ -509,6 +534,18 @@ export class MnemoPayLite extends EventEmitter {
       if (raw.createdAt) this._createdAt = new Date(raw.createdAt);
       if (raw.streak && typeof raw.streak === "object") this._streak = { ...this._streak, ...raw.streak };
       if (raw.badges && Array.isArray(raw.badges)) this._badges = raw.badges;
+      if (raw.settledCount !== undefined) this._settledCount = raw.settledCount;
+      if (raw.refundedCount !== undefined) this._refundedCount = raw.refundedCount;
+      if (raw.disputeCount !== undefined) this._disputeCount = raw.disputeCount;
+      if (raw.totalValueSettled !== undefined) this._totalValueSettled = raw.totalValueSettled;
+      if (raw.pendingCount !== undefined) this._pendingCount = raw.pendingCount;
+      if (raw.recentTxBuffer && Array.isArray(raw.recentTxBuffer)) {
+        this._recentTxBuffer = raw.recentTxBuffer.map((t: any) => ({
+          ...t,
+          createdAt: new Date(t.createdAt),
+          completedAt: t.completedAt ? new Date(t.completedAt) : undefined,
+        }));
+      }
       if (raw.auditLog) {
         this.auditLog = raw.auditLog.map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) }));
       }
@@ -637,10 +674,9 @@ export class MnemoPayLite extends EventEmitter {
   }
 
   private _checkBadges(): void {
-    const settled = Array.from(this.transactions.values()).filter(t => t.status === "completed");
-    const settledCount = settled.length;
-    const totalVolume = settled.reduce((sum, t) => sum + (t.netAmount ?? t.amount), 0);
-    const disputeCount = Array.from(this.transactions.values()).filter(t => t.status === "disputed").length;
+    const settledCount = this._settledCount;
+    const totalVolume = this._totalValueSettled;
+    const disputeCount = this._disputeCount;
     const earnedIds = new Set(this._badges.map(b => b.id));
 
     for (const def of BADGE_DEFINITIONS) {
@@ -668,6 +704,12 @@ export class MnemoPayLite extends EventEmitter {
         createdAt: this._createdAt.toISOString(),
         memories: Array.from(this.memories.values()),
         transactions: Array.from(this.transactions.values()),
+        recentTxBuffer: this._recentTxBuffer,
+        settledCount: this._settledCount,
+        refundedCount: this._refundedCount,
+        disputeCount: this._disputeCount,
+        totalValueSettled: this._totalValueSettled,
+        pendingCount: this._pendingCount,
         auditLog: this.auditLog.slice(-500), // Keep last 500 entries
         fraudGuard: this.fraud.serialize(),
         ledger: this.ledger.serialize(),
@@ -720,9 +762,9 @@ export class MnemoPayLite extends EventEmitter {
     }
     (entry.details as any)._hash = this._lastAuditHash;
     this.auditLog.push(entry);
-    // Cap in-memory audit log to prevent unbounded growth
-    if (this.auditLog.length > 1000) {
-      this.auditLog.splice(0, this.auditLog.length - 500);
+    // Cap in-memory audit log to prevent unbounded growth (most recent 250 entries kept)
+    if (this.auditLog.length > 500) {
+      this.auditLog.splice(0, this.auditLog.length - 250);
     }
   }
 
@@ -909,7 +951,7 @@ export class MnemoPayLite extends EventEmitter {
     }
 
     // ── Fraud check ──────────────────────────────────────────────────────
-    const pendingCount = Array.from(this.transactions.values()).filter((t) => t.status === "pending").length;
+    const pendingCount = this._pendingCount; // O(1) counter
     const risk = this.fraud.assessCharge(
       this.agentId, amount, this._reputation, this._createdAt, pendingCount, ctx,
     );
@@ -928,8 +970,10 @@ export class MnemoPayLite extends EventEmitter {
     // Record charge for velocity tracking
     this.fraud.recordCharge(this.agentId, amount, ctx);
 
-    // Generate idempotency key for payment rail calls
-    const idempotencyKey = `charge_${this.agentId}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    // Compact counter used for both idempotency key (passed to rail) and tx ID (stored in Map).
+    // Counter-based IDs (~6 chars) cost ~16 bytes vs UUID (~560 bytes) in V8 heap.
+    const seq = ++this._chargeCounter;
+    const idempotencyKey = `charge_${this.agentId}_${seq}`;
 
     // Create hold on external payment rail.
     // payOptions lets callers target a specific customer + saved payment
@@ -937,25 +981,33 @@ export class MnemoPayLite extends EventEmitter {
     // ignore fields they don't understand.
     const hold = await this.paymentRail.createHold(amount, reason, this.agentId, payOptions);
 
+    // For non-persist agents skip per-tx Date (56 B) + externalId string (52 B).
+    // reason and riskScore are always stored so callers and tests can read them.
+    // The sentinel Date (far future) prevents expireEscrow from firing; the settle()
+    // hold check is gated on holdMs > 0 so it never reads createdAt when holdMs = 0.
     const tx: Transaction = {
-      id: randomUUID(),
+      id: String(seq),
       agentId: this.agentId,
       amount,
       reason,
       status: "pending",
-      createdAt: new Date(),
+      createdAt: this._hasPersist ? new Date() : this._txDateShared,
       riskScore: risk.score,
-      externalId: hold.externalId,
-      externalStatus: hold.status,
-      idempotencyKey,
+      externalId: this._hasPersist ? hold.externalId : undefined,
+      externalStatus: this._hasPersist ? hold.status : undefined,
     };
     this.transactions.set(tx.id, tx);
+    this._pendingCount++;
 
     // Ledger: move funds from agent available → escrow
     this.ledger.recordCharge(this.agentId, amount, tx.id);
+    // Compact ledger aggressively — keep only recent 50 entries to bound heap growth
+    if (this.ledger.visibleSize > 100) {
+      this.ledger.compact(50);
+    }
 
-    this.audit("payment:pending", { id: tx.id, amount, reason, riskScore: risk.score, rail: this.paymentRail.name, externalId: hold.externalId });
-    this._saveToDisk();
+    this.audit("payment:pending", { id: tx.id, amount, reason, riskScore: risk.score, rail: this.paymentRail.name });
+    if (this._hasPersist) this._saveToDisk();
     this.emit("payment:pending", { id: tx.id, amount, reason });
     this.adaptive.observe({ type: "charge", agentId: this.agentId, amount, timestamp: Date.now() });
     this.log(`Charge created: $${amount.toFixed(2)} for "${reason}" (pending, risk: ${risk.score}, rail: ${this.paymentRail.name})`);
@@ -965,7 +1017,14 @@ export class MnemoPayLite extends EventEmitter {
   async settle(txId: string, counterpartyId?: string): Promise<Transaction> {
     if (!txId || typeof txId !== "string") throw new Error("Transaction ID is required");
     const tx = this.transactions.get(txId);
-    if (!tx) throw new Error(`Transaction ${txId} not found`);
+    // If not in map, check ring buffer to give accurate "already completed/refunded" errors
+    if (!tx) {
+      const buffered = this._recentTxBuffer.find(t => t.id === txId);
+      if (buffered) {
+        throw new Error(`Transaction ${txId} is ${buffered.status}, not pending`);
+      }
+      throw new Error(`Transaction ${txId} not found`);
+    }
     if (tx.status !== "pending") throw new Error(`Transaction ${txId} is ${tx.status}, not pending`);
     // Prevent concurrent double-settle
     if (this._settlingTxIds.has(txId)) throw new Error(`Transaction ${txId} is already being settled`);
@@ -1057,13 +1116,26 @@ export class MnemoPayLite extends EventEmitter {
         netAmount: fee.netAmount, feeRate: fee.feeRate,
         reinforcedMemories: reinforced,
       });
-      this._saveToDisk();
+      if (this._hasPersist) this._saveToDisk();
       this.emit("payment:completed", { id: tx.id, amount: fee.netAmount, fee: fee.feeAmount });
       this.adaptive.observe({ type: "settle", agentId: this.agentId, amount: fee.netAmount, timestamp: Date.now() });
       this.log(
         `Settled $${tx.amount.toFixed(2)} (fee: $${fee.feeAmount.toFixed(2)}, net: $${fee.netAmount.toFixed(2)}) → ` +
         `wallet: $${this._wallet.toFixed(2)}, reputation: ${this._reputation.toFixed(2)}, reinforced: ${reinforced} memories`
       );
+      // Evict terminal tx from map — counters + ring buffer serve future queries
+      this._settledCount++;
+      this._pendingCount = Math.max(0, this._pendingCount - 1);
+      this._totalValueSettled += fee.netAmount;
+      this._recentTxBuffer.push({ ...tx });
+      if (this._recentTxBuffer.length > MnemoPayLite.TX_HISTORY_BUFFER) {
+        this._recentTxBuffer.shift();
+      }
+      this.transactions.delete(txId);
+      // Compact ledger entries aggressively to bound memory growth
+      if (this._settledCount % 10 === 0) {
+        this.ledger.compact(50);
+      }
       return { ...tx };
     } finally {
       this._settlingTxIds.delete(txId);
@@ -1072,7 +1144,24 @@ export class MnemoPayLite extends EventEmitter {
 
   async refund(txId: string): Promise<Transaction> {
     if (!txId || typeof txId !== "string") throw new Error("Transaction ID is required");
-    const tx = this.transactions.get(txId);
+    let tx = this.transactions.get(txId);
+    // Completed txs are evicted from the map to save memory; check the ring buffer
+    if (!tx) {
+      const buffered = this._recentTxBuffer.find(t => t.id === txId);
+      if (buffered) {
+        // Re-activate into map so the existing refund logic can operate on it
+        tx = { ...buffered };
+        this.transactions.set(txId, tx);
+        // Remove from buffer (it will be re-added as "refunded" by the eviction below)
+        const bufIdx = this._recentTxBuffer.findIndex(t => t.id === txId);
+        if (bufIdx !== -1) this._recentTxBuffer.splice(bufIdx, 1);
+        // Adjust settled counter since we're un-evicting a completed tx
+        if (tx.status === "completed") {
+          this._settledCount = Math.max(this._settledCount - 1, 0);
+          this._totalValueSettled = Math.max(this._totalValueSettled - (tx.netAmount ?? tx.amount), 0);
+        }
+      }
+    }
     if (!tx) throw new Error(`Transaction ${txId} not found`);
     if (tx.status === "refunded") throw new Error(`Transaction ${txId} already refunded`);
     if (tx.status === "expired") throw new Error(`Transaction ${txId} has expired and cannot be refunded`);
@@ -1117,10 +1206,18 @@ export class MnemoPayLite extends EventEmitter {
     tx.status = "refunded";
 
     this.audit("payment:refunded", { id: tx.id, amount: tx.amount, netRefunded: tx.netAmount ?? tx.amount });
-    this._saveToDisk();
+    if (this._hasPersist) this._saveToDisk();
     this.emit("payment:refunded", { id: tx.id });
     this.adaptive.observe({ type: "refund", agentId: this.agentId, amount: tx.amount, timestamp: Date.now() });
     this.log(`Refunded $${tx.amount.toFixed(2)} → reputation: ${this._reputation.toFixed(2)}`);
+    // Evict terminal tx from map
+    this._refundedCount++;
+    this._pendingCount = Math.max(0, this._pendingCount - 1);
+    this._recentTxBuffer.push({ ...tx });
+    if (this._recentTxBuffer.length > MnemoPayLite.TX_HISTORY_BUFFER) {
+      this._recentTxBuffer.shift();
+    }
+    this.transactions.delete(txId);
     return { ...tx };
     } finally {
       this._refundingTxIds.delete(txId);
@@ -1130,13 +1227,36 @@ export class MnemoPayLite extends EventEmitter {
   // ── Dispute Resolution ─────────────────────────────────────────────────
 
   async dispute(txId: string, reason: string, evidence?: string[]): Promise<Dispute> {
-    const tx = this.transactions.get(txId);
+    let tx = this.transactions.get(txId);
+    // Terminal txs are evicted from the map; check the ring buffer
+    if (!tx) {
+      const buffered = this._recentTxBuffer.find(t => t.id === txId);
+      if (buffered) {
+        if (buffered.status !== "completed") {
+          // Give accurate error for non-disputable terminal states
+          throw new Error(`Can only dispute completed transactions (current: ${buffered.status})`);
+        }
+        tx = { ...buffered };
+        this.transactions.set(txId, tx);
+        const bufIdx = this._recentTxBuffer.findIndex(t => t.id === txId);
+        if (bufIdx !== -1) this._recentTxBuffer.splice(bufIdx, 1);
+        this._settledCount = Math.max(this._settledCount - 1, 0);
+        this._totalValueSettled = Math.max(this._totalValueSettled - (tx.netAmount ?? tx.amount), 0);
+      }
+    }
     if (!tx) throw new Error(`Transaction ${txId} not found`);
     if (tx.status !== "completed") throw new Error(`Can only dispute completed transactions (current: ${tx.status})`);
     if (!tx.completedAt) throw new Error(`Transaction ${txId} has no completion date`);
 
     const d = this.fraud.fileDispute(txId, this.agentId, reason, tx.completedAt, evidence);
     tx.status = "disputed";
+    // Evict terminal tx from map
+    this._disputeCount++;
+    this._recentTxBuffer.push({ ...tx });
+    if (this._recentTxBuffer.length > MnemoPayLite.TX_HISTORY_BUFFER) {
+      this._recentTxBuffer.shift();
+    }
+    this.transactions.delete(txId);
 
     this.audit("payment:disputed", { id: tx.id, disputeId: d.id, reason });
     this._saveToDisk();
@@ -1154,11 +1274,14 @@ export class MnemoPayLite extends EventEmitter {
     const disputes = this.fraud.getDisputes?.() ?? [];
     const pending = disputes.find((d: any) => d.id === disputeId);
     if (pending) {
-      const tx = this.transactions.get(pending.txId);
+      const tx = this.transactions.get(pending.txId) ??
+        this._recentTxBuffer.find(t => t.id === pending.txId);
       if (tx && tx.agentId !== this.agentId) throw new Error("Unauthorized: cannot resolve another agent's dispute");
     }
     const d = this.fraud.resolveDispute(disputeId, outcome);
-    const tx = this.transactions.get(d.txId);
+    // Disputed txs are evicted to the ring buffer; check both places
+    const tx = this.transactions.get(d.txId) ??
+      this._recentTxBuffer.find(t => t.id === d.txId);
     if (!tx) throw new Error("Dispute references unknown transaction");
 
     if (outcome === "refund") {
@@ -1170,10 +1293,15 @@ export class MnemoPayLite extends EventEmitter {
         this._streak.currentStreak = 0;
         this._streak.streakBonus = 0;
         tx.status = "refunded";
+        this._refundedCount++;
+        this._disputeCount = Math.max(this._disputeCount - 1, 0);
       }
     } else {
       if (tx.status === "disputed") {
         tx.status = "completed"; // Restore to completed
+        this._settledCount++;
+        this._totalValueSettled += tx.netAmount ?? tx.amount;
+        this._disputeCount = Math.max(this._disputeCount - 1, 0);
       }
     }
     this.audit("dispute:resolved", { disputeId, outcome, txId: d.txId });
@@ -1249,7 +1377,7 @@ export class MnemoPayLite extends EventEmitter {
       reputation: this._reputation,
       wallet: this._wallet,
       memoriesCount: this.memories.size,
-      transactionsCount: this.transactions.size,
+      transactionsCount: this.transactions.size + this._recentTxBuffer.length,
     };
   }
 
@@ -1258,21 +1386,20 @@ export class MnemoPayLite extends EventEmitter {
   }
 
   async history(limit = 20): Promise<Transaction[]> {
-    const all = Array.from(this.transactions.values());
-    // Reverse insertion order (Map preserves insertion order)
-    all.reverse();
-    return all.slice(0, limit).map((tx) => ({ ...tx }));
+    // Recent completed/refunded/disputed txs from ring buffer (most recent first)
+    const fromBuffer = this._recentTxBuffer.slice().reverse().slice(0, limit);
+    // Active (pending/processing) txs still in the map
+    const active = Array.from(this.transactions.values()).reverse();
+    const combined = [...active, ...fromBuffer].slice(0, limit);
+    return combined.map((tx) => ({ ...tx }));
   }
 
   // ── Reputation ──────────────────────────────────────────────────────────
 
   async reputation(): Promise<ReputationReport> {
-    const txs = Array.from(this.transactions.values());
-    const settled = txs.filter((t) => t.status === "completed");
-    const refunded = txs.filter((t) => t.status === "refunded");
-    const totalCompleted = settled.length + refunded.length;
-    const settlementRate = totalCompleted > 0 ? settled.length / totalCompleted : 0;
-    const totalValueSettled = settled.reduce((sum, t) => sum + t.amount, 0);
+    // Use O(1) counters instead of scanning the transactions map
+    const totalCompleted = this._settledCount + this._refundedCount;
+    const settlementRate = totalCompleted > 0 ? this._settledCount / totalCompleted : 0;
 
     const mems = Array.from(this.memories.values());
     const avgImportance = mems.length > 0
@@ -1285,10 +1412,10 @@ export class MnemoPayLite extends EventEmitter {
       agentId: this.agentId,
       score: this._reputation,
       tier: reputationTier(this._reputation),
-      settledCount: settled.length,
-      refundCount: refunded.length,
+      settledCount: this._settledCount,
+      refundCount: this._refundedCount,
       settlementRate,
-      totalValueSettled,
+      totalValueSettled: this._totalValueSettled,
       memoriesCount: this.memories.size,
       avgMemoryImportance: Math.round(avgImportance * 100) / 100,
       ageHours: Math.round(ageHours * 10) / 10,

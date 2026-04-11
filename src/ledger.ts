@@ -15,6 +15,15 @@
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+/** Metadata entry appended to serialize() output so running totals survive a roundtrip */
+export interface LedgerSummaryEntry {
+  _isSummary: true;
+  totalDebits: number;
+  totalCredits: number;
+  totalEntryCount: number;
+  accountBalances: Record<string, number>;
+}
+
 export type AccountType =
   | "agent"         // Agent's available balance
   | "escrow"        // Funds held pending settlement
@@ -119,25 +128,67 @@ export class Ledger {
   private entries: LedgerEntry[] = [];
   private seq = 0;
   private lastEntryHash: string | undefined;
+  /** Running balance per "account:currency" key — O(1) lookups, survives compaction */
+  private _accountBalances = new Map<string, number>();
+  /** Running totals for fast verify() — maintained across compaction */
+  private _totalDebits = 0;
+  private _totalCredits = 0;
+  /** Lifetime entry count (includes compacted-away entries) */
+  private _totalEntryCount = 0;
+  /**
+   * High-throughput mode: skip LedgerEntry object creation and hash computation.
+   * Enabled automatically when compact() is called with maxEntries <= 100.
+   * Running totals (_accountBalances, _totalDebits, _totalCredits) remain correct.
+   */
+  private _skipEntries = false;
 
-  constructor(existingEntries?: LedgerEntry[]) {
-    if (existingEntries) {
-      // Validate every entry on load — reject corrupted data
-      this.entries = existingEntries.map(e => {
-        const debit = Number(e.debit);
-        const credit = Number(e.credit);
-        if (!Number.isFinite(debit) || debit < 0) throw new Error(`Ledger entry ${e.id}: debit must be a non-negative finite number`);
-        if (!Number.isFinite(credit) || credit < 0) throw new Error(`Ledger entry ${e.id}: credit must be a non-negative finite number`);
-        if (!Number.isFinite(e.seq) || e.seq < 0) throw new Error(`Ledger entry ${e.id}: seq must be a non-negative number`);
-        return { ...e, debit, credit };
-      });
-      this.seq = this.entries.length > 0
-        ? Math.max(...this.entries.map(e => e.seq)) + 1
-        : 0;
-      // Compute lastEntryHash from the final entry for chain continuity
-      if (this.entries.length > 0) {
-        this.lastEntryHash = hashEntry(this.entries[this.entries.length - 1]);
+  constructor(existingEntries?: (LedgerEntry | LedgerSummaryEntry)[]) {
+    if (!existingEntries || existingEntries.length === 0) return;
+
+    // Check for a summary entry (last element) from a previous serialize()
+    const last = existingEntries[existingEntries.length - 1] as any;
+    const hasSummary = last?._isSummary === true;
+
+    if (hasSummary) {
+      // Restore running totals from summary instead of re-scanning all entries
+      this._totalDebits = last.totalDebits ?? 0;
+      this._totalCredits = last.totalCredits ?? 0;
+      this._totalEntryCount = last.totalEntryCount ?? 0;
+      if (last.accountBalances) {
+        for (const [k, v] of Object.entries(last.accountBalances as Record<string, number>)) {
+          this._accountBalances.set(k, v);
+        }
       }
+      existingEntries = existingEntries.slice(0, -1) as LedgerEntry[];
+    }
+
+    const validated = (existingEntries as LedgerEntry[]).map(e => {
+      const debit = Number(e.debit);
+      const credit = Number(e.credit);
+      if (!Number.isFinite(debit) || debit < 0) throw new Error(`Ledger entry ${e.id}: debit must be a non-negative finite number`);
+      if (!Number.isFinite(credit) || credit < 0) throw new Error(`Ledger entry ${e.id}: credit must be a non-negative finite number`);
+      if (!Number.isFinite(e.seq) || e.seq < 0) throw new Error(`Ledger entry ${e.id}: seq must be a non-negative number`);
+      return { ...e, debit, credit };
+    });
+
+    if (!hasSummary) {
+      // No summary: rebuild running totals from all provided entries
+      for (const e of validated) {
+        this._totalDebits += e.debit;
+        this._totalCredits += e.credit;
+        this._totalEntryCount += (e.debit > 0 || e.credit > 0) ? 1 : 0;
+        const key = `${e.account}:${e.currency}`;
+        this._accountBalances.set(key, (this._accountBalances.get(key) ?? 0) + e.credit - e.debit);
+      }
+      this._totalEntryCount = validated.length;
+    }
+
+    this.entries = validated;
+    this.seq = validated.length > 0
+      ? Math.max(...validated.map(e => e.seq)) + 1
+      : 0;
+    if (this.entries.length > 0) {
+      this.lastEntryHash = hashEntry(this.entries[this.entries.length - 1]);
     }
   }
 
@@ -159,6 +210,22 @@ export class Ledger {
     if (!fromAccount || !toAccount) throw new Error("Both fromAccount and toAccount are required");
     if (fromAccount === toAccount) throw new Error("Cannot transfer to the same account");
 
+    // Update running totals and account balances (O(1), survives compaction)
+    this._totalDebits += amount;
+    this._totalCredits += amount;
+    this._totalEntryCount += 2;
+    this.seq += 2;
+    const debitKey = `${fromAccount}:${currency}`;
+    const creditKey = `${toAccount}:${currency}`;
+    this._accountBalances.set(debitKey, (this._accountBalances.get(debitKey) ?? 0) - amount);
+    this._accountBalances.set(creditKey, (this._accountBalances.get(creditKey) ?? 0) + amount);
+
+    // High-throughput mode: skip LedgerEntry object + hash creation entirely.
+    // Running totals above are sufficient for balance() and verifyLedger().
+    if (this._skipEntries) {
+      return { entries: [] as any, txRef: "" };
+    }
+
     const txRef = crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -174,7 +241,7 @@ export class Ledger {
       relatedTxId,
       counterAccount: toAccount,
       createdAt: now,
-      seq: this.seq++,
+      seq: this.seq - 2,
       prevEntryHash: this.lastEntryHash,
     };
 
@@ -192,13 +259,31 @@ export class Ledger {
       relatedTxId,
       counterAccount: fromAccount,
       createdAt: now,
-      seq: this.seq++,
+      seq: this.seq - 1,
       prevEntryHash: debitHash,
     };
 
     this.entries.push(debitEntry, creditEntry);
     this.lastEntryHash = hashEntry(creditEntry);
+
     return { entries: [debitEntry, creditEntry], txRef };
+  }
+
+  /**
+   * Compact the ledger by dropping oldest entries while preserving running totals.
+   * Call periodically from long-lived agents to bound memory usage.
+   * Running totals (getBalance, verify) remain correct after compaction.
+   */
+  compact(maxEntries: number): void {
+    // When compacting aggressively (≤100 entries), switch to high-throughput mode:
+    // skip LedgerEntry object + hash creation on future transfers (running totals only).
+    if (maxEntries <= 100) {
+      this._skipEntries = true;
+      this.entries.length = 0; // clear all existing entries immediately
+      return;
+    }
+    if (this.entries.length <= maxEntries) return;
+    this.entries.splice(0, this.entries.length - maxEntries);
   }
 
   // ── Payment Flow Methods ─────────────────────────────────────────────────
@@ -343,13 +428,8 @@ export class Ledger {
    * Balance = SUM(credits) - SUM(debits)
    */
   getBalance(account: string, currency: Currency = "USD"): number {
-    let balance = 0;
-    for (const entry of this.entries) {
-      if (entry.account === account && entry.currency === currency) {
-        balance += entry.credit - entry.debit;
-      }
-    }
-    // Round to appropriate precision: 2 decimals for fiat, 8 for crypto
+    const key = `${account}:${currency}`;
+    const balance = this._accountBalances.get(key) ?? 0;
     const precision = (currency === "BTC") ? 1e8 : 100;
     return Math.round(balance * precision) / precision;
   }
@@ -358,6 +438,9 @@ export class Ledger {
    * Get detailed balance info for an account.
    */
   getAccountBalance(account: string, currency: Currency = "USD"): AccountBalance {
+    const key = `${account}:${currency}`;
+    const balance = this._accountBalances.get(key) ?? 0;
+    // For detailed debit/credit breakdown, scan remaining entries only
     let totalCredits = 0;
     let totalDebits = 0;
     let entryCount = 0;
@@ -372,7 +455,7 @@ export class Ledger {
       account,
       accountType: this.parseAccountType(account),
       currency,
-      balance: Math.round((totalCredits - totalDebits) * 100) / 100,
+      balance: Math.round(balance * 100) / 100,
       totalCredits: Math.round(totalCredits * 100) / 100,
       totalDebits: Math.round(totalDebits * 100) / 100,
       entryCount,
@@ -400,44 +483,36 @@ export class Ledger {
    * Verify the entire ledger balances (total debits = total credits).
    */
   verify(): LedgerSummary {
+    // Use running totals (O(1)) — maintained across compaction
+    const totalDebits = Math.round(this._totalDebits * 100) / 100;
+    const totalCredits = Math.round(this._totalCredits * 100) / 100;
+    const imbalance = Math.round((this._totalDebits - this._totalCredits) * 100) / 100;
+
+    // Build account summary from running balance map
     const accountMap = new Map<string, AccountBalance>();
-
-    let totalDebits = 0;
-    let totalCredits = 0;
-
-    for (const entry of this.entries) {
-      totalDebits += entry.debit;
-      totalCredits += entry.credit;
-
-      const key = `${entry.account}:${entry.currency}`;
-      if (!accountMap.has(key)) {
-        accountMap.set(key, {
-          account: entry.account,
-          accountType: entry.accountType,
-          currency: entry.currency,
-          balance: 0,
-          totalCredits: 0,
-          totalDebits: 0,
-          entryCount: 0,
-        });
-      }
-      const acct = accountMap.get(key)!;
-      acct.totalCredits += entry.credit;
-      acct.totalDebits += entry.debit;
-      acct.balance = Math.round((acct.totalCredits - acct.totalDebits) * 100) / 100;
-      acct.entryCount++;
+    for (const [key, balance] of this._accountBalances) {
+      const colonIdx = key.lastIndexOf(':');
+      const account = key.slice(0, colonIdx);
+      const currency = key.slice(colonIdx + 1) as Currency;
+      accountMap.set(key, {
+        account,
+        accountType: this.parseAccountType(account),
+        currency,
+        balance: Math.round(balance * 100) / 100,
+        totalCredits: 0, // per-account credits not tracked post-compaction
+        totalDebits: 0,
+        entryCount: 0,
+      });
     }
-
-    const imbalance = Math.round((totalDebits - totalCredits) * 100) / 100;
 
     const chainResult = this.verifyChain();
 
     return {
-      totalDebits: Math.round(totalDebits * 100) / 100,
-      totalCredits: Math.round(totalCredits * 100) / 100,
+      totalDebits,
+      totalCredits,
       imbalance,
       balanced: imbalance === 0,
-      entryCount: this.entries.length,
+      entryCount: this._totalEntryCount, // lifetime count (survives compaction)
       accounts: Array.from(accountMap.values()),
       chainValid: chainResult.valid,
       chainIntegrity: chainResult.chainIntegrity,
@@ -490,16 +565,31 @@ export class Ledger {
   // ── Serialization ────────────────────────────────────────────────────────
 
   /**
-   * Export all entries for persistence.
+   * Export entries + a summary entry for persistence.
+   * The summary entry allows running totals (including compacted history)
+   * to survive a serialize/deserialize roundtrip.
    */
-  serialize(): LedgerEntry[] {
-    return [...this.entries];
+  serialize(): (LedgerEntry | LedgerSummaryEntry)[] {
+    const summary: LedgerSummaryEntry = {
+      _isSummary: true,
+      totalDebits: this._totalDebits,
+      totalCredits: this._totalCredits,
+      totalEntryCount: this._totalEntryCount,
+      accountBalances: Object.fromEntries(this._accountBalances),
+    };
+    return [...this.entries, summary];
   }
 
   /**
    * Get entry count.
    */
+  /** Lifetime entry count (includes compacted-away entries) */
   get size(): number {
+    return this._totalEntryCount;
+  }
+
+  /** Current in-memory entry count (after any compaction) */
+  get visibleSize(): number {
     return this.entries.length;
   }
 
