@@ -7,3 +7,18 @@ integrations/*/*.egg-info/
 integrations/*/build/
 .npmrc
 .smithery/
+
+# Large Assets and Marketing Data
+gtm/
+marketing/data/
+marketing/logs/
+benchmark/longmemeval/data/
+benchmark/results/
+benchmark/longmemeval-repo/
+
+# Local build artifacts
+.vercel
+.turbo
+.next
+build/
+out/
