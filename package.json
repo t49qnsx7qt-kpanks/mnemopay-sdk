@@ -1,0 +1,46 @@
+{
+  "name": "@mnemopay/mobile-sdk",
+  "version": "0.1.0",
+  "description": "On-device persistent memory, agent-to-agent payments, and cryptographic spatial proofs for mobile AI apps",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=tests",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "memory",
+    "payments",
+    "mobile",
+    "sqlite",
+    "agent",
+    "gridstamp"
+  ],
+  "author": "Jerry Omiagbo",
+  "license": "MIT",
+  "dependencies": {
+    "@noble/ciphers": "^1.1.0",
+    "@noble/curves": "^1.8.0",
+    "@noble/hashes": "^1.7.0",
+    "better-sqlite3": "^11.9.1",
+    "sqlite-vec": "^0.1.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.0.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/t49qnsx7qt-kpanks/mnemopay-mobile-sdk"
+  }
+}
