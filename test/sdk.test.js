@@ -21,8 +21,8 @@ import { EncryptedSync } from '../src/sync/encrypted-sync.js';
 const createTestDb = () => new Database(':memory:');
 
 // Helper to create a basic config and context
-const createAgentContext = (agentId = 'test-agent', permissions: Permission[] = []) => {
-  const config: MnemoPayConfig = {
+const createAgentContext = (agentId = 'test-agent', permissions = []) => {
+  const config = {
     agentId,
     encryptionKey: randomBytes(32),
     hmacKey: randomBytes(32),
@@ -30,18 +30,18 @@ const createAgentContext = (agentId = 'test-agent', permissions: Permission[] = 
     dailyLimitCents: 100_000,
     memoryCapacity: 100,
   };
-  const ctx: SecurityContext = buildContext(agentId, permissions);
+  const ctx = buildContext(agentId, permissions);
   return { config, ctx };
 };
 
 describe('MnemoPay Subsystems', () => {
-  let db: Database.Database;
-  let crypto: NodeCrypto;
-  let guard: PermissionGuard;
-  let rateLimiter: RateLimiter;
-  let fraudDetector: FraudDetector;
-  let config: MnemoPayConfig;
-  let ctx: SecurityContext;
+  let db;
+  let crypto;
+  let guard;
+  let rateLimiter;
+  let fraudDetector;
+  let config;
+  let ctx;
 
   beforeEach(() => {
     db = createTestDb();
@@ -73,7 +73,7 @@ describe('MnemoPay Subsystems', () => {
 
   // --- MemoryStore Tests ---
   describe('MemoryStore', () => {
-    let memoryStore: MemoryStore;
+    let memoryStore;
 
     beforeEach(() => {
       MemoryStore.loadExtensions(db); // Needs to be loaded before any vec0 table operations
@@ -138,7 +138,7 @@ describe('MnemoPay Subsystems', () => {
 
   // --- WalletEngine Tests ---
   describe('WalletEngine', () => {
-    let walletEngine: WalletEngine;
+    let walletEngine;
     const otherAgentId = 'other-agent';
 
     beforeEach(() => {
@@ -181,7 +181,7 @@ describe('MnemoPay Subsystems', () => {
       db.prepare(`UPDATE wallets SET balance = ? WHERE agent_id = ?`).run(Number(initialBalance), config.agentId);
 
       const amount = 500n;
-      const conditions: Omit<EscrowCondition, 'met'>[] = [
+      const conditions = [
         { type: 'spatial_proof', params: { h3: 'some-h3-tile' } },
       ];
 
@@ -199,8 +199,8 @@ describe('MnemoPay Subsystems', () => {
 
       // Mark condition as met
       walletEngine.markConditionMet(escrow.id, 'spatial_proof');
-      const updatedEscrowRow = db.prepare(`SELECT conditions FROM escrows WHERE id = ?`).get(escrow.id) as any;
-      const updatedConditions: EscrowCondition[] = JSON.parse(updatedEscrowRow.conditions);
+      const updatedEscrowRow = db.prepare(`SELECT conditions FROM escrows WHERE id = ?`).get(escrow.id);
+      const updatedConditions = JSON.parse(updatedEscrowRow.conditions);
       expect(updatedConditions[0].met).toBe(true);
 
       // Settle the escrow
@@ -219,7 +219,7 @@ describe('MnemoPay Subsystems', () => {
 
   // --- SpatialProver Tests ---
   describe('SpatialProver', () => {
-    let spatialProver: SpatialProver;
+    let spatialProver;
 
     beforeEach(() => {
       spatialProver = new SpatialProver(db, crypto, guard, rateLimiter, fraudDetector, config);
@@ -277,7 +277,7 @@ describe('MnemoPay Subsystems', () => {
   // --- FraudDetector Tests ---
   describe('FraudDetector', () => {
     // These tests directly interact with FraudDetector, not via SDK subsystems
-    let fraud: FraudDetector;
+    let fraud;
 
     beforeEach(() => {
       fraud = new FraudDetector();
@@ -367,8 +367,8 @@ describe('MnemoPay Subsystems', () => {
 
   // --- EncryptedSync Tests ---
   describe('EncryptedSync', () => {
-    let encryptedSync: EncryptedSync;
-    let memoryStore: MemoryStore; // To create records for sync
+    let encryptedSync;
+    let memoryStore; // To create records for sync
 
     beforeEach(() => {
       // Need to load extensions for MemoryStore before initSchema
@@ -418,7 +418,7 @@ describe('MnemoPay Subsystems', () => {
       expect(pullResult.merged).toBe(1);
       expect(pullResult.skipped).toBe(0);
 
-      const recalledMemories = tempDb.prepare(`SELECT * FROM memories WHERE id = ?`).get(storedMemory.id) as any;
+      const recalledMemories = tempDb.prepare(`SELECT * FROM memories WHERE id = ?`).get(storedMemory.id);
       expect(recalledMemories).toBeDefined();
       // Verify content (requires decrypting the stored content_enc)
       const decryptedContent = Buffer.from(await decryptingCrypto.decrypt(Buffer.from(recalledMemories.content_enc))).toString('utf8');
