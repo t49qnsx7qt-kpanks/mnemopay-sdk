@@ -16,7 +16,7 @@ import { EncryptedSync } from '../sync/encrypted-sync';
 import { NodeBridge, PlatformBridge } from '../platform/index';
 
 export class MnemoPay {
-  private readonly db: Database.Database;
+  readonly db: Database.Database;
   private readonly crypto: PlatformCrypto;
   private readonly guard: PermissionGuard;
   private readonly rateLimiter: RateLimiter;
