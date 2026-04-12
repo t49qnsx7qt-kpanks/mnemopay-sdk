@@ -1521,12 +1521,12 @@ describe("Reputation System", () => {
     expect(rep.generatedAt).toBeInstanceOf(Date);
   });
 
-  it("tier boundaries match spec", () => {
+  it("tier boundaries match spec", async () => {
     // Import reputationTier through autoScore export workaround
     const agent0 = MnemoPay.quick("tier0", { fraud: NO_FRAUD });
     (agent0 as any)._reputation = 0.1;
     // Test via reputation()
-    expect(agent0.reputation()).resolves.toMatchObject({ tier: "untrusted" });
+    await expect(agent0.reputation()).resolves.toMatchObject({ tier: "untrusted" });
   });
 });
 

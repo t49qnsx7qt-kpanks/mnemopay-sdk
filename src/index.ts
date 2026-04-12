@@ -893,6 +893,21 @@ export class MnemoPayLite extends EventEmitter {
     return pruned;
   }
 
+  /**
+   * Sync the vector embedding cache against the current memory store.
+   * Removes any cached embeddings for memories that no longer exist.
+   * Useful after manual storage manipulation or to recover from cache drift.
+   */
+  async purgeStaleVectors(): Promise<number> {
+    const validIds = new Set(this.memories.keys());
+    const purged = this.recallEngine.purgeStaleVectors(validIds);
+    if (purged > 0) {
+      this.audit("memory:vectors_purged", { count: purged });
+      this.log(`Purged ${purged} stale vector embeddings from cache`);
+    }
+    return purged;
+  }
+
   // ── Payment Methods ─────────────────────────────────────────────────────
 
   /**

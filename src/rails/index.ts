@@ -115,6 +115,7 @@ export class StripeRail implements PaymentRail {
   readonly name = "stripe";
   private stripe: any;
   private currency: string;
+  private inFlightCaptures: Map<string, Promise<PaymentRailResult>> = new Map();
 
   /**
    * @param secretKey — Stripe secret key (sk_test_... or sk_live_...)
@@ -144,6 +145,7 @@ export class StripeRail implements PaymentRail {
     (rail as any).name = "stripe";
     (rail as any).stripe = client;
     (rail as any).currency = currency;
+    (rail as any).inFlightCaptures = new Map();
     return rail;
   }
 
@@ -177,7 +179,13 @@ export class StripeRail implements PaymentRail {
       if (opts.offSession) params.off_session = true;
     }
 
-    const intent = await this.stripe.paymentIntents.create(params);
+    const idempotencyKey = (opts?.metadata?.idempotencyKey as string) || 
+                          (opts?.metadata?.requestId as string);
+
+    const intent = await this.stripe.paymentIntents.create(
+      params, 
+      idempotencyKey ? { idempotencyKey } : {}
+    );
 
     return {
       externalId: intent.id,
@@ -186,15 +194,29 @@ export class StripeRail implements PaymentRail {
   }
 
   async capturePayment(externalId: string, amount: number): Promise<PaymentRailResult> {
-    const intent = await this.stripe.paymentIntents.capture(externalId, {
-      amount_to_capture: Math.round(amount * 100),
-    });
+    const existing = this.inFlightCaptures.get(externalId);
+    if (existing) return existing;
 
-    return {
-      externalId: intent.id,
-      status: intent.status,
-      receiptId: intent.latest_charge,
-    };
+    const promise = (async () => {
+      const intent = await this.stripe.paymentIntents.capture(externalId, {
+        amount_to_capture: Math.round(amount * 100),
+      }, {
+        idempotencyKey: `cap_${externalId}`,
+      });
+
+      return {
+        externalId: intent.id,
+        status: intent.status,
+        receiptId: intent.latest_charge,
+      };
+    })();
+
+    this.inFlightCaptures.set(externalId, promise);
+    try {
+      return await promise;
+    } finally {
+      this.inFlightCaptures.delete(externalId);
+    }
   }
 
   async reversePayment(externalId: string, _amount: number): Promise<PaymentRailResult> {

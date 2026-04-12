@@ -221,7 +221,12 @@ export class RecallEngine {
     let vec: Float32Array;
 
     if (this.config.embeddingProvider === "openai" && this.config.openaiApiKey) {
-      vec = await openaiEmbed(content, this.config.openaiApiKey, this.config.embeddingModel);
+      try {
+        vec = await openaiEmbed(content, this.config.openaiApiKey, this.config.embeddingModel);
+      } catch (e: any) {
+        console.warn(`[mnemopay:recall] OpenAI embedding failed, falling back to local provider: ${e.message}`);
+        vec = localEmbed(content, this.config.dimensions);
+      }
     } else {
       vec = localEmbed(content, this.config.dimensions);
     }
@@ -251,6 +256,22 @@ export class RecallEngine {
    */
   removeBatch(ids: string[]): void {
     for (const id of ids) this.vectors.delete(id);
+  }
+
+  /**
+   * Sync cache against a list of valid IDs.
+   * Removes any cached vectors that are not in the validIds set.
+   * Returns the count of purged vectors.
+   */
+  purgeStaleVectors(validIds: Set<string>): number {
+    let purged = 0;
+    for (const id of this.vectors.keys()) {
+      if (!validIds.has(id)) {
+        this.vectors.delete(id);
+        purged++;
+      }
+    }
+    return purged;
   }
 
   /**
@@ -330,7 +351,12 @@ export class RecallEngine {
    */
   private async embedQuery(query: string): Promise<Float32Array> {
     if (this.config.embeddingProvider === "openai" && this.config.openaiApiKey) {
-      return openaiEmbed(query, this.config.openaiApiKey, this.config.embeddingModel);
+      try {
+        return await openaiEmbed(query, this.config.openaiApiKey, this.config.embeddingModel);
+      } catch (e: any) {
+        console.warn(`[mnemopay:recall] OpenAI query embedding failed, falling back to local provider: ${e.message}`);
+        return localEmbed(query, this.config.dimensions);
+      }
     }
     return localEmbed(query, this.config.dimensions);
   }

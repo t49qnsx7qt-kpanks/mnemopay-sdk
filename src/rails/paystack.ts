@@ -143,7 +143,11 @@ export class PaystackRail implements PaymentRail {
       throw new Error("Amount must be a positive finite number");
     }
 
-    const reference = `mnemo_${agentId}_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`;
+    // Deterministic reference if provided, otherwise random
+    const reference = (options?.metadata?.reference as string) || 
+                     (options?.metadata?.idempotencyKey as string) ||
+                     `mnemo_${agentId}_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`;
+
     const amountInMinor = this.toMinorUnits(amount);
     const email = options?.email ?? `${agentId}@mnemopay.agent`;
 
@@ -335,13 +339,15 @@ export class PaystackRail implements PaymentRail {
     amount: number,
     reason: string,
     agentId?: string,
+    idempotencyKey?: string,
   ): Promise<PaystackTransferResult> {
     if (!recipientCode) throw new Error("Recipient code is required");
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error("Transfer amount must be a positive finite number");
     }
 
-    const reference = `mnemo_xfer_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`;
+    const reference = idempotencyKey || 
+                     `mnemo_xfer_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`;
 
     const response = await this.request("POST", "/transfer", {
       source: "balance",
