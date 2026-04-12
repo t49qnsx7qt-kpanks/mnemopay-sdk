@@ -1,4 +1,4 @@
-app = 'mnemopay-dashboard'
+app = 'mnemopay-landing'
 primary_region = 'dfw'
 
 [build]
