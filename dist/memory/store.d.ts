@@ -14,10 +14,11 @@ export declare class MemoryStore {
     private readonly halfLifeMs;
     private readonly memoryCap;
     private readonly embeddingDim;
-    constructor(db: Database.Database, crypto: PlatformCrypto, guard: PermissionGuard, rateLimiter: RateLimiter, fraud: FraudDetector, config: MnemoPayConfig);
+    private readonly embedText;
+    private readonly vectorKMultiplier;
+    constructor(db: Database.Database, crypto: PlatformCrypto, guard: PermissionGuard, rateLimiter: RateLimiter, fraud: FraudDetector, config: MnemoPayConfig, embedText: (text: string) => Promise<Float32Array>);
     static loadExtensions(db: Database.Database): void;
     static initSchema(db: Database.Database): void;
-    private embed;
     private decayedScore;
     retain(content: string, metadata: Omit<MemoryMetadata, 'agentId'>): Promise<Memory>;
     recall(query: MemoryQuery): Promise<MemoryRecallResult[]>;

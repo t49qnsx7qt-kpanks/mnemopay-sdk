@@ -8,7 +8,6 @@ import { PlatformCrypto, generateId } from '../security/crypto';
 import { PermissionGuard, SecurityError } from '../security/permissions';
 import { RateLimiter } from '../security/rate-limiter';
 import { FraudDetector } from '../security/fraud-detector';
-import { embed } from './embeddings'; // Import the shared embed function
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS memories (
@@ -28,6 +27,7 @@ const SCHEMA = `
 
   CREATE VIRTUAL TABLE IF NOT EXISTS memory_vectors USING vec0(
     id        TEXT PRIMARY KEY,
+    agent_id  TEXT PARTITION KEY,
     embedding FLOAT[384]
   );
 
@@ -45,6 +45,8 @@ export class MemoryStore {
   private readonly halfLifeMs: number;
   private readonly memoryCap: number;
   private readonly embeddingDim: number;
+  private readonly embedText: (text: string) => Promise<Float32Array>;
+  private readonly vectorKMultiplier: number;
 
   constructor(
     private readonly db: Database.Database,
@@ -53,11 +55,14 @@ export class MemoryStore {
     private readonly rateLimiter: RateLimiter,
     private readonly fraud: FraudDetector,
     config: MnemoPayConfig,
+    embedText: (text: string) => Promise<Float32Array>,
   ) {
     this.agentId = config.agentId;
     this.halfLifeMs = (config.memoryHalfLifeDays ?? 7) * 86_400_000;
     this.memoryCap = config.memoryCapacity ?? 10_000;
     this.embeddingDim = config.embeddingDimensions ?? 384;
+    this.embedText = embedText;
+    this.vectorKMultiplier = Math.max(1, Math.floor(config.vectorKMultiplier ?? 3));
   }
 
   static loadExtensions(db: Database.Database): void {
@@ -99,7 +104,7 @@ export class MemoryStore {
     const fullMeta: MemoryMetadata = { ...metadata, agentId: this.agentId, importance: clampedImportance };
     const id = generateId('mem');
     const now = Date.now();
-    const embedding = embed(content, this.embeddingDim); // Use the shared embed function
+    const embedding = await this.embedText(content);
 
     // Integrity HMAC over canonical representation
     const integrityInput = Buffer.from(JSON.stringify({
@@ -133,11 +138,8 @@ export class MemoryStore {
         this.agentId, fullMeta.sessionId,
       );
 
-      this.db.prepare(`INSERT INTO memory_vectors (id, embedding) VALUES (?, ?)`)
-        .run(id, new Uint8Array(embedding.buffer, embedding.byteOffset, embedding.byteLength));
-      
-      const check = this.db.prepare('SELECT COUNT(*) as c FROM memory_vectors WHERE id = ?').get(id) as any;
-      // console.log(`Stored vector for ${id}, exists in vtab: ${check.c}`);
+      this.db.prepare(`INSERT INTO memory_vectors (id, agent_id, embedding) VALUES (?, ?, ?)`)
+        .run(id, this.agentId, new Uint8Array(embedding.buffer, embedding.byteOffset, embedding.byteLength));
 
       // Track for sync
       this.db.prepare(`
@@ -160,10 +162,11 @@ export class MemoryStore {
     this.guard.enforce('memory:read');
     this.rateLimiter.check(this.agentId, 'general');
 
-    const queryVec = query.embedding ?? (query.text ? embed(query.text, this.embeddingDim) : null); // Use the shared embed function
+    const queryVec = query.embedding ?? (query.text ? await this.embedText(query.text) : null);
     if (!queryVec) return [];
 
     const limit = query.limit ?? 10;
+    const k = Math.max(limit, limit * this.vectorKMultiplier);
 
     const rows = this.db.prepare(`
       SELECT m.*, mv.distance
@@ -171,12 +174,12 @@ export class MemoryStore {
       JOIN memories m ON m.id = mv.id
       WHERE mv.embedding MATCH ?
         AND k = ?
-        AND m.agent_id = ?
+        AND mv.agent_id = ?
         AND (m.expires_at IS NULL OR m.expires_at > ?)
       ORDER BY mv.distance
     `).all(
       new Uint8Array(queryVec.buffer, queryVec.byteOffset, queryVec.byteLength),
-      limit * 3, // over-fetch, filter post-decrypt
+      k, // over-fetch, filter post-decrypt
       this.agentId,
       Date.now(),
     ) as any[];
@@ -259,7 +262,7 @@ export class MemoryStore {
       `).run(memoryId, this.agentId);
 
       this.db.prepare(`DELETE FROM memories WHERE id = ? AND agent_id = ?`).run(memoryId, this.agentId);
-      this.db.prepare(`DELETE FROM memory_vectors WHERE id = ?`).run(memoryId);
+      this.db.prepare(`DELETE FROM memory_vectors WHERE id = ? AND agent_id = ?`).run(memoryId, this.agentId);
     })();
   }
 

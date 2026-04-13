@@ -1,1 +1,7 @@
 .aider*
+
+# Accidental tsc output under tests/
+tests/**/*.js
+tests/**/*.js.map
+tests/**/*.d.ts
+tests/**/*.d.ts.map

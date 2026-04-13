@@ -1,15 +1,13 @@
-import Database from 'better-sqlite3';
+﻿import Database from 'better-sqlite3';
 import { PlatformCrypto, generateId } from '../security/crypto';
 import { PermissionGuard, SecurityError } from '../security/permissions';
-import { embed } from '../memory/embeddings'; // Import the shared embed function
-
 export interface SyncManifest {
   agentId: string;
   deviceId: string;
   tables: string[];
-  cursor: number; // last synced updated_at timestamp
+  cursor: number;
   recordCount: number;
-  checksum: string; // HMAC of all record IDs in this batch
+  checksum: string;
 }
 
 export interface SyncPacket {
@@ -18,16 +16,12 @@ export interface SyncPacket {
   signature: string;
 }
 
-// ── EncryptedSync ──────────────────────────────────────────────────────────
-// Zero-knowledge cloud sync: client encrypts everything before upload.
-// Server stores opaque blobs — it cannot read content or metadata.
-// The sync protocol:
-//   1. Pull: download blobs since cursor, decrypt locally, merge
-//   2. Push: encrypt dirty records, upload, update cursor
-//   3. Conflict: last-write-wins per record (updated_at comparison)
-//
-// This class handles the local side. The remote side is a simple REST API
-// that stores (id, table, encrypted_blob, updated_at) — no decryption needed.
+/** Allowed sync targets — keyed by sync_log.table_name; values are static SQL (no string interpolation). */
+const SYNC_ROW_SELECT = {
+  memories: 'SELECT * FROM memories WHERE id = ?',
+} as const satisfies Record<string, string>;
+type SyncableTable = keyof typeof SYNC_ROW_SELECT;
+
 export class EncryptedSync {
   constructor(
     private readonly db: Database.Database,
@@ -35,11 +29,9 @@ export class EncryptedSync {
     private readonly guard: PermissionGuard,
     private readonly agentId: string,
     private readonly deviceId: string,
-    private readonly embeddingDimensions: number, // Accept embedding dimensions
+    private readonly embedText: (text: string) => Promise<Float32Array>,
   ) {}
 
-  // ── buildPushPacket ───────────────────────────────────────────────────────
-  // Collect all unsynced records and encrypt them for upload.
   async buildPushPacket(tables: string[] = ['memories']): Promise<SyncPacket> {
     this.guard.enforce('sync:push');
 
@@ -54,11 +46,12 @@ export class EncryptedSync {
     const cursor = dirty.length > 0 ? Math.max(...dirty.map(d => d.updated_at)) : Date.now();
 
     for (const entry of dirty) {
-      const row = this.db.prepare(
-        `SELECT * FROM ${entry.table_name} WHERE id = ?`,
-      ).get(entry.record_id) as any;
+      const selectSql = SYNC_ROW_SELECT[entry.table_name as SyncableTable];
+      if (!selectSql) continue;
 
-      if (!row) continue; // Record was deleted since sync_log entry was created
+      const row = this.db.prepare(selectSql).get(entry.record_id) as any;
+
+      if (!row) continue;
 
       const plaintext = Buffer.from(JSON.stringify(row), 'utf8');
       const encBuf = await this.crypto.encrypt(plaintext);
@@ -69,12 +62,10 @@ export class EncryptedSync {
       });
     }
 
-    // HMAC checksum over all blob IDs (order-independent sort)
     const ids = blobs.map(b => b.id).sort().join(',');
     const checksumBuf = await this.crypto.hmac(Buffer.from(ids, 'utf8'));
     const checksum = Buffer.from(checksumBuf).toString('hex');
 
-    // Sign the manifest
     const manifest: SyncManifest = {
       agentId: this.agentId,
       deviceId: this.deviceId,
@@ -92,14 +83,18 @@ export class EncryptedSync {
     };
   }
 
-  // ── applyPullPacket ───────────────────────────────────────────────────────
-  // Merge an incoming encrypted packet from the server.
-  // Only memories table is merged (other tables are device-local).
   async applyPullPacket(packet: SyncPacket): Promise<{ merged: number; skipped: number }> {
     this.guard.enforce('sync:pull');
 
     if (packet.manifest.agentId !== this.agentId) {
       throw new SecurityError('AGENT_MISMATCH', 'Sync packet belongs to a different agent');
+    }
+
+    const manifestBytes = Buffer.from(JSON.stringify(packet.manifest), 'utf8');
+    const sigBuf = Buffer.from(packet.signature, 'hex');
+    const ok = await this.crypto.verify(manifestBytes, sigBuf, this.crypto.getPublicKey());
+    if (!ok) {
+      throw new SecurityError('INVALID_SIGNATURE', 'Sync packet manifest signature invalid');
     }
 
     let merged = 0;
@@ -112,28 +107,29 @@ export class EncryptedSync {
         const remote: Record<string, any> = JSON.parse(decBuf.toString('utf8'));
 
         if (blob.table === 'memories') {
+          if (remote.agent_id !== this.agentId) {
+            skipped++;
+            continue;
+          }
+
           const local = this.db.prepare(`SELECT updated_at FROM memories WHERE id = ?`).get(blob.id) as any;
 
           if (!local || remote.updated_at > local.updated_at) {
-            // Ensure memory_vectors table exists before insertion (should be done by MemoryStore.initSchema)
             this.db.exec(`
               CREATE VIRTUAL TABLE IF NOT EXISTS memory_vectors USING vec0(
                 id        TEXT PRIMARY KEY,
+                agent_id  TEXT PARTITION KEY,
                 embedding FLOAT[384]
               );
             `);
 
-            // When JSON.stringify a Buffer, it becomes {type: 'Buffer', data: [...]}.
-            // Need to convert it back to Buffer before decryption.
             const contentEncBuffer = Buffer.from(remote.content_enc.data);
             const metadataEncBuffer = Buffer.from(remote.metadata_enc.data);
             const integrityMacBuffer = Buffer.from(remote.integrity_mac.data);
 
-            // Decrypt content to generate embedding
             const decryptedContent = Buffer.from(await this.crypto.decrypt(contentEncBuffer)).toString('utf8');
-            const embedding = embed(decryptedContent, this.embeddingDimensions);
+            const embedding = await this.embedText(decryptedContent);
 
-            // Upsert: remote wins (last-write-wins)
             this.db.prepare(`
               INSERT OR REPLACE INTO memories
                 (id, content_enc, metadata_enc, integrity_mac, importance, access_count,
@@ -148,10 +144,10 @@ export class EncryptedSync {
               remote.created_at, remote.updated_at, remote.expires_at ?? null,
               remote.agent_id, remote.session_id,
             );
-            
-            // Also insert/replace into memory_vectors
-            this.db.prepare(`INSERT OR REPLACE INTO memory_vectors (id, embedding) VALUES (?, ?)`)
-              .run(remote.id, new Uint8Array(embedding.buffer, embedding.byteOffset, embedding.byteLength));
+
+            this.db.prepare(`DELETE FROM memory_vectors WHERE id = ? AND agent_id = ?`).run(remote.id, remote.agent_id);
+            this.db.prepare(`INSERT INTO memory_vectors (id, agent_id, embedding) VALUES (?, ?, ?)`)
+              .run(remote.id, remote.agent_id, new Uint8Array(embedding.buffer, embedding.byteOffset, embedding.byteLength));
 
             merged++;
           } else {
@@ -167,8 +163,6 @@ export class EncryptedSync {
     return { merged, skipped };
   }
 
-  // ── markSynced ────────────────────────────────────────────────────────────
-  // Call after a successful push to clear dirty flags.
   markSynced(recordIds: string[]): void {
     if (recordIds.length === 0) return;
     const placeholders = recordIds.map(() => '?').join(',');
@@ -176,7 +170,6 @@ export class EncryptedSync {
       .run(...recordIds);
   }
 
-  // ── getSyncStatus ─────────────────────────────────────────────────────────
   getSyncStatus(): { pendingPush: number; lastSync: number | null } {
     const pending = (this.db.prepare(
       `SELECT COUNT(*) as c FROM sync_log WHERE synced = 0`,

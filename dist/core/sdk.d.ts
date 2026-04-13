@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { MnemoPayConfig, Permission } from '../types/index';
 import { MemoryStore } from '../memory/store';
 import { WalletEngine } from '../payments/wallet';
@@ -6,7 +7,7 @@ import { EncryptedSync } from '../sync/encrypted-sync';
 import { PlatformBridge } from '../platform/index';
 export declare class MnemoPay {
     private readonly config;
-    private readonly db;
+    readonly db: Database.Database;
     private readonly crypto;
     private readonly guard;
     private readonly rateLimiter;
@@ -23,6 +24,8 @@ export declare class MnemoPay {
     sessionEnd(conversation: string, sessionId: string): Promise<void>;
     close(): void;
     private _defaultKey;
+    private _defaultHmacKey;
+    private _defaultSigningKey;
     private static _resolvePath;
 }
 //# sourceMappingURL=sdk.d.ts.map

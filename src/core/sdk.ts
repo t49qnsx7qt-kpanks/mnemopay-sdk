@@ -13,6 +13,7 @@ import { MemoryStore } from '../memory/store';
 import { WalletEngine } from '../payments/wallet';
 import { SpatialProver } from '../gridstamp/spatial-prover';
 import { EncryptedSync } from '../sync/encrypted-sync';
+import { createAsyncEmbedder } from '../memory/embeddings';
 import { NodeBridge, PlatformBridge } from '../platform/index';
 
 export class MnemoPay {
@@ -41,10 +42,15 @@ export class MnemoPay {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
 
-    this.crypto = new NodeCrypto(config.encryptionKey ?? this._defaultKey(config.agentId));
+    const encKey = config.encryptionKey ?? this._defaultKey(config.agentId);
+    const hmacKey = config.hmacKey ?? this._defaultHmacKey(config.agentId);
+    const signingKey = config.signingKey ?? this._defaultSigningKey(config.agentId);
+    this.crypto = new NodeCrypto(encKey, hmacKey, signingKey);
     this.guard = new PermissionGuard(ctx);
     this.rateLimiter = new RateLimiter();
     this.fraud = new FraudDetector();
+
+    const embedText = createAsyncEmbedder(config);
 
     // Init schemas
     MemoryStore.initSchema(this.db);
@@ -52,7 +58,7 @@ export class MnemoPay {
     SpatialProver.initSchema(this.db);
 
     this.memory = new MemoryStore(
-      this.db, this.crypto, this.guard, this.rateLimiter, this.fraud, config,
+      this.db, this.crypto, this.guard, this.rateLimiter, this.fraud, config, embedText,
     );
 
     this.wallet = new WalletEngine(
@@ -69,7 +75,7 @@ export class MnemoPay {
       this.db, this.crypto, this.guard,
       config.agentId,
       config.deviceId ?? 'node-default',
-      config.embeddingDimensions ?? 384, // Pass embedding dimensions
+      embedText,
     );
   }
 
@@ -114,6 +120,14 @@ export class MnemoPay {
     // Derive a 32-byte key from agentId (deterministic, not cryptographically
     // secure — production should always supply a real encryptionKey)
     return sha256(Buffer.from(`mnemopay:${agentId}`, 'utf8'));
+  }
+
+  private _defaultHmacKey(agentId: string): Uint8Array {
+    return sha256(Buffer.from(`mnemopay:mac:${agentId}`, 'utf8'));
+  }
+
+  private _defaultSigningKey(agentId: string): Uint8Array {
+    return sha256(Buffer.from(`mnemopay:sign:${agentId}`, 'utf8'));
   }
 
   private static _resolvePath(config: MnemoPayConfig): string {

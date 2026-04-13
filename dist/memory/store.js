@@ -35,7 +35,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MemoryStore = void 0;
 const sqliteVec = __importStar(require("sqlite-vec"));
-const sha256_1 = require("@noble/hashes/sha256");
 const crypto_1 = require("../security/crypto");
 const permissions_1 = require("../security/permissions");
 const SCHEMA = `
@@ -56,6 +55,7 @@ const SCHEMA = `
 
   CREATE VIRTUAL TABLE IF NOT EXISTS memory_vectors USING vec0(
     id        TEXT PRIMARY KEY,
+    agent_id  TEXT PARTITION KEY,
     embedding FLOAT[384]
   );
 
@@ -77,7 +77,9 @@ class MemoryStore {
     halfLifeMs;
     memoryCap;
     embeddingDim;
-    constructor(db, crypto, guard, rateLimiter, fraud, config) {
+    embedText;
+    vectorKMultiplier;
+    constructor(db, crypto, guard, rateLimiter, fraud, config, embedText) {
         this.db = db;
         this.crypto = crypto;
         this.guard = guard;
@@ -87,26 +89,14 @@ class MemoryStore {
         this.halfLifeMs = (config.memoryHalfLifeDays ?? 7) * 86_400_000;
         this.memoryCap = config.memoryCapacity ?? 10_000;
         this.embeddingDim = config.embeddingDimensions ?? 384;
+        this.embedText = embedText;
+        this.vectorKMultiplier = Math.max(1, Math.floor(config.vectorKMultiplier ?? 3));
     }
     static loadExtensions(db) {
         sqliteVec.load(db);
     }
     static initSchema(db) {
         db.exec(SCHEMA);
-    }
-    // Deterministic hash-based embedding (placeholder until ONNX MiniLM is integrated)
-    embed(text) {
-        const hash = (0, sha256_1.sha256)(Buffer.from(text, 'utf8'));
-        const vec = new Float32Array(this.embeddingDim);
-        for (let i = 0; i < this.embeddingDim; i++) {
-            vec[i] = (hash[i % 32] / 127.5) - 1.0;
-        }
-        // L2 normalise
-        const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
-        if (norm > 0)
-            for (let i = 0; i < vec.length; i++)
-                vec[i] /= norm;
-        return vec;
     }
     // decay-adjusted score: s * 2^(-t/h) * (1 + 0.05 * log2(a+1)) * i
     decayedScore(createdAt, accessCount, importance) {
@@ -133,9 +123,20 @@ class MemoryStore {
         const fullMeta = { ...metadata, agentId: this.agentId, importance: clampedImportance };
         const id = (0, crypto_1.generateId)('mem');
         const now = Date.now();
-        const embedding = this.embed(content);
+        const embedding = await this.embedText(content);
         // Integrity HMAC over canonical representation
-        const integrityInput = Buffer.from(JSON.stringify({ id, content, metadata: fullMeta }), 'utf8');
+        const integrityInput = Buffer.from(JSON.stringify({
+            id,
+            content,
+            metadata: {
+                source: fullMeta.source,
+                sessionId: fullMeta.sessionId,
+                agentId: fullMeta.agentId,
+                tags: fullMeta.tags,
+                importance: fullMeta.importance,
+                ttl: fullMeta.ttl,
+            }
+        }), 'utf8');
         const integrityMac = await this.crypto.hmac(integrityInput);
         // Encrypt content and metadata separately
         const encContent = await this.crypto.encrypt(Buffer.from(content, 'utf8'));
@@ -147,8 +148,8 @@ class MemoryStore {
            decay_score, created_at, updated_at, expires_at, agent_id, session_id)
         VALUES (?, ?, ?, ?, ?, 0, 1.0, ?, ?, ?, ?, ?)
       `).run(id, encContent, encMeta, integrityMac, clampedImportance, now, now, fullMeta.ttl ? now + fullMeta.ttl : null, this.agentId, fullMeta.sessionId);
-            this.db.prepare(`INSERT INTO memory_vectors (id, embedding) VALUES (?, ?)`)
-                .run(id, Buffer.from(embedding.buffer));
+            this.db.prepare(`INSERT INTO memory_vectors (id, agent_id, embedding) VALUES (?, ?, ?)`)
+                .run(id, this.agentId, new Uint8Array(embedding.buffer, embedding.byteOffset, embedding.byteLength));
             // Track for sync
             this.db.prepare(`
         INSERT OR REPLACE INTO sync_log (id, table_name, record_id, synced, updated_at)
@@ -166,20 +167,21 @@ class MemoryStore {
     async recall(query) {
         this.guard.enforce('memory:read');
         this.rateLimiter.check(this.agentId, 'general');
-        const queryVec = query.embedding ?? (query.text ? this.embed(query.text) : null);
+        const queryVec = query.embedding ?? (query.text ? await this.embedText(query.text) : null);
         if (!queryVec)
             return [];
         const limit = query.limit ?? 10;
+        const k = Math.max(limit, limit * this.vectorKMultiplier);
         const rows = this.db.prepare(`
       SELECT m.*, mv.distance
       FROM memory_vectors mv
       JOIN memories m ON m.id = mv.id
       WHERE mv.embedding MATCH ?
         AND k = ?
-        AND m.agent_id = ?
+        AND mv.agent_id = ?
         AND (m.expires_at IS NULL OR m.expires_at > ?)
       ORDER BY mv.distance
-    `).all(Buffer.from(queryVec.buffer), limit * 3, // over-fetch, filter post-decrypt
+    `).all(new Uint8Array(queryVec.buffer, queryVec.byteOffset, queryVec.byteLength), k, // over-fetch, filter post-decrypt
         this.agentId, Date.now());
         const results = [];
         for (const row of rows) {
@@ -188,7 +190,18 @@ class MemoryStore {
                 const content = Buffer.from(await this.crypto.decrypt(Buffer.from(row.content_enc))).toString('utf8');
                 const metadata = JSON.parse(Buffer.from(await this.crypto.decrypt(Buffer.from(row.metadata_enc))).toString('utf8'));
                 // Verify integrity — skip tampered records
-                const integrityInput = Buffer.from(JSON.stringify({ id: row.id, content, metadata }), 'utf8');
+                const integrityInput = Buffer.from(JSON.stringify({
+                    id: row.id,
+                    content,
+                    metadata: {
+                        source: metadata.source,
+                        sessionId: metadata.sessionId,
+                        agentId: metadata.agentId,
+                        tags: metadata.tags,
+                        importance: metadata.importance,
+                        ttl: metadata.ttl,
+                    }
+                }), 'utf8');
                 const valid = await this.crypto.verifyHmac(integrityInput, Buffer.from(row.integrity_mac));
                 if (!valid)
                     continue;
@@ -201,8 +214,9 @@ class MemoryStore {
                     continue;
                 if (query.minImportance != null && metadata.importance < query.minImportance)
                     continue;
-                const cosineDistance = row.distance;
-                const cosine = 1 - cosineDistance;
+                const l2Squared = row.distance;
+                const cosine = 1 - (l2Squared / 2);
+                // console.log(`ID: ${row.id}, dist: ${l2Squared}, sim: ${cosine}, threshold: ${query.threshold}`);
                 if (query.threshold != null && cosine < query.threshold)
                     continue;
                 const score = cosine
@@ -220,7 +234,7 @@ class MemoryStore {
                         integrity: Buffer.from(row.integrity_mac).toString('hex'),
                     },
                     score,
-                    distance: cosineDistance,
+                    distance: l2Squared,
                 });
             }
             catch {
@@ -241,7 +255,7 @@ class MemoryStore {
         WHERE id = ? AND agent_id = ?
       `).run(memoryId, this.agentId);
             this.db.prepare(`DELETE FROM memories WHERE id = ? AND agent_id = ?`).run(memoryId, this.agentId);
-            this.db.prepare(`DELETE FROM memory_vectors WHERE id = ?`).run(memoryId);
+            this.db.prepare(`DELETE FROM memory_vectors WHERE id = ? AND agent_id = ?`).run(memoryId, this.agentId);
         })();
     }
     // ── autoRecall — LLM context injection ──────────────────────────────────────

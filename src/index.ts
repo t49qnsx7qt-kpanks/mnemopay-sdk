@@ -10,6 +10,7 @@ export type {
   SpatialProof, SpatialProofResult,
   MnemoPayConfig, SecurityContext, Permission,
   FraudSignal, FraudType,
+  EmbeddingBackend, EmbeddingFn,
 } from './types/index';
 
 // Security primitives
@@ -25,6 +26,9 @@ export { SpatialProver } from './gridstamp/spatial-prover';
 export { EncryptedSync } from './sync/encrypted-sync';
 
 // Platform bridges
+export {
+  embedHash, embed, createAsyncEmbedder, SEMANTIC_EMBEDDING_DIM,
+} from './memory/embeddings';
 export {
   NodeBridge, AndroidBridge, IOSBridge,
 } from './platform/index';

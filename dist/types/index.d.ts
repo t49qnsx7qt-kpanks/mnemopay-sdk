@@ -135,6 +135,10 @@ export interface FraudSignal {
     timestamp: number;
     autoAction: 'log' | 'throttle' | 'reject' | 'freeze';
 }
+/** `hash` = deterministic SHA-derived vectors (default). `semantic` = Xenova all-MiniLM-L6-v2 (384-d). */
+export type EmbeddingBackend = 'hash' | 'semantic';
+/** Custom embedding; must return L2-normalizable vector of length `dim` (384 matches `memory_vectors`). */
+export type EmbeddingFn = (text: string, dim: number) => Float32Array | Promise<Float32Array>;
 export interface MnemoPayConfig {
     agentId: string;
     persistDir?: string;
@@ -144,6 +148,19 @@ export interface MnemoPayConfig {
     signingKey?: Uint8Array;
     embeddingModelPath?: string;
     embeddingDimensions?: number;
+    /**
+     * Memory vector backend. Default `hash`.
+     * `semantic` requires optional peer dependency `@xenova/transformers`.
+     */
+    embeddings?: EmbeddingBackend;
+    /** If set, used instead of `embeddings` (e.g. remote API or another model). */
+    embed?: EmbeddingFn;
+    /**
+     * sqlite-vec kNN over-fetch multiplier used by `MemoryStore.recall()` before
+     * decrypting + applying post-filters. Higher = better recall under filters,
+     * but more DB work. Default 3 (k = limit * 3).
+     */
+    vectorKMultiplier?: number;
     syncEndpoint?: string;
     dailyLimitCents?: number;
     memoryCapacity?: number;

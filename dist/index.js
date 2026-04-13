@@ -2,7 +2,7 @@
 // @mnemopay/mobile-sdk — on-device Memory + AgentPay + GridStamp
 // USD_CENTS only. Ed25519 + AES-256-GCM. SQLite + sqlite-vec.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.IOSBridge = exports.AndroidBridge = exports.NodeBridge = exports.EncryptedSync = exports.SpatialProver = exports.WalletEngine = exports.MemoryStore = exports.FraudDetector = exports.RateLimiter = exports.buildContext = exports.SecurityError = exports.PermissionGuard = exports.generateId = exports.NodeCrypto = exports.MnemoPay = void 0;
+exports.IOSBridge = exports.AndroidBridge = exports.NodeBridge = exports.SEMANTIC_EMBEDDING_DIM = exports.createAsyncEmbedder = exports.embed = exports.embedHash = exports.EncryptedSync = exports.SpatialProver = exports.WalletEngine = exports.MemoryStore = exports.FraudDetector = exports.RateLimiter = exports.buildContext = exports.SecurityError = exports.PermissionGuard = exports.generateId = exports.NodeCrypto = exports.MnemoPay = void 0;
 var sdk_1 = require("./core/sdk");
 Object.defineProperty(exports, "MnemoPay", { enumerable: true, get: function () { return sdk_1.MnemoPay; } });
 // Security primitives
@@ -27,6 +27,11 @@ Object.defineProperty(exports, "SpatialProver", { enumerable: true, get: functio
 var encrypted_sync_1 = require("./sync/encrypted-sync");
 Object.defineProperty(exports, "EncryptedSync", { enumerable: true, get: function () { return encrypted_sync_1.EncryptedSync; } });
 // Platform bridges
+var embeddings_1 = require("./memory/embeddings");
+Object.defineProperty(exports, "embedHash", { enumerable: true, get: function () { return embeddings_1.embedHash; } });
+Object.defineProperty(exports, "embed", { enumerable: true, get: function () { return embeddings_1.embed; } });
+Object.defineProperty(exports, "createAsyncEmbedder", { enumerable: true, get: function () { return embeddings_1.createAsyncEmbedder; } });
+Object.defineProperty(exports, "SEMANTIC_EMBEDDING_DIM", { enumerable: true, get: function () { return embeddings_1.SEMANTIC_EMBEDDING_DIM; } });
 var index_1 = require("./platform/index");
 Object.defineProperty(exports, "NodeBridge", { enumerable: true, get: function () { return index_1.NodeBridge; } });
 Object.defineProperty(exports, "AndroidBridge", { enumerable: true, get: function () { return index_1.AndroidBridge; } });

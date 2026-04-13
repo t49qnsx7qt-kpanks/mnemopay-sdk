@@ -116,8 +116,11 @@ class WalletEngine {
         this.resetDailyIfNeeded(this.agentId);
         const txId = (0, crypto_1.generateId)('tx');
         const now = Date.now();
-        return this.db.transaction(async () => {
-            // 3. Row-level lock via IMMEDIATE
+        // better-sqlite3 transactions are synchronous. We cannot use them with async calls.
+        // Instead, we manage BEGIN/COMMIT manually.
+        this.db.prepare('BEGIN IMMEDIATE').run();
+        try {
+            // 3. Row-level lock via IMMEDIATE (already done by BEGIN IMMEDIATE)
             const sender = this.db.prepare(`SELECT * FROM wallets WHERE agent_id = ?`).get(this.agentId);
             // 4. Pre-flight checks
             if (sender.frozen)
@@ -134,13 +137,16 @@ class WalletEngine {
             const replaySig = this.fraud.checkReplay(this.agentId, nonce);
             if (replaySig)
                 throw new permissions_1.SecurityError('REPLAY_DETECTED', 'Replay attack detected');
-            // 7. Sign transaction data
+            // 7. Sign transaction data — must be outside transaction if possible, 
+            // but here we are ALREADY in a transaction. 
+            // Note: blocking the event loop for a sign operation is okay if it's fast (Ed25519 is fast).
             const txData = Buffer.from(JSON.stringify({ txId, from: this.agentId, to: toAgent, amount: amount.toString(), nonce, now }));
             const signature = await this.crypto.sign(txData);
             // 7b. Collusion check
             const collusionSig = this.fraud.checkCollusion(this.agentId, toAgent);
             if (collusionSig?.autoAction === 'freeze') {
                 this.db.prepare(`UPDATE wallets SET frozen = 1 WHERE agent_id IN (?, ?)`).run(this.agentId, toAgent);
+                this.db.prepare('COMMIT').run();
                 throw new permissions_1.SecurityError('COLLUSION_DETECTED', 'Circular payment pattern detected — wallets frozen');
             }
             // 8. Atomic debit/credit
@@ -154,13 +160,20 @@ class WalletEngine {
         VALUES (?, ?, ?, ?, 'USD_CENTS', 'payment', 'settled', ?, ?, ?, ?)
       `).run(txId, this.agentId, toAgent, Number(amount), JSON.stringify(memoriesAccessed), signature, nonce, now);
             this.fraud.recordAction(this.agentId, `send:${toAgent}:${amount}`);
+            this.db.prepare('COMMIT').run();
             return {
                 id: txId, fromAgent: this.agentId, toAgent, amount, currency: 'USD_CENTS',
                 type: 'payment', status: 'settled',
                 memoriesAccessed, signature: Buffer.from(signature).toString('hex'),
                 nonce, createdAt: now,
             };
-        })();
+        }
+        catch (e) {
+            if (this.db.inTransaction) {
+                this.db.prepare('ROLLBACK').run();
+            }
+            throw e;
+        }
     }
     // ── createEscrow ─────────────────────────────────────────────────────────────
     async createEscrow(sellerAgent, amount, conditions, timeoutMs = 86_400_000) {
@@ -173,7 +186,7 @@ class WalletEngine {
         const now = Date.now();
         const timeout = now + timeoutMs;
         const fullConditions = conditions.map(c => ({ ...c, met: false }));
-        this.db.transaction(() => {
+        const tx = this.db.transaction(() => {
             const sender = this.db.prepare(`SELECT * FROM wallets WHERE agent_id = ?`).get(this.agentId);
             if (sender.frozen)
                 throw new permissions_1.SecurityError('WALLET_FROZEN', 'Wallet is frozen');
@@ -189,7 +202,8 @@ class WalletEngine {
         INSERT INTO transactions (id, from_agent, to_agent, amount, currency, type, status, escrow_id, memories_accessed, signature, nonce, created_at)
         VALUES (?, ?, ?, ?, 'USD_CENTS', 'escrow_lock', 'escrowed', ?, '[]', '', 0, ?)
       `).run((0, crypto_1.generateId)('tx'), this.agentId, sellerAgent, Number(amount), escrowId, now);
-        })();
+        });
+        tx();
         return {
             id: escrowId, buyerAgent: this.agentId, sellerAgent,
             amount, conditions: fullConditions,
@@ -219,7 +233,7 @@ class WalletEngine {
         const txData = Buffer.from(JSON.stringify({ txId, escrowId, from: escrowRow.buyer_agent, to: escrowRow.seller_agent, amount: amount.toString(), now }));
         const signature = await this.crypto.sign(txData);
         // Atomic: credit seller + boost reputation + close escrow
-        this.db.transaction(() => {
+        const tx = this.db.transaction(() => {
             this.db.prepare(`UPDATE wallets SET balance = balance + ?, reputation = MIN(100, reputation + 1) WHERE agent_id = ?`)
                 .run(Number(amount), escrowRow.seller_agent);
             this.db.prepare(`UPDATE escrows SET status = 'released' WHERE id = ?`).run(escrowId);
@@ -227,7 +241,8 @@ class WalletEngine {
         INSERT INTO transactions (id, from_agent, to_agent, amount, currency, type, status, escrow_id, memories_accessed, signature, nonce, created_at)
         VALUES (?, ?, ?, ?, 'USD_CENTS', 'escrow_release', 'settled', ?, ?, ?, 0, ?)
       `).run(txId, escrowRow.buyer_agent, escrowRow.seller_agent, Number(amount), escrowId, JSON.stringify(memoriesAccessed), signature, now);
-        })();
+        });
+        tx();
         this.fraud.recordAction(escrowRow.seller_agent, `settle:${escrowId}`);
         return {
             id: txId, fromAgent: escrowRow.buyer_agent, toAgent: escrowRow.seller_agent,
@@ -239,9 +254,13 @@ class WalletEngine {
     }
     // Mark an escrow condition as met
     markConditionMet(escrowId, conditionType) {
-        const row = this.db.prepare(`SELECT conditions FROM escrows WHERE id = ?`).get(escrowId);
+        this.guard.enforce('wallet:escrow');
+        const row = this.db.prepare(`SELECT buyer_agent, seller_agent, conditions FROM escrows WHERE id = ?`).get(escrowId);
         if (!row)
             throw new permissions_1.SecurityError('NOT_FOUND', `Escrow ${escrowId} not found`);
+        if (row.buyer_agent !== this.agentId && row.seller_agent !== this.agentId) {
+            throw new permissions_1.SecurityError('FORBIDDEN', 'Not a party to this escrow');
+        }
         const conditions = JSON.parse(row.conditions);
         const idx = conditions.findIndex(c => c.type === conditionType);
         if (idx !== -1) {

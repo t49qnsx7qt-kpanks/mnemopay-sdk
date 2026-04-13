@@ -41,6 +41,7 @@ const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const sqliteVec = __importStar(require("sqlite-vec"));
+const sha256_1 = require("@noble/hashes/sha256");
 const crypto_1 = require("../security/crypto");
 const permissions_1 = require("../security/permissions");
 const rate_limiter_1 = require("../security/rate-limiter");
@@ -49,6 +50,7 @@ const store_1 = require("../memory/store");
 const wallet_1 = require("../payments/wallet");
 const spatial_prover_1 = require("../gridstamp/spatial-prover");
 const encrypted_sync_1 = require("../sync/encrypted-sync");
+const embeddings_1 = require("../memory/embeddings");
 const index_1 = require("../platform/index");
 class MnemoPay {
     config;
@@ -69,18 +71,22 @@ class MnemoPay {
         // WAL mode for concurrent reads
         this.db.pragma('journal_mode = WAL');
         this.db.pragma('foreign_keys = ON');
-        this.crypto = new crypto_1.NodeCrypto(config.encryptionKey ?? this._defaultKey(config.agentId));
+        const encKey = config.encryptionKey ?? this._defaultKey(config.agentId);
+        const hmacKey = config.hmacKey ?? this._defaultHmacKey(config.agentId);
+        const signingKey = config.signingKey ?? this._defaultSigningKey(config.agentId);
+        this.crypto = new crypto_1.NodeCrypto(encKey, hmacKey, signingKey);
         this.guard = new permissions_1.PermissionGuard(ctx);
         this.rateLimiter = new rate_limiter_1.RateLimiter();
         this.fraud = new fraud_detector_1.FraudDetector();
+        const embedText = (0, embeddings_1.createAsyncEmbedder)(config);
         // Init schemas
         store_1.MemoryStore.initSchema(this.db);
         wallet_1.WalletEngine.initSchema(this.db);
         spatial_prover_1.SpatialProver.initSchema(this.db);
-        this.memory = new store_1.MemoryStore(this.db, this.crypto, this.guard, this.rateLimiter, this.fraud, config);
+        this.memory = new store_1.MemoryStore(this.db, this.crypto, this.guard, this.rateLimiter, this.fraud, config, embedText);
         this.wallet = new wallet_1.WalletEngine(this.db, this.crypto, this.guard, this.rateLimiter, this.fraud, config.agentId, BigInt(config.dailyLimitCents ?? 100_000));
         this.spatial = new spatial_prover_1.SpatialProver(this.db, this.crypto, this.guard, this.rateLimiter, this.fraud, config);
-        this.sync = new encrypted_sync_1.EncryptedSync(this.db, this.crypto, this.guard, config.agentId, config.deviceId ?? 'node-default');
+        this.sync = new encrypted_sync_1.EncryptedSync(this.db, this.crypto, this.guard, config.agentId, config.deviceId ?? 'node-default', embedText);
     }
     // ── Factory ───────────────────────────────────────────────────────────────
     static create(config, permissions) {
@@ -115,8 +121,13 @@ class MnemoPay {
     _defaultKey(agentId) {
         // Derive a 32-byte key from agentId (deterministic, not cryptographically
         // secure — production should always supply a real encryptionKey)
-        const { sha256 } = require('@noble/hashes/sha256');
-        return sha256(Buffer.from(`mnemopay:${agentId}`, 'utf8'));
+        return (0, sha256_1.sha256)(Buffer.from(`mnemopay:${agentId}`, 'utf8'));
+    }
+    _defaultHmacKey(agentId) {
+        return (0, sha256_1.sha256)(Buffer.from(`mnemopay:mac:${agentId}`, 'utf8'));
+    }
+    _defaultSigningKey(agentId) {
+        return (0, sha256_1.sha256)(Buffer.from(`mnemopay:sign:${agentId}`, 'utf8'));
     }
     static _resolvePath(config) {
         const dir = config.persistDir ?? path.join(process.env['HOME'] ?? process.env['USERPROFILE'] ?? '.', '.mnemopay');

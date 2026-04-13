@@ -284,8 +284,14 @@ export class WalletEngine {
 
   // Mark an escrow condition as met
   markConditionMet(escrowId: string, conditionType: EscrowCondition['type']): void {
-    const row = this.db.prepare(`SELECT conditions FROM escrows WHERE id = ?`).get(escrowId) as any;
+    this.guard.enforce('wallet:escrow');
+    const row = this.db.prepare(
+      `SELECT buyer_agent, seller_agent, conditions FROM escrows WHERE id = ?`,
+    ).get(escrowId) as any;
     if (!row) throw new SecurityError('NOT_FOUND', `Escrow ${escrowId} not found`);
+    if (row.buyer_agent !== this.agentId && row.seller_agent !== this.agentId) {
+      throw new SecurityError('FORBIDDEN', 'Not a party to this escrow');
+    }
     const conditions: EscrowCondition[] = JSON.parse(row.conditions);
     const idx = conditions.findIndex(c => c.type === conditionType);
     if (idx !== -1) {

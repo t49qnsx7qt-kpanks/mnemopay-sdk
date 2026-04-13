@@ -24,7 +24,8 @@ export declare class EncryptedSync {
     private readonly guard;
     private readonly agentId;
     private readonly deviceId;
-    constructor(db: Database.Database, crypto: PlatformCrypto, guard: PermissionGuard, agentId: string, deviceId: string);
+    private readonly embedText;
+    constructor(db: Database.Database, crypto: PlatformCrypto, guard: PermissionGuard, agentId: string, deviceId: string, embedText: (text: string) => Promise<Float32Array>);
     buildPushPacket(tables?: string[]): Promise<SyncPacket>;
     applyPullPacket(packet: SyncPacket): Promise<{
         merged: number;
