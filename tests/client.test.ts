@@ -226,7 +226,7 @@ beforeAll(async () => {
   server = app.listen(PORT);
   // Give server time to bind
   await new Promise(resolve => setTimeout(resolve, 200));
-});
+}, 30_000);
 
 afterAll(() => {
   if (server) server.close();

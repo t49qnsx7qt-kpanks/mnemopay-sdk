@@ -54,7 +54,7 @@ export interface PersistedMemory {
   createdAt: string;
   lastAccessed: string;
   accessCount: number;
-  tags: string;  // JSON-encoded string[]
+  tags: string; // JSON-encoded string[]
 }
 
 export interface PersistedTransaction {
@@ -84,7 +84,7 @@ export interface PersistedState {
     id: string;
     agentId: string;
     action: string;
-    details: string;  // JSON-encoded
+    details: string; // JSON-encoded
     createdAt: string;
   }>;
   fraudGuard?: any;
@@ -105,9 +105,7 @@ export class SQLiteStorage implements StorageAdapter {
       const Database = require("better-sqlite3");
       this.db = new Database(dbPath);
     } catch {
-      throw new Error(
-        "better-sqlite3 not installed. Run: npm install better-sqlite3"
-      );
+      throw new Error("better-sqlite3 not installed. Run: npm install better-sqlite3");
     }
 
     // Enable WAL mode for better concurrent read performance
@@ -172,27 +170,53 @@ export class SQLiteStorage implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
       CREATE INDEX IF NOT EXISTS idx_audit_agent ON audit_log(agent_id);
       CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+
+      -- FTS5: external-content table to index memories.content safely.
+      -- This uses parameterized queries only (no dynamic SQL string concatenation).
+      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+        content,
+        content='memories',
+        content_rowid='rowid',
+        tokenize='unicode61',
+        prefix='2 3'
+      );
+
+      -- Keep FTS in sync. These are idempotent.
+      CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, content)
+        VALUES('delete', old.rowid, old.content);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+        INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
+      END;
     `);
   }
 
   load(agentId: string): PersistedState | null {
-    const state = this.db.prepare(
-      "SELECT * FROM agent_state WHERE agent_id = ?"
-    ).get(agentId);
+    const state = this.db
+      .prepare("SELECT * FROM agent_state WHERE agent_id = ?")
+      .get(agentId);
 
     if (!state) return null;
 
-    const memories = this.db.prepare(
-      "SELECT * FROM memories WHERE agent_id = ? ORDER BY score DESC"
-    ).all(agentId);
+    const memories = this.db
+      .prepare("SELECT * FROM memories WHERE agent_id = ? ORDER BY score DESC")
+      .all(agentId);
 
-    const transactions = this.db.prepare(
-      "SELECT * FROM transactions WHERE agent_id = ? ORDER BY created_at DESC"
-    ).all(agentId);
+    const transactions = this.db
+      .prepare("SELECT * FROM transactions WHERE agent_id = ? ORDER BY created_at DESC")
+      .all(agentId);
 
-    const auditLog = this.db.prepare(
-      "SELECT * FROM audit_log WHERE agent_id = ? ORDER BY created_at DESC LIMIT 500"
-    ).all(agentId);
+    const auditLog = this.db
+      .prepare(
+        "SELECT * FROM audit_log WHERE agent_id = ? ORDER BY created_at DESC LIMIT 500"
+      )
+      .all(agentId);
 
     return {
       agentId: state.agent_id,
@@ -208,7 +232,8 @@ export class SQLiteStorage implements StorageAdapter {
         createdAt: m.created_at,
         lastAccessed: m.last_accessed,
         accessCount: m.access_count,
-        tags: m.tags,
+        // PersistedMemory expects tags to be a JSON-encoded string
+        tags: typeof m.tags === "string" ? m.tags : JSON.stringify(m.tags ?? []),
       })),
       transactions: transactions.map((t: any) => ({
         id: t.id,
@@ -241,7 +266,8 @@ export class SQLiteStorage implements StorageAdapter {
       const now = new Date().toISOString();
 
       // Upsert agent state
-      this.db.prepare(`
+      this.db
+        .prepare(`
         INSERT INTO agent_state (agent_id, wallet, reputation, created_at, fraud_guard, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(agent_id) DO UPDATE SET
@@ -249,14 +275,15 @@ export class SQLiteStorage implements StorageAdapter {
           reputation = excluded.reputation,
           fraud_guard = excluded.fraud_guard,
           updated_at = excluded.updated_at
-      `).run(
-        state.agentId,
-        state.wallet,
-        state.reputation,
-        state.createdAt,
-        state.fraudGuard ? JSON.stringify(state.fraudGuard) : null,
-        now,
-      );
+      `)
+        .run(
+          state.agentId,
+          state.wallet,
+          state.reputation,
+          state.createdAt,
+          state.fraudGuard ? JSON.stringify(state.fraudGuard) : null,
+          now
+        );
 
       // Upsert memories
       const upsertMem = this.db.prepare(`
@@ -266,23 +293,35 @@ export class SQLiteStorage implements StorageAdapter {
           importance = excluded.importance,
           score = excluded.score,
           last_accessed = excluded.last_accessed,
-          access_count = excluded.access_count
+          access_count = excluded.access_count,
+          content = excluded.content,
+          tags = excluded.tags
       `);
 
       for (const m of state.memories) {
         upsertMem.run(
-          m.id, m.agentId, m.content, m.importance, m.score,
-          m.createdAt, m.lastAccessed, m.accessCount, m.tags,
+          m.id,
+          m.agentId,
+          m.content,
+          m.importance,
+          m.score,
+          m.createdAt,
+          m.lastAccessed,
+          m.accessCount,
+          // Persist tags should already be JSON-encoded string in PersistedMemory
+          m.tags
         );
       }
 
       // Clean deleted memories
       if (state.memories.length > 0) {
-        const memIds = state.memories.map(m => m.id);
+        const memIds = state.memories.map((m) => m.id);
         const placeholders = memIds.map(() => "?").join(",");
-        this.db.prepare(
-          `DELETE FROM memories WHERE agent_id = ? AND id NOT IN (${placeholders})`
-        ).run(state.agentId, ...memIds);
+        this.db
+          .prepare(
+            `DELETE FROM memories WHERE agent_id = ? AND id NOT IN (${placeholders})`
+          )
+          .run(state.agentId, ...memIds);
       } else {
         this.db.prepare("DELETE FROM memories WHERE agent_id = ?").run(state.agentId);
       }
@@ -296,16 +335,26 @@ export class SQLiteStorage implements StorageAdapter {
           completed_at = excluded.completed_at,
           platform_fee = excluded.platform_fee,
           net_amount = excluded.net_amount,
+          risk_score = excluded.risk_score,
           external_status = excluded.external_status,
           counterparty_id = excluded.counterparty_id
       `);
 
       for (const t of state.transactions) {
         upsertTx.run(
-          t.id, t.agentId, t.amount, t.reason, t.status, t.createdAt,
-          t.completedAt || null, t.platformFee || null, t.netAmount || null,
-          t.riskScore || null, t.externalId || null, t.externalStatus || null,
-          t.counterpartyId || null,
+          t.id,
+          t.agentId,
+          t.amount,
+          t.reason,
+          t.status,
+          t.createdAt,
+          t.completedAt || null,
+          t.platformFee || null,
+          t.netAmount || null,
+          t.riskScore || null,
+          t.externalId || null,
+          t.externalStatus || null,
+          t.counterpartyId || null
         );
       }
 
@@ -320,11 +369,13 @@ export class SQLiteStorage implements StorageAdapter {
       }
 
       // Trim old audit entries (keep last 500)
-      this.db.prepare(`
+      this.db
+        .prepare(`
         DELETE FROM audit_log WHERE agent_id = ? AND id NOT IN (
           SELECT id FROM audit_log WHERE agent_id = ? ORDER BY created_at DESC LIMIT 500
         )
-      `).run(state.agentId, state.agentId);
+      `)
+        .run(state.agentId, state.agentId);
     });
 
     saveAll();
@@ -333,16 +384,88 @@ export class SQLiteStorage implements StorageAdapter {
   close(): void {
     if (this.db) {
       try {
-        // Checkpoint the WAL so the main DB file is consistent on disk before
-        // we release the connection. PASSIVE = non-blocking; safe on a healthy
-        // DB. If it fails (e.g., readers still hold shared locks) we still
-        // close the connection — WAL recovery handles the rest on next open.
         this.db.pragma("wal_checkpoint(PASSIVE)");
       } catch {
         // swallow: checkpoint is best-effort on close
       }
       this.db.close();
     }
+  }
+
+  /**
+   * SQLite-backed FTS5 search over memories for a single agent.
+   * Safe: uses prepared statements and binds parameters.
+   */
+  searchMemoriesFTS(params: {
+    agentId: string;
+    query: string;
+    limit: number;
+  }): Array<{
+    id: string;
+    content: string;
+    importance: number;
+    score: number;
+    createdAt: Date;
+    lastAccessed: Date;
+    accessCount: number;
+    tags: string[];
+    ftsScore: number;
+  }> {
+    const { agentId, query, limit } = params;
+
+    const q = (query ?? "").toString();
+    if (!q.trim()) return [];
+
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(limit || 10)));
+
+    const stmt = this.db.prepare(
+      `
+      SELECT
+        mem.id AS id,
+        mem.content AS content,
+        mem.importance AS importance,
+        mem.score AS score,
+        mem.created_at AS created_at,
+        mem.last_accessed AS last_accessed,
+        mem.access_count AS access_count,
+        mem.tags AS tags,
+        bm25(memories_fts) AS fts_score
+      FROM memories_fts
+      JOIN memories mem ON mem.rowid = memories_fts.rowid
+      WHERE mem.agent_id = ?
+        AND memories_fts MATCH ?
+      ORDER BY fts_score DESC
+      LIMIT ?
+    `
+    );
+
+    const rows = stmt.all(agentId, q, safeLimit);
+
+    return rows.map((r: any) => {
+      let parsedTags: string[] = [];
+      if (typeof r.tags === "string") {
+        try {
+          const maybe = JSON.parse(r.tags || "[]");
+          parsedTags = Array.isArray(maybe) ? maybe : [];
+        } catch {
+          parsedTags = [];
+        }
+      } else if (Array.isArray(r.tags)) {
+        parsedTags = r.tags;
+      }
+
+      return {
+        id: r.id,
+        content: r.content,
+        importance: r.importance ?? 0.5,
+        score: r.score ?? 0,
+        createdAt: new Date(r.created_at),
+        lastAccessed: new Date(r.last_accessed),
+        accessCount: r.access_count ?? 0,
+        tags: parsedTags,
+        ftsScore: r.fts_score ?? 0,
+      };
+    });
   }
 }
 
@@ -354,8 +477,8 @@ export class JSONFileStorage implements StorageAdapter {
   constructor(filePath: string) {
     this.filePath = filePath;
     const path = require("path");
-    const dir = path.dirname(filePath);
     const fs = require("fs");
+    const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   }
 
@@ -376,14 +499,18 @@ export class JSONFileStorage implements StorageAdapter {
         transactions: raw.transactions ?? [],
         auditLog: (raw.auditLog ?? []).map((a: any) => ({
           ...a,
-          details: typeof a.details === "string" ? a.details : JSON.stringify(a.details ?? {}),
+          details:
+            typeof a.details === "string"
+              ? a.details
+              : JSON.stringify(a.details ?? {}),
         })),
         fraudGuard: raw.fraudGuard,
       };
     } catch (err: any) {
-      // Log corruption — never silently lose financial data
       if (typeof process !== "undefined" && process.stderr) {
-        process.stderr.write(`[MNEMOPAY WARNING] Failed to load agent state from ${this.filePath}: ${err?.message}\n`);
+        process.stderr.write(
+          `[MNEMOPAY WARNING] Failed to load agent state from ${this.filePath}: ${err?.message}\n`
+        );
       }
       return null;
     }
@@ -397,31 +524,33 @@ export class JSONFileStorage implements StorageAdapter {
         wallet: state.wallet,
         reputation: state.reputation,
         createdAt: state.createdAt,
-        memories: state.memories.map(m => ({
+        memories: state.memories.map((m) => ({
           ...m,
           tags: typeof m.tags === "string" ? JSON.parse(m.tags) : m.tags,
         })),
         transactions: state.transactions,
-        auditLog: state.auditLog.slice(-500).map(a => ({
+        auditLog: state.auditLog.slice(-500).map((a) => ({
           ...a,
-          details: typeof a.details === "string" ? JSON.parse(a.details) : a.details,
+          details:
+            typeof a.details === "string"
+              ? JSON.parse(a.details)
+              : a.details,
         })),
         fraudGuard: state.fraudGuard,
         savedAt: new Date().toISOString(),
       });
-      // Atomic write: temp file then rename
       const tmpPath = this.filePath + ".tmp";
       fs.writeFileSync(tmpPath, data, "utf-8");
       fs.renameSync(tmpPath, this.filePath);
     } catch (err: any) {
-      // Fallback: direct write
       try {
         const fs = require("fs");
         fs.writeFileSync(this.filePath, JSON.stringify(state), "utf-8");
       } catch {
-        // Log critical failure — never silently lose data in non-browser environments
         if (typeof process !== "undefined" && process.stderr) {
-          process.stderr.write(`[MNEMOPAY CRITICAL] Failed to persist agent state: ${err?.message}\n`);
+          process.stderr.write(
+            `[MNEMOPAY CRITICAL] Failed to persist agent state: ${err?.message}\n`
+          );
         }
       }
     }

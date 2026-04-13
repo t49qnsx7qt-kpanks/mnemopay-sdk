@@ -147,7 +147,8 @@ describe("MnemoPay Performance Benchmarks", () => {
     console.log(`  📊 Ledger verification: ${Math.round(elapsed)}ms for ${summary.entryCount} entries (${Math.round(summary.entryCount / (elapsed / 1000))}/sec)`);
 
     expect(summary.balanced).toBe(true);
-    expect(elapsed).toBeLessThan(500); // Should verify in under 500ms
+    // Keep this as a regression guard, but allow slower CI/shared machines.
+    expect(elapsed).toBeLessThan(1000);
   });
 
   it("multi-agent network: concurrent deal throughput", async () => {

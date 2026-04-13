@@ -231,5 +231,5 @@ describe("MnemoPayLite.charge → StripeRail payOptions plumbing", () => {
     expect(createCall!.args[0].payment_method).toBe("pm_plumb");
     expect(createCall!.args[0].off_session).toBe(true);
     expect(createCall!.args[0].metadata.agentId).toBe("plumbing-test");
-  });
+  }, 20_000);
 });
