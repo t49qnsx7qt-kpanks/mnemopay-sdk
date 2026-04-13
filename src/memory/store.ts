@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
-import { sha256 } from '@noble/hashes/sha256';
 import { sha256 } from '@noble/hashes/sha256'; // Keep sha256 for integrity check
 import {
   Memory, MemoryMetadata, MemoryQuery, MemoryRecallResult, MnemoPayConfig,
