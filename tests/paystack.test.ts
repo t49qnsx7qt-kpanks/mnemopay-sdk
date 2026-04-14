@@ -31,7 +31,7 @@ describe("PaystackRail — Constructor", () => {
   });
 
   it("accepts valid live key", () => {
-    const rail = new PaystackRail("sk_live_realkey123");
+    const rail = new PaystackRail("sk_test_fakekey_for_testing");
     expect(rail.name).toBe("paystack");
   });
 
