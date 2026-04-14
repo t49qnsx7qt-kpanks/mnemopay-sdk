@@ -873,6 +873,38 @@ export class MnemoPayLite extends EventEmitter {
     this.log(`Reinforced memory ${id} by +${boost} → ${mem.importance.toFixed(2)}`);
   }
 
+  /**
+   * RL feedback — EWMA importance update for one or more recalled memories.
+   *
+   * Call this after an agent action to signal whether the recalled memories
+   * were useful. The importance of each memory is updated via:
+   *
+   *   new_importance = α * ((reward + 1) / 2) + (1 − α) * old_importance
+   *
+   * @param ids    - Memory IDs returned by the preceding recall
+   * @param reward - Signal in [-1, 1]: +1 = very useful, 0 = neutral, -1 = useless
+   * @param alpha  - Learning rate in (0, 0.5], default 0.1
+   */
+  async rlFeedback(ids: string[], reward: number, alpha = 0.1): Promise<void> {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    const clampedReward = Math.max(-1, Math.min(1, reward));
+    const normalizedReward = (clampedReward + 1) / 2;
+    const clampedAlpha = Math.max(0.01, Math.min(0.5, alpha));
+
+    for (const id of ids) {
+      const mem = this.memories.get(id);
+      if (!mem) continue;
+      const prev = mem.importance;
+      mem.importance = Math.max(0, Math.min(1,
+        clampedAlpha * normalizedReward + (1 - clampedAlpha) * mem.importance
+      ));
+      mem.lastAccessed = new Date();
+      this.log(`rlFeedback ${id}: reward=${reward.toFixed(2)}, importance ${prev.toFixed(3)} → ${mem.importance.toFixed(3)}`);
+    }
+    this.audit("memory:rl_feedback", { ids, reward, alpha: clampedAlpha, count: ids.length });
+    this._saveToDisk();
+  }
+
   async consolidate(): Promise<number> {
     const threshold = 0.01;
     let pruned = 0;

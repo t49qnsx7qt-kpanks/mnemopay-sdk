@@ -236,38 +236,69 @@ function tokenize(text: string): string[] {
     .filter((w) => w.length > 1 && !STOP_WORDS.has(w));
 }
 
+// Preference synonyms — expand at embed time so "favorite" matches "love/prefer/enjoy"
+const PREFERENCE_SYNONYMS: Record<string, string[]> = {
+  favorite: ["prefer", "love", "enjoy", "like"],
+  prefer: ["favorite", "love", "enjoy", "like"],
+  love: ["favorite", "prefer", "enjoy", "like"],
+  enjoy: ["favorite", "prefer", "love", "like"],
+  like: ["favorite", "prefer", "love", "enjoy"],
+  hate: ["dislike", "avoid", "detest"],
+  dislike: ["hate", "avoid"],
+  allergic: ["allergy", "intolerant", "avoid", "restrict"],
+  restriction: ["restrict", "allergic", "avoid", "diet"],
+};
+
+function fnv1a(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h;
+}
+
 export function localEmbed(text: string, dimensions = 384): Float32Array {
-  const tokens = tokenize(text);
+  const baseTokens = tokenize(text);
+
+  // Expand with preference synonyms
+  const expanded = new Set(baseTokens);
+  for (const tok of baseTokens) {
+    const syns = PREFERENCE_SYNONYMS[tok];
+    if (syns) for (const s of syns) expanded.add(s);
+  }
+  const tokens = Array.from(expanded);
+
   const vec = new Float32Array(dimensions);
 
-  for (const token of tokens) {
-    let hash = 2166136261;
-    for (let i = 0; i < token.length; i++) {
-      hash ^= token.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
-    }
-
-    const idx1 = Math.abs(hash) % dimensions;
-    const idx2 = Math.abs(hash * 31) % dimensions;
-    const idx3 = Math.abs(hash * 97) % dimensions;
-
-    const weight = 1 + Math.log(token.length);
-    vec[idx1] += weight;
-    vec[idx2] += weight * 0.5;
-    vec[idx3] += weight * 0.3;
-
+  const addToken = (token: string, weightScale: number) => {
+    const h = fnv1a(token);
+    const idx1 = Math.abs(h) % dimensions;
+    const idx2 = Math.abs(h * 31) % dimensions;
+    const idx3 = Math.abs(h * 97) % dimensions;
+    const w = weightScale * (1 + Math.log(token.length));
+    vec[idx1] += w;
+    vec[idx2] += w * 0.5;
+    vec[idx3] += w * 0.3;
     if (token.length > 4) {
       const prefix = token.slice(0, 4);
-      let ph = 2166136261;
-      for (let i = 0; i < prefix.length; i++) {
-        ph ^= prefix.charCodeAt(i);
-        ph = Math.imul(ph, 16777619);
-      }
-      const pi1 = Math.abs(ph) % dimensions;
-      const pi2 = Math.abs(ph * 31) % dimensions;
-      vec[pi1] += weight * 0.3;
-      vec[pi2] += weight * 0.15;
+      const ph = fnv1a(prefix);
+      vec[Math.abs(ph) % dimensions] += w * 0.3;
+      vec[Math.abs(ph * 31) % dimensions] += w * 0.15;
     }
+  };
+
+  // Unigrams
+  for (const token of tokens) addToken(token, 1.0);
+
+  // Bigrams (adjacent pairs from original tokens — captures phrases like "favorite food")
+  for (let i = 0; i < baseTokens.length - 1; i++) {
+    addToken(`${baseTokens[i]}_${baseTokens[i + 1]}`, 0.7);
+  }
+
+  // Trigrams for key phrases
+  for (let i = 0; i < baseTokens.length - 2; i++) {
+    addToken(`${baseTokens[i]}_${baseTokens[i + 1]}_${baseTokens[i + 2]}`, 0.4);
   }
 
   return l2Normalize(vec);
@@ -470,6 +501,14 @@ export class RecallEngine {
     const q = (query ?? "").toString();
     const queryVec = await this.embedQuery(q);
 
+    // Preference queries ("favorite", "prefer", "like", etc.) need stronger FTS weight
+    // since lexical matching is more reliable than hash embeddings for paraphrase matching
+    const PREFERENCE_QUERY_TERMS = /\b(favorite|prefer|like|enjoy|love|hate|dislike|allergic|restriction|diet)\b/i;
+    const isPreferenceQuery = PREFERENCE_QUERY_TERMS.test(q);
+    const effectiveFtsWeight = isPreferenceQuery
+      ? Math.max(this.config.ftsWeight ?? 0.15, 0.35)
+      : (this.config.ftsWeight ?? 0.15);
+
     let candidateMems = memories;
     let ftsScoreById = new Map<string, number>();
 
@@ -547,12 +586,14 @@ export class RecallEngine {
         this.config.scoreWeight * normalizedScore +
         this.config.vectorWeight * vectorScore;
 
+      // BM25 scores from SQLite FTS5 are negative; more negative = better match.
+      // Convert to [0,1] where 1 = best match using: |score| / (1 + |score|)
       const ftsScore = ftsScoreById.get(m.id) ?? 0;
-      const ftsSim = 1 / (1 + Math.abs(ftsScore));
+      const ftsSim = Math.abs(ftsScore) / (1 + Math.abs(ftsScore));
 
       const combinedScore =
-        base * (1 - (this.config.ftsWeight ?? 0.15)) +
-        (this.config.ftsWeight ?? 0.15) * ftsSim;
+        base * (1 - effectiveFtsWeight) +
+        effectiveFtsWeight * ftsSim;
 
       return { ...m, vectorScore, combinedScore };
     });

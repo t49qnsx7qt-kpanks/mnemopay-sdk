@@ -222,9 +222,17 @@ Not a traditional RAG lookup. MnemoPay memories compound — every transaction s
 
 - **Ebbinghaus forgetting curve** — memories decay naturally over time
 - **Hebbian reinforcement** — successful transactions strengthen associated memories
+- **RL feedback loop** — `rlFeedback(ids, reward)` applies EWMA importance updates after agent actions
 - **Consolidation** — auto-prunes weak memories, keeps what matters
 - **Semantic recall** — find memories by relevance, not just recency
 - **100KB per memory** — store rich context, not just strings
+
+```ts
+// After a recall + action, signal usefulness with rlFeedback
+const memories = await agent.recall("user preferences", 5);
+// ... agent acts on recalled memories ...
+await agent.rlFeedback(memories.map(m => m.id), +1.0);   // +1 = useful, -1 = not useful
+```
 
 ## Reputation Streaks & Badges
 

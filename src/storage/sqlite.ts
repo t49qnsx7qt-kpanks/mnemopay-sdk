@@ -434,7 +434,7 @@ export class SQLiteStorage implements StorageAdapter {
       JOIN memories mem ON mem.rowid = memories_fts.rowid
       WHERE mem.agent_id = ?
         AND memories_fts MATCH ?
-      ORDER BY fts_score DESC
+      ORDER BY fts_score ASC
       LIMIT ?
     `
     );
