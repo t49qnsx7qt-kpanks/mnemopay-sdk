@@ -19,7 +19,7 @@
 
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { MnemoPay } from "@mnemopay/sdk";
+import { MnemoPay, ReasoningPostProcessor } from "@mnemopay/sdk";
 import Anthropic from "@anthropic-ai/sdk";
 import type { LongMemEvalInstance, Hypothesis, Turn } from "./types.js";
 
@@ -41,6 +41,8 @@ function parseArgs() {
     model: get("--model", "claude-sonnet-4-20250514"),
     concurrency: parseInt(get("--concurrency", "1"), 10),
     recallStrategy: get("--recall-strategy", "score") as "score" | "vector" | "hybrid",
+    reasoning: args.includes("--reasoning"),
+    reasoningModel: get("--reasoning-model", ""),
   };
 }
 
@@ -79,7 +81,7 @@ async function ingestAndRecall(
   query: string,
   recallLimit: number,
   recallStrategy: "score" | "vector" | "hybrid"
-): Promise<string[]> {
+): Promise<Array<{ id: string; content: string; importance: number; score: number; createdAt: Date; lastAccessed: Date; accessCount: number; tags: string[] }>> {
   const agentId = `lme-${instance.question_id}`;
   const agent = MnemoPay.quick(agentId, { recall: recallStrategy });
 
@@ -100,7 +102,7 @@ async function ingestAndRecall(
 
   // Recall relevant memories
   const memories = await agent.recall(query, recallLimit);
-  return memories.map((m) => m.content);
+  return memories;
 }
 
 // ─── Answer Generation ───────────────────────────────────────────────────────
@@ -192,6 +194,10 @@ async function main() {
   console.log(`Recall limit:    ${opts.recallLimit}`);
   console.log(`Recall strategy: ${opts.recallStrategy}`);
   console.log(`Model:           ${opts.model}`);
+  console.log(`Reasoning:       ${opts.reasoning ? "ON" : "OFF"}`);
+  if (opts.reasoning && opts.reasoningModel) {
+    console.log(`Reasoning model: ${opts.reasoningModel}`);
+  }
   console.log(`Concurrency:     ${opts.concurrency}`);
 
   // Validate API key
@@ -252,6 +258,14 @@ async function main() {
   }
 
   const client = new Anthropic({ apiKey });
+  const reasoner = opts.reasoning
+    ? new ReasoningPostProcessor({
+        provider: "anthropic",
+        apiKey,
+        model: opts.reasoningModel || "claude-sonnet-4-20250514",
+        includeChainOfThought: true,
+      })
+    : null;
   const limiter = new RateLimiter(opts.concurrency);
 
   const t0 = Date.now();
@@ -263,15 +277,41 @@ async function main() {
     await limiter.acquire();
 
     try {
-      // Step 1: Ingest sessions and recall relevant context
-      const context = await ingestAndRecall(
+      // Step 1: Ingest sessions and recall relevant memories
+      const memories = await ingestAndRecall(
         instance,
         instance.question,
         opts.recallLimit,
         opts.recallStrategy
       );
 
-      // Step 2: Generate answer with Claude
+      // Step 2: Build context — with optional reasoning layer
+      let context: string[];
+      if (reasoner && memories.length > 0) {
+        // Convert memories to RecallResult shape for the reasoner
+        const recallResults = memories.map((m) => ({
+          id: m.id ?? `mem-${Math.random().toString(36).slice(2, 8)}`,
+          content: m.content,
+          importance: m.importance,
+          score: m.score,
+          vectorScore: undefined,
+          combinedScore: m.score,
+          createdAt: m.createdAt,
+          lastAccessed: m.lastAccessed,
+          accessCount: m.accessCount,
+          tags: m.tags,
+        }));
+
+        const { distilledContext } = await reasoner.distill(
+          instance.question,
+          recallResults
+        );
+        context = [distilledContext];
+      } else {
+        context = memories.map((m) => m.content);
+      }
+
+      // Step 3: Generate answer with Claude
       const hypothesis = await generateAnswer(
         client,
         opts.model,
