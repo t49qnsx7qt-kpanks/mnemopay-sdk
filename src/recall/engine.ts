@@ -62,6 +62,9 @@ export interface RecallEngineConfig {
   /** Candidate cap pulled from FTS5 for vector re-ranking (default: 50) */
   ftsCandidateLimit?: number;
 
+  /** Multiplier for vector candidate count (default: 3). Higher = wider net. */
+  vectorKMultiplier?: number;
+
   /**
    * Weight for FTS signal when hybrid+FTS is used (default: 0.15).
    * FTS score is converted into a [0..1]-ish similarity-ish scalar.
@@ -369,6 +372,7 @@ export class RecallEngine {
       sqliteAgentId: config.sqliteAgentId ?? "",
       ftsCandidateLimit: config.ftsCandidateLimit ?? 50,
       ftsWeight: config.ftsWeight ?? 0.15,
+      vectorKMultiplier: config.vectorKMultiplier ?? 3,
     } as Required<RecallEngineConfig>;
 
     const weightSum = this.config.scoreWeight + this.config.vectorWeight;
@@ -529,7 +533,7 @@ export class RecallEngine {
           const rows = await this.config.sqliteStorage.searchMemoriesFTS({
             agentId: this.config.sqliteAgentId,
             query: ftsQuery,
-            limit: this.config.ftsCandidateLimit ?? 50,
+            limit: (this.config.ftsCandidateLimit ?? 50) * (this.config.vectorKMultiplier ?? 3),
           });
 
           // If FTS returns nothing, don't continue with an empty candidate set.

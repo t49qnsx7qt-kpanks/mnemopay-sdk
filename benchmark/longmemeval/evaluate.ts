@@ -89,7 +89,7 @@ async function ingestAndRecall(
     const sessionId = instance.haystack_session_ids[i] ?? `session-${i}`;
     const date = instance.haystack_dates[i] ?? "unknown";
     const content = formatSession(session, sessionId, date);
-    const chunks = chunkContent(content, 8000);
+    const chunks = chunkContent(content, 2000);
 
     for (const chunk of chunks) {
       await agent.remember(chunk, {

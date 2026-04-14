@@ -81,7 +81,7 @@ async function ingestInstance(
 
     // Split very long sessions into chunks to stay under MnemoPay's 100KB limit
     // and improve recall granularity.
-    const chunks = chunkContent(content, 8000);
+    const chunks = chunkContent(content, 2000);
 
     for (let ci = 0; ci < chunks.length; ci++) {
       const chunkLabel = chunks.length > 1 ? ` (part ${ci + 1}/${chunks.length})` : "";

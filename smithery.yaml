@@ -1,36 +1,21 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
-# MnemoPay: Give any AI agent memory and a wallet.
+# MnemoPay: Production payment infrastructure for AI agents — memory, identity, and real payment rails.
 
 startCommand:
   type: stdio
   configSchema:
     # JSON Schema defining the configuration options for the MCP.
     type: object
-    required: []
+    required:
+      - agentId
     properties:
       agentId:
         type: string
         default: "mcp-agent"
-        description: Agent identifier. Each agent gets its own memory store and wallet.
-      mode:
+        description: Agent identifier. Each agent gets its own memory store, wallet, identity, and credit score.
+      persistDir:
         type: string
-        enum:
-          - quick
-          - production
-        default: "quick"
-        description: "quick = in-memory with local persistence, production = connects to Mnemosyne + AgentPay APIs."
-      mnemoUrl:
-        type: string
-        description: Mnemosyne API URL (production mode only).
-      agentpayUrl:
-        type: string
-        description: AgentPay API URL (production mode only).
-      mnemoApiKey:
-        type: string
-        description: Mnemosyne API key (production mode only).
-      agentpayApiKey:
-        type: string
-        description: AgentPay API key (production mode only).
+        description: Directory for file-based persistence (SQLite). Defaults to ~/.mnemopay if not set.
       openaiApiKey:
         type: string
         description: OpenAI API key for semantic recall via embeddings (optional, enables vector search).
@@ -41,9 +26,12 @@ startCommand:
           - vector
           - hybrid
         description: "Recall strategy: score (default), vector (semantic), or hybrid."
-      persistDir:
+      stripeSecretKey:
         type: string
-        description: Directory for file-based persistence in quick mode.
+        description: Stripe secret key for payment rails (optional, enables Stripe charges/payouts).
+      paystackSecretKey:
+        type: string
+        description: Paystack secret key for payment rails (optional, enables Paystack charges/payouts).
       debug:
         type: boolean
         default: false
@@ -56,14 +44,11 @@ startCommand:
       args: ['-y', '@mnemopay/sdk'],
       env: {
         MNEMOPAY_AGENT_ID: config.agentId || 'mcp-agent',
-        MNEMOPAY_MODE: config.mode || 'quick',
-        ...(config.mnemoUrl ? { MNEMO_URL: config.mnemoUrl } : {}),
-        ...(config.agentpayUrl ? { AGENTPAY_URL: config.agentpayUrl } : {}),
-        ...(config.mnemoApiKey ? { MNEMO_API_KEY: config.mnemoApiKey } : {}),
-        ...(config.agentpayApiKey ? { AGENTPAY_API_KEY: config.agentpayApiKey } : {}),
+        ...(config.persistDir ? { MNEMOPAY_PERSIST_DIR: config.persistDir } : {}),
         ...(config.openaiApiKey ? { OPENAI_API_KEY: config.openaiApiKey } : {}),
         ...(config.recall ? { MNEMOPAY_RECALL: config.recall } : {}),
-        ...(config.persistDir ? { MNEMOPAY_PERSIST_DIR: config.persistDir } : {}),
+        ...(config.stripeSecretKey ? { STRIPE_SECRET_KEY: config.stripeSecretKey } : {}),
+        ...(config.paystackSecretKey ? { PAYSTACK_SECRET_KEY: config.paystackSecretKey } : {}),
         ...(config.debug ? { DEBUG: 'true' } : {})
       }
     })
