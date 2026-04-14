@@ -123,7 +123,7 @@ async function main() {
       const sessionId = inst.haystack_session_ids[i] ?? `session-${i}`;
       const date = inst.haystack_dates[i] ?? "unknown";
       const content = formatSession(session, sessionId, date);
-      const chunks = chunkContent(content, 8000);
+      const chunks = chunkContent(content, 2000);
       for (const chunk of chunks) {
         await agent.remember(chunk, { tags: [`session:${sessionId}`, `date:${date}`] });
       }
