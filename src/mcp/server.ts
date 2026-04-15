@@ -2,15 +2,32 @@
 /**
  * MnemoPay Unified MCP Server
  *
- * Exposes all MnemoPay SDK methods as MCP tools. Any MCP-compatible
- * client (Claude Desktop, Cursor, Windsurf, OpenClaw, Hermes) gets
- * agent memory + wallet capabilities instantly.
+ * Exposes MnemoPay SDK methods as MCP tools. Any MCP-compatible client
+ * (Claude Desktop, Cursor, Windsurf, OpenClaw, Hermes) gets agent memory
+ * + wallet capabilities instantly.
  *
  * Usage:
- *   npx @mnemopay/mcp-server                    # stdio mode (default)
- *   npx @mnemopay/mcp-server --http --port 3200 # HTTP/SSE mode
+ *   npx @mnemopay/mcp-server                         # stdio, essentials (default)
+ *   npx @mnemopay/mcp-server --tools=all             # all 40 tools
+ *   npx @mnemopay/mcp-server --tools=memory,wallet   # memory + wallet only
+ *   npx @mnemopay/mcp-server --http --port 3200      # HTTP/SSE mode
+ *
+ * Tool groups (pass via --tools=... or MNEMOPAY_TOOLS env var):
+ *   essentials  memory + wallet + tx          (default — minimal context)
+ *   memory      remember/recall/forget/reinforce/consolidate
+ *   wallet      balance/profile/history/logs
+ *   tx          charge/settle/refund/dispute/receipt_get
+ *   commerce    shop_* + checkout executor
+ *   hitl        approval queue (shop + charge requests)
+ *   payments    payment_method_* + payout_*
+ *   webhooks    webhook_register/list
+ *   fico        agent_fico_score/behavioral/anomaly/fraud/reputation
+ *   security    memory_integrity_check/history_export
+ *   agent       essentials + commerce + hitl + payments + webhooks
+ *   all         every tool (40)
  *
  * Environment:
+ *   MNEMOPAY_TOOLS      — Comma-separated group list (alternative to --tools)
  *   MNEMOPAY_AGENT_ID   — Agent identifier (default: "mcp-agent")
  *   MNEMOPAY_MODE       — "quick" or "production" (default: "quick")
  *   MNEMO_URL           — Mnemosyne API URL (production mode)
@@ -134,15 +151,235 @@ function createAgent(): Agent {
   return agent;
 }
 
+// ─── Tool group registry ────────────────────────────────────────────────────
+// Users select tool groups via --tools=<csv> or MNEMOPAY_TOOLS env var to
+// control MCP context weight. Default = "essentials" (~1K tokens instead of ~3.8K).
+
+const TOOL_GROUPS: Record<string, string[]> = {
+  memory: ["remember", "recall", "forget", "reinforce", "consolidate"],
+  wallet: ["balance", "profile", "history", "logs"],
+  tx: ["charge", "settle", "refund", "dispute", "receipt_get"],
+  commerce: [
+    "shop_set_mandate", "shop_search", "shop_buy",
+    "shop_confirm_delivery", "shop_orders", "shop_checkout",
+  ],
+  hitl: [
+    "shop_pending_approvals", "shop_approve", "shop_reject",
+    "charge_request", "charge_approve", "charge_reject",
+  ],
+  payments: [
+    "payment_method_add", "payment_method_list", "payment_method_remove",
+    "payout_create", "payout_status",
+  ],
+  webhooks: ["webhook_register", "webhook_list"],
+  fico: [
+    "agent_fico_score", "behavioral_analysis",
+    "anomaly_check", "fraud_stats", "reputation",
+  ],
+  security: ["memory_integrity_check", "history_export"],
+};
+
+const GROUP_ALIASES: Record<string, string[]> = {
+  essentials: ["memory", "wallet", "tx"],
+  agent: ["memory", "wallet", "tx", "commerce", "hitl", "payments", "webhooks"],
+  all: Object.keys(TOOL_GROUPS),
+};
+
+function resolveToolFilter(spec: string | undefined): Set<string> {
+  const raw = (spec ?? "essentials").trim().toLowerCase();
+  if (!raw) return new Set(TOOL_GROUPS.memory.concat(TOOL_GROUPS.wallet, TOOL_GROUPS.tx));
+  const requested = raw.split(",").map(s => s.trim()).filter(Boolean);
+  const allowed = new Set<string>();
+  for (const token of requested) {
+    if (GROUP_ALIASES[token]) {
+      for (const g of GROUP_ALIASES[token]) TOOL_GROUPS[g].forEach(t => allowed.add(t));
+    } else if (TOOL_GROUPS[token]) {
+      TOOL_GROUPS[token].forEach(t => allowed.add(t));
+    } else {
+      console.error(`[mnemopay-mcp] Unknown tool group: "${token}" (ignored). Valid: ${[...Object.keys(GROUP_ALIASES), ...Object.keys(TOOL_GROUPS)].join(", ")}`);
+    }
+  }
+  if (allowed.size === 0) {
+    GROUP_ALIASES.essentials.forEach(g => TOOL_GROUPS[g].forEach(t => allowed.add(t)));
+  }
+  return allowed;
+}
+
+function getToolFilterSpec(argv: string[]): string | undefined {
+  const flagEq = argv.find(a => a.startsWith("--tools="));
+  if (flagEq) return flagEq.slice("--tools=".length);
+  const flagIdx = argv.indexOf("--tools");
+  if (flagIdx !== -1 && argv[flagIdx + 1]) return argv[flagIdx + 1];
+  return process.env.MNEMOPAY_TOOLS;
+}
+
+// ─── Guide resources ────────────────────────────────────────────────────────
+// Tutorial prose that used to live in tool descriptions. Agents read these
+// on demand via resources/read when they need the full context. This keeps
+// tools/list lean (invocation signatures only).
+
+const GUIDES: Record<string, { name: string; description: string; body: string }> = {
+  "guide/tx": {
+    name: "Guide: Transactions",
+    description: "charge / settle / refund mechanics, reputation effects, dispute window",
+    body: [
+      "# Transactions",
+      "",
+      "**charge(amount, reason)** — opens an escrow held pending settlement.",
+      "- Max charge = $500 × agent reputation. Call only AFTER delivering value.",
+      "- Returns a txId for later settle/refund/dispute.",
+      "",
+      "**settle(txId, counterpartyId?)** — finalizes the escrow:",
+      "- Moves funds to the agent wallet.",
+      "- Boosts reputation +0.01.",
+      "- Reinforces recently-accessed memories +0.05 (the learning feedback loop).",
+      "- If `requireCounterparty` is enabled for this agent, a *different* agent ID must confirm.",
+      "",
+      "**refund(txId)** — reverses a transaction:",
+      "- If already settled, withdraws funds and docks reputation -0.05.",
+      "- Recovery cost: ~5 successful settlements to earn back a refund.",
+      "",
+      "**dispute(txId, reason)** — opens a dispute inside the 24h window. Freezes the tx until resolved.",
+    ].join("\n"),
+  },
+  "guide/commerce": {
+    name: "Guide: Commerce",
+    description: "Shopping mandates, escrow-backed purchase, delivery confirmation",
+    body: [
+      "# Commerce",
+      "",
+      "The commerce flow is mandate-gated — the agent cannot buy anything without a mandate",
+      "issued by the user. The mandate protects the user's money.",
+      "",
+      "## 1. shop_set_mandate",
+      "Required first call. Defines:",
+      "- `budget` (USD, total cap)",
+      "- `maxPerItem` (defaults to budget)",
+      "- `categories` / `blockedCategories`",
+      "- `allowedMerchants` (merchant domain allow-list)",
+      "- `approvalThreshold` — purchases above this require HITL approval",
+      "- `issuedBy` — user name or ID who authorized the mandate (audit trail)",
+      "",
+      "## 2. shop_search(query, filters)",
+      "Searches within the active mandate. Considers agent memory for past preferences.",
+      "",
+      "## 3. shop_buy(productId)",
+      "Escrows funds — money is NOT released until `shop_confirm_delivery`. If the",
+      "purchase fails at the provider level, escrow is automatically refunded.",
+      "",
+      "## 4. shop_confirm_delivery(orderId)",
+      "Releases escrow to the merchant. Call only when the user confirms physical receipt.",
+      "",
+      "Use `shop_orders` to view status and remaining budget at any time.",
+    ].join("\n"),
+  },
+  "guide/hitl": {
+    name: "Guide: Human-in-the-loop",
+    description: "Approval queues for purchases and charge requests",
+    body: [
+      "# Human-in-the-loop (HITL)",
+      "",
+      "Two approval queues run in parallel:",
+      "",
+      "## Shop approvals",
+      "Triggered when a purchase exceeds `approvalThreshold` in the shopping mandate.",
+      "- `shop_pending_approvals` — list items awaiting review",
+      "- `shop_approve(orderId)` — escrow funds + execute",
+      "- `shop_reject(orderId)` — cancel, no funds move",
+      "- Items expire after 10 minutes.",
+      "",
+      "## Charge request approvals",
+      "Unlike `charge()` (which runs immediately), `charge_request()` queues the",
+      "payment for the user to review.",
+      "- `charge_request(amount, reason)` — returns a requestId",
+      "- `charge_approve(requestId)` — executes the real charge",
+      "- `charge_reject(requestId)` — drops it, no money moves",
+    ].join("\n"),
+  },
+  "guide/fico": {
+    name: "Guide: Agent FICO & behavioral finance",
+    description: "Credit score model, behavioral analysis, anomaly detection",
+    body: [
+      "# Agent FICO (300-850)",
+      "",
+      "Computed from five factors:",
+      "1. Payment history (35%) — settlement rate, on-time rate",
+      "2. Credit utilization (30%) — outstanding escrows vs budget cap",
+      "3. Account age (15%) — time since agent creation",
+      "4. Behavior diversity (10%) — variety of merchants/categories",
+      "5. Fraud record (10%) — flags, disputes lost, warnings",
+      "",
+      "Returns: `score`, `rating` (Exceptional/Very Good/Good/Fair/Poor), `feeRate`,",
+      "`trustLevel`, and `hitlRequired` (forces approval queues below threshold).",
+      "",
+      "# behavioral_analysis(amount, ...)",
+      "",
+      "Applies prospect theory (Kahneman & Tversky 1992) and mental accounting",
+      "(Thaler & Benartzi 2004). Returns:",
+      "- Prospect theory value function output",
+      "- Cooling-off recommendation (delay in hours) based on monthlyIncome ratio",
+      "- Loss framing vs an active savings goal if provided",
+      "",
+      "# anomaly_check(amount)",
+      "",
+      "EWMA streaming detector (Roberts 1959, Lucas & Saccucci 1990). Returns",
+      "`normal` / `warning` / `critical`. Call inline before executing large charges.",
+    ].join("\n"),
+  },
+  "guide/webhooks": {
+    name: "Guide: Webhooks",
+    description: "Event types and payload format for webhook_register",
+    body: [
+      "# Webhooks",
+      "",
+      "`webhook_register(url, events)` subscribes a callback URL to lifecycle events.",
+      "Events are stored in-memory and dispatched when matching events occur.",
+      "",
+      "Event types:",
+      "- `charge.success` — charge accepted into escrow",
+      "- `charge.failed`  — charge rejected (reputation cap, fraud, mandate breach)",
+      "- `settle`         — escrow released, funds moved",
+      "- `refund`         — transaction reversed",
+      "- `transfer.success` — Paystack payout completed",
+      "- `transfer.failed`  — Paystack payout failed",
+      "",
+      "Payloads are JSON with `event`, `txId`, `timestamp`, and event-specific fields.",
+    ].join("\n"),
+  },
+  "guide/checkout": {
+    name: "Guide: Browser checkout executor",
+    description: "Buyer profile env vars and merchant support for shop_checkout",
+    body: [
+      "# shop_checkout",
+      "",
+      "Browser-automates a real purchase on a merchant website: navigates to the",
+      "product URL, adds to cart, fills shipping/payment, submits.",
+      "",
+      "## Supported merchants",
+      "- **Shopify** — native detection, optimized selectors",
+      "- **Other** — falls back to a generic checkout heuristic",
+      "",
+      "## Required env (buyer profile)",
+      "Set these before calling `shop_checkout`:",
+      "- `MNEMOPAY_BUYER_EMAIL`",
+      "- `MNEMOPAY_BUYER_NAME`",
+      "- `MNEMOPAY_BUYER_ADDRESS1`, `MNEMOPAY_BUYER_CITY`, `MNEMOPAY_BUYER_STATE`, `MNEMOPAY_BUYER_ZIP`, `MNEMOPAY_BUYER_COUNTRY`",
+      "- `MNEMOPAY_BUYER_CARD_NUMBER`, `MNEMOPAY_BUYER_CARD_EXP`, `MNEMOPAY_BUYER_CARD_CVC`",
+      "",
+      "## Options",
+      "- `headless` (default true) — set false to watch the run",
+      "- `screenshotDir` — save debug screenshots at each checkout step",
+    ].join("\n"),
+  },
+};
+
 // ─── Tool definitions ───────────────────────────────────────────────────────
 
 const TOOLS = [
   {
     name: "remember",
     description:
-      "Store a memory. The agent will remember this across sessions. " +
-      "Importance is auto-scored from content if not provided. " +
-      "Use for facts, preferences, decisions, and observations.",
+      "Store a memory persisted across sessions. Importance auto-scored if omitted.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -165,8 +402,7 @@ const TOOLS = [
   {
     name: "recall",
     description:
-      "Recall the most relevant memories. Supports semantic search when a query is provided. " +
-      "Call this before making decisions or answering questions about past interactions.",
+      "Recall top memories. Semantic search if query provided, else importance-ranked.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -197,9 +433,7 @@ const TOOLS = [
   },
   {
     name: "reinforce",
-    description:
-      "Boost a memory's importance when external signals confirm it was valuable. " +
-      "Use after a memory leads to a successful outcome.",
+    description: "Boost a memory's importance after it yielded a good outcome.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -217,16 +451,13 @@ const TOOLS = [
   },
   {
     name: "consolidate",
-    description:
-      "Prune stale memories whose composite score has decayed below threshold. " +
-      "Run periodically to keep memory store clean.",
+    description: "Prune stale memories below the decay threshold.",
     inputSchema: { type: "object" as const, properties: {} },
   },
   {
     name: "charge",
     description:
-      "Create an escrow charge for work delivered. Held pending until settled. " +
-      "Maximum charge = $500 x agent reputation. Only charge AFTER delivering value.",
+      "Create an escrow charge for delivered work. Max = $500 × reputation. See mnemopay://guide/tx.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -248,9 +479,7 @@ const TOOLS = [
   {
     name: "settle",
     description:
-      "Finalize a pending escrow. Moves funds to wallet, boosts reputation +0.01, " +
-      "and reinforces recently-accessed memories by +0.05 (the feedback loop). " +
-      "If requireCounterparty is enabled, a different agent ID must confirm.",
+      "Finalize a pending escrow. Releases funds, +0.01 reputation. See mnemopay://guide/tx.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -262,9 +491,7 @@ const TOOLS = [
   },
   {
     name: "refund",
-    description:
-      "Refund a transaction. If already settled, withdraws funds and docks " +
-      "reputation by -0.05. Takes 5 successful settlements to recover.",
+    description: "Refund a transaction. Docks reputation -0.05 if already settled.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -280,12 +507,12 @@ const TOOLS = [
   },
   {
     name: "profile",
-    description: "Full agent stats: reputation, wallet, memory count, transaction count.",
+    description: "Agent stats: reputation, wallet, memory count, tx count.",
     inputSchema: { type: "object" as const, properties: {} },
   },
   {
     name: "logs",
-    description: "Immutable audit trail of all memory and payment actions.",
+    description: "Audit trail of memory and payment actions.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -305,16 +532,12 @@ const TOOLS = [
   },
   {
     name: "reputation",
-    description:
-      "Full reputation report: score, tier, settlement rate, total value settled, " +
-      "memory stats. Use to prove agent trustworthiness to other agents or users.",
+    description: "Reputation report: score, tier, settlement rate, memory stats.",
     inputSchema: { type: "object" as const, properties: {} },
   },
   {
     name: "dispute",
-    description:
-      "File a dispute against a settled transaction within the dispute window (24h). " +
-      "Freezes the transaction pending resolution.",
+    description: "Dispute a settled tx within 24h window. Freezes it pending resolution.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -326,18 +549,14 @@ const TOOLS = [
   },
   {
     name: "fraud_stats",
-    description:
-      "View fraud detection stats: charges tracked, flagged agents, blocked agents, " +
-      "open disputes, and total platform fees collected.",
+    description: "Fraud stats: tracked/flagged/blocked agents, open disputes, fees.",
     inputSchema: { type: "object" as const, properties: {} },
   },
   // ── Commerce tools ───────────────────────────────────────────────────
   {
     name: "shop_set_mandate",
     description:
-      "Set a shopping mandate — defines what the agent can buy. " +
-      "Specify budget, allowed categories, merchant restrictions, and per-item limits. " +
-      "MUST be called before any shopping. The mandate protects the user's money.",
+      "Set shopping mandate (budget + restrictions). Required before shop_search/buy. See mnemopay://guide/commerce.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -354,10 +573,7 @@ const TOOLS = [
   },
   {
     name: "shop_search",
-    description:
-      "Search for products within the current shopping mandate. " +
-      "Returns products filtered by budget, category, and merchant restrictions. " +
-      "Uses agent memory to consider past preferences.",
+    description: "Search products within the active mandate (budget/category/merchant filtered).",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -372,10 +588,7 @@ const TOOLS = [
   },
   {
     name: "shop_buy",
-    description:
-      "Purchase a product. Holds funds in escrow — money is NOT released " +
-      "until delivery is confirmed. If the purchase fails, escrow is automatically refunded. " +
-      "Call shop_search first to find products.",
+    description: "Purchase a product. Funds held in escrow until shop_confirm_delivery.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -387,9 +600,7 @@ const TOOLS = [
   },
   {
     name: "shop_confirm_delivery",
-    description:
-      "Confirm that a purchased item was delivered. This releases the escrow " +
-      "and pays the merchant. Only call when the user confirms they received the item.",
+    description: "Confirm delivery and release escrow to the merchant.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -400,9 +611,7 @@ const TOOLS = [
   },
   {
     name: "shop_orders",
-    description:
-      "List all shopping orders and spending summary. Shows order status, " +
-      "remaining budget, and purchase history.",
+    description: "List orders with status, remaining budget, and purchase history.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -413,15 +622,12 @@ const TOOLS = [
   // ── Approval / HITL tools ──────────────────────────────────────────────────
   {
     name: "shop_pending_approvals",
-    description:
-      "List all purchases and charge requests waiting for your approval. " +
-      "Items expire after 10 minutes if not approved.",
+    description: "List purchases/charges pending approval. Expire in 10 min.",
     inputSchema: { type: "object" as const, properties: {} },
   },
   {
     name: "shop_approve",
-    description:
-      "Approve a pending purchase. Funds will be escrowed and purchase executed.",
+    description: "Approve a pending purchase. Escrows funds and executes.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -432,8 +638,7 @@ const TOOLS = [
   },
   {
     name: "shop_reject",
-    description:
-      "Reject a pending purchase. Order will be cancelled, no money moves.",
+    description: "Reject a pending purchase. Order cancelled, no funds move.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -444,10 +649,7 @@ const TOOLS = [
   },
   {
     name: "charge_request",
-    description:
-      "Request a charge that requires user approval before executing. " +
-      "Unlike charge(), this queues the payment for review. " +
-      "Use charge_approve or charge_reject to finalize.",
+    description: "Queue a charge for user approval. Finalize via charge_approve/reject.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -459,8 +661,7 @@ const TOOLS = [
   },
   {
     name: "charge_approve",
-    description:
-      "Approve a pending charge request. Executes the real charge.",
+    description: "Approve a pending charge request and execute it.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -471,8 +672,7 @@ const TOOLS = [
   },
   {
     name: "charge_reject",
-    description:
-      "Reject a pending charge request. No money moves.",
+    description: "Reject a pending charge request.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -484,9 +684,7 @@ const TOOLS = [
   // ── Payment method management ─────────────────────────────────────────────
   {
     name: "payment_method_add",
-    description:
-      "Create a Stripe customer and SetupIntent to collect a payment method. " +
-      "Returns a client_secret for Stripe.js to confirm. Only works with Stripe rail.",
+    description: "Create Stripe customer + SetupIntent. Returns client_secret. Stripe rail only.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -498,8 +696,7 @@ const TOOLS = [
   },
   {
     name: "payment_method_list",
-    description:
-      "List saved payment methods for a Stripe customer.",
+    description: "List saved payment methods for a Stripe customer.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -510,8 +707,7 @@ const TOOLS = [
   },
   {
     name: "payment_method_remove",
-    description:
-      "Detach a payment method from a Stripe customer.",
+    description: "Detach a payment method from a Stripe customer.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -523,9 +719,7 @@ const TOOLS = [
   // ── Payouts (Paystack) ─────────────────────────────────────────────────────
   {
     name: "payout_create",
-    description:
-      "Initiate a bank transfer (payout) via Paystack. First creates a transfer recipient, " +
-      "then initiates the transfer. Only works with Paystack rail.",
+    description: "Initiate a Paystack bank payout (creates recipient + transfer). Paystack rail only.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -540,8 +734,7 @@ const TOOLS = [
   },
   {
     name: "payout_status",
-    description:
-      "Check the status of a Paystack transfer/payout by transfer code.",
+    description: "Check Paystack payout status by transfer code.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -553,9 +746,7 @@ const TOOLS = [
   // ── Webhooks ──────────────────────────────────────────────────────────────
   {
     name: "webhook_register",
-    description:
-      "Register a webhook URL to receive payment events (charge.success, transfer.success, etc.). " +
-      "Events are stored in-memory and dispatched when matching events occur.",
+    description: "Register a webhook URL for payment events. See mnemopay://guide/webhooks for event types.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -571,15 +762,13 @@ const TOOLS = [
   },
   {
     name: "webhook_list",
-    description:
-      "List all registered webhook subscriptions.",
+    description: "List registered webhook subscriptions.",
     inputSchema: { type: "object" as const, properties: {} },
   },
   // ── Receipts & Export ─────────────────────────────────────────────────────
   {
     name: "receipt_get",
-    description:
-      "Get a formatted receipt for a transaction.",
+    description: "Get a formatted receipt for a transaction.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -590,8 +779,7 @@ const TOOLS = [
   },
   {
     name: "history_export",
-    description:
-      "Export full transaction history as JSON or CSV.",
+    description: "Export full tx history as JSON or CSV.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -604,9 +792,7 @@ const TOOLS = [
   {
     name: "agent_fico_score",
     description:
-      "Compute the agent's FICO credit score (300-850). Uses payment history, " +
-      "credit utilization, account age, behavior diversity, and fraud record. " +
-      "Returns score, rating, fee rate, trust level, and HITL requirement.",
+      "Compute Agent FICO score (300-850). Returns score, tier, fee rate. See mnemopay://guide/fico.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -626,9 +812,7 @@ const TOOLS = [
   {
     name: "behavioral_analysis",
     description:
-      "Run behavioral finance analysis on a proposed spending amount. " +
-      "Returns prospect theory value, cooling-off recommendation, and loss framing. " +
-      "Based on Kahneman & Tversky (1992) and Thaler & Benartzi (2004).",
+      "Analyze a spending amount (prospect theory, cooling-off, loss framing). See mnemopay://guide/fico.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -650,9 +834,7 @@ const TOOLS = [
   {
     name: "memory_integrity_check",
     description:
-      "Check the integrity of the agent's memory store using SHA-256 Merkle trees. " +
-      "Detects tampering, injection, deletion, replay, and reordering attacks. " +
-      "Returns root hash, leaf count, and tampering status.",
+      "SHA-256 Merkle integrity check over memories. Returns root hash, leaf count, tamper status.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -667,10 +849,7 @@ const TOOLS = [
   {
     name: "shop_checkout",
     description:
-      "Complete a purchase on a merchant website using browser automation. " +
-      "Navigates to the product URL, adds to cart, fills shipping/payment, " +
-      "and completes checkout. Requires MNEMOPAY_BUYER_* env vars for buyer profile. " +
-      "Supports Shopify natively; falls back to generic checkout for other sites.",
+      "Browser-automated checkout on a merchant URL. See mnemopay://guide/checkout for env setup.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -684,10 +863,7 @@ const TOOLS = [
   // ── Anomaly Detection ──────────────────────────────────────────────────────
   {
     name: "anomaly_check",
-    description:
-      "Check if a transaction amount is anomalous using EWMA streaming detection. " +
-      "Returns whether the value is normal, a warning, or a critical anomaly. " +
-      "Based on Roberts (1959) and Lucas & Saccucci (1990).",
+    description: "EWMA streaming anomaly check on a tx amount. Returns normal/warning/critical.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1357,20 +1533,29 @@ async function getCommerceEngine(agent: Agent): Promise<any> {
 export async function startServer(): Promise<void> {
   const agent = createAgent();
 
+  const allowedTools = resolveToolFilter(getToolFilterSpec(process.argv));
+  const filteredTools = TOOLS.filter(t => allowedTools.has(t.name));
+  console.error(`[mnemopay-mcp] Tool filter: ${filteredTools.length}/${TOOLS.length} tools exposed`);
+
   const server = new Server(
-    { name: "mnemopay", version: "1.2.0" },
+    { name: "mnemopay", version: "1.3.0" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
   // ── Tools ───────────────────────────────────────────────────────────────
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: TOOLS,
+    tools: filteredTools,
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     try {
+      // Security: block tools outside the active filter
+      if (!allowedTools.has(name)) {
+        throw new Error(`Tool "${name}" is disabled — start server with --tools including this group`);
+      }
+
       // Security: MCP-level rate limiting (prevents tool call flooding)
       mcpLimiter.check();
 
@@ -1420,6 +1605,12 @@ export async function startServer(): Promise<void> {
         description: "Top 20 memories ranked by composite score",
         mimeType: "text/plain",
       },
+      ...Object.entries(GUIDES).map(([slug, g]) => ({
+        uri: `mnemopay://${slug}`,
+        name: g.name,
+        description: g.description,
+        mimeType: "text/markdown",
+      })),
     ],
   }));
 
@@ -1441,6 +1632,11 @@ export async function startServer(): Promise<void> {
             .map((m, i) => `${i + 1}. [${m.importance.toFixed(2)}] ${m.content}`)
             .join("\n");
       return { contents: [{ uri, mimeType: "text/plain", text }] };
+    }
+
+    const slug = uri.replace(/^mnemopay:\/\//, "");
+    if (GUIDES[slug]) {
+      return { contents: [{ uri, mimeType: "text/markdown", text: GUIDES[slug].body }] };
     }
 
     throw new Error(`Unknown resource: ${uri}`);
@@ -1667,6 +1863,37 @@ export async function startServer(): Promise<void> {
 
     const transports: Record<string, InstanceType<typeof SSEServerTransport>> = {};
 
+    // ── Portal API Key Verification ──────────────────────────────────────
+    const PORTAL_URL = process.env.PORTAL_URL || "https://getbizsuite.com";
+    const REQUIRE_PORTAL_AUTH = process.env.REQUIRE_PORTAL_AUTH !== "false";
+
+    async function portalKeyAuth(req: any, res: any, next: any) {
+      if (!REQUIRE_PORTAL_AUTH) return next();
+      if (req.path === "/health" || req.path.startsWith("/.well-known")) return next();
+
+      const apiKey = req.headers["x-api-key"] || req.query.key;
+      if (!apiKey) return next(); // Fall through to existing mcpAuth if no portal key
+
+      try {
+        const resp = await fetch(`${PORTAL_URL}/portal/verify-key`, {
+          headers: { "x-api-key": apiKey }
+        });
+        const data = await resp.json() as { valid: boolean; within_limits?: boolean; error?: string };
+        if (!data.valid) { res.status(403).json({ error: data.error || "Invalid API key" }); return; }
+        if (!data.within_limits) { res.status(429).json({ error: "Usage limit exceeded. Upgrade at getbizsuite.com/developers/" }); return; }
+        req._portalKey = { apiKey, valid: data.valid, within_limits: data.within_limits };
+        next();
+      } catch {
+        if (process.env.NODE_ENV === "production") {
+          res.status(503).json({ error: "Auth service unavailable" });
+          return;
+        }
+        next();
+      }
+    }
+
+    app.use(portalKeyAuth);
+
     app.get("/health", (_req, res) => {
       res.json({ status: "ok", mode: process.env.MNEMOPAY_MODE || "quick" });
     });
@@ -1677,6 +1904,17 @@ export async function startServer(): Promise<void> {
         process.env.MNEMOPAY_URL || `http://localhost:${process.env.PORT || 3200}`,
         process.env.MNEMOPAY_CONTACT,
       ));
+    });
+
+    // Smithery MCP Server Card — enables registry discovery without scanning
+    app.get("/.well-known/mcp/server-card.json", (_req, res) => {
+      res.json({
+        serverInfo: { name: "MnemoPay", version: "1.2.0" },
+        authentication: { required: false },
+        tools: TOOLS.map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
+        resources: [],
+        prompts: [],
+      });
     });
 
     // ── Authentication for SSE/HTTP endpoints ────────────────────────────
@@ -1695,7 +1933,38 @@ export async function startServer(): Promise<void> {
       next();
     }
 
+    // ── Streamable HTTP transport (modern MCP, used by Smithery) ────────
+    const { StreamableHTTPServerTransport } = await import(
+      "@modelcontextprotocol/sdk/server/streamableHttp.js"
+    );
+    const streamTransports: Record<string, InstanceType<typeof StreamableHTTPServerTransport>> = {};
+
+    app.post("/mcp", mcpAuth, async (req: any, res: any) => {
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      if (sessionId && streamTransports[sessionId]) {
+        // Existing session — forward message
+        await streamTransports[sessionId].handleRequest(req, res, req.body);
+        return;
+      }
+      // New session
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() });
+      const sid = (transport as any).sessionId || crypto.randomUUID();
+      streamTransports[sid] = transport;
+      transport.onclose = async () => {
+        delete streamTransports[sid];
+      };
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+      console.error(`[mnemopay-mcp] Streamable HTTP session: ${sid}`);
+    });
+
     app.get("/mcp", mcpAuth, async (req: any, res: any) => {
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      if (sessionId && streamTransports[sessionId]) {
+        await streamTransports[sessionId].handleRequest(req, res);
+        return;
+      }
+      // Legacy SSE fallback
       const transport = new SSEServerTransport("/messages", res);
       transports[transport.sessionId] = transport;
       transport.onclose = async () => {
@@ -1708,6 +1977,16 @@ export async function startServer(): Promise<void> {
       };
       await server.connect(transport);
       console.error(`[mnemopay-mcp] SSE session: ${transport.sessionId}`);
+    });
+
+    app.delete("/mcp", mcpAuth, async (req: any, res: any) => {
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      if (sessionId && streamTransports[sessionId]) {
+        await streamTransports[sessionId].handleRequest(req, res);
+        delete streamTransports[sessionId];
+        return;
+      }
+      res.status(404).json({ error: "Session not found" });
     });
 
     app.post("/messages", mcpAuth, async (req: any, res: any) => {
@@ -1754,9 +2033,17 @@ export async function startServer(): Promise<void> {
         res.status(404).json({ error: `Unknown tool: ${toolName}` });
         return;
       }
+      const start = Date.now();
       try {
         const result = await executeTool(agent, toolName, req.body ?? {});
-        // Try to parse as JSON for structured response
+        // Log usage to portal
+        if (req._portalKey?.apiKey) {
+          fetch(`${PORTAL_URL}/portal/log-usage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_key: req._portalKey.apiKey, product: "mnemopay", tool: toolName, response_ms: Date.now() - start }),
+          }).catch(() => {});
+        }
         try {
           res.json({ ok: true, tool: toolName, result: JSON.parse(result) });
         } catch {
@@ -1860,14 +2147,22 @@ export async function startServer(): Promise<void> {
 export default function createSandboxServer(): Server {
   const agent = MnemoPay.quick("smithery-sandbox");
 
+  // Sandbox honors MNEMOPAY_TOOLS but defaults to "all" so Smithery
+  // can scan the full surface during indexing.
+  const allowedTools = resolveToolFilter(process.env.MNEMOPAY_TOOLS ?? "all");
+  const filteredTools = TOOLS.filter(t => allowedTools.has(t.name));
+
   const server = new Server(
-    { name: "mnemopay", version: "1.2.0" },
+    { name: "mnemopay", version: "1.3.0" },
     { capabilities: { tools: {}, resources: {}, prompts: {} } }
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: filteredTools }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    if (!allowedTools.has(name)) {
+      return { content: [{ type: "text", text: `Error: Tool "${name}" is disabled` }], isError: true };
+    }
     const result = await executeTool(agent, name, args ?? {});
     return { content: [{ type: "text", text: result }] };
   });
