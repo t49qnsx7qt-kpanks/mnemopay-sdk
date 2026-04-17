@@ -370,7 +370,29 @@ npx @mnemopay/sdk init
 claude mcp add mnemopay -s user -- npx -y @mnemopay/sdk
 ```
 
-Tools: `charge`, `settle`, `refund`, `remember`, `recall`, `balance`, `history`, `profile`, `reputation`, `fraud_stats`, `dispute`, `reinforce`, `consolidate`, `forget`, `logs`.
+**Default tool group: `essentials` (14 tools, ~1K tokens).** One of the
+lightest MCP servers you can install — MnemoPay only loads memory + wallet +
+tx by default so it doesn't tax your agent's context budget.
+
+- `memory`: `remember`, `recall`, `forget`, `reinforce`, `consolidate`
+- `wallet`: `balance`, `profile`, `history`, `logs`
+- `tx`: `charge`, `settle`, `refund`, `dispute`, `receipt_get`
+
+Need more? Opt in explicitly:
+
+```bash
+npx @mnemopay/sdk --tools=all       # all 40 tools
+npx @mnemopay/sdk --tools=agent     # essentials + commerce + hitl + payments + webhooks
+npx @mnemopay/sdk --tools=fico      # Agent FICO scoring only
+```
+
+Groups: `memory`, `wallet`, `tx`, `commerce`, `hitl`, `payments`, `webhooks`,
+`fico`, `security`. Aliases: `essentials` (default), `agent`, `all`. Also
+settable via `MNEMOPAY_TOOLS` env var.
+
+> **Breaking change in v1.3.0:** default was `all`, now `essentials`. If you
+> relied on commerce/hitl/webhooks/fico/security being available without a
+> flag, pass `--tools=all` or `--tools=agent`. See [CHANGELOG](./CHANGELOG.md).
 
 ---
 
@@ -393,7 +415,7 @@ import { mnemoPayTools } from "@mnemopay/sdk/langgraph";
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│                    MnemoPay SDK v1.2.0                     │
+│                    MnemoPay SDK v1.3.0                     │
 ├──────────┬──────────┬───────────┬──────────────────────────┤
 │  Memory  │ Payments │ Identity  │  Agent Credit Score (300-850)    │
 │          │          │           │  5-component scoring     │

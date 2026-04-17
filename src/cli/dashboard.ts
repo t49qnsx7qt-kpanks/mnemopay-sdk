@@ -6,7 +6,7 @@
  * Manage agents, view transactions, update billing, and monitor fraud.
  */
 
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import os from "os";
 
 const DASHBOARD_URL = "https://getbizsuite.com/mnemopay/dashboard.html";
@@ -16,17 +16,14 @@ const ENTERPRISE_URL = "https://buy.stripe.com/9B63co8HNehxcCQ5SPbo40a";
 
 function openBrowser(url: string) {
   const platform = os.platform();
-  let cmd: string;
 
-  if (platform === "win32") cmd = `start "" "${url}"`;
-  else if (platform === "darwin") cmd = `open "${url}"`;
-  else cmd = `xdg-open "${url}"`;
+  if (platform === "win32") execFile("cmd", ["/c", "start", "", url], onErr);
+  else if (platform === "darwin") execFile("open", [url], onErr);
+  else execFile("xdg-open", [url], onErr);
 
-  exec(cmd, (err) => {
-    if (err) {
-      console.log(`\n  Open this URL in your browser:\n  ${url}\n`);
-    }
-  });
+  function onErr(err: Error | null) {
+    if (err) console.log(`\n  Open this URL in your browser:\n  ${url}\n`);
+  }
 }
 
 function main() {

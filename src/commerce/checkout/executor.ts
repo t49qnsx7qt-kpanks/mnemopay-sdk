@@ -168,7 +168,8 @@ export class CheckoutExecutor {
         },
         screenshot: async (name: string) => {
           if (this.screenshotDir) {
-            const path = `${this.screenshotDir}/${name}.png`;
+            const safeName = name.replace(/[\/\\\.]+/g, "_");
+            const path = `${this.screenshotDir}/${safeName}.png`;
             await page.screenshot({ path, fullPage: false }).catch(() => {});
             screenshots.push(path);
           }

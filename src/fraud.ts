@@ -1125,10 +1125,10 @@ export class FraudGuard {
           guard.chargeRings.set(agentId, ring);
         }
       }
-      if (data.agentStats) {
+      if (Array.isArray(data.agentStats) && data.agentStats.length <= 50000) {
         guard.agentStats = new Map(data.agentStats);
       }
-      if (data.disputes) {
+      if (Array.isArray(data.disputes) && data.disputes.length <= 50000) {
         guard.disputes = new Map(
           data.disputes.map(([k, v]: [string, any]) => [
             k,
@@ -1136,7 +1136,7 @@ export class FraudGuard {
           ]),
         );
       }
-      if (data.feeLedger) {
+      if (Array.isArray(data.feeLedger) && data.feeLedger.length <= 100000) {
         guard.feeLedger = data.feeLedger.map((f: any) => ({ ...f, createdAt: new Date(f.createdAt) }));
       }
       if (data.platformFeesCollected !== undefined) {
@@ -1185,8 +1185,8 @@ export class FraudGuard {
       if (guard.config.ml && data.behaviorProfile) {
         (guard as any).behaviorProfile = BehaviorProfile.deserialize(data.behaviorProfile);
       }
-    } catch {
-      // Return fresh guard if deserialization fails
+    } catch (e) {
+      console.error("[FraudGuard] deserialize failed:", (e as Error).message);
     }
     return guard;
   }

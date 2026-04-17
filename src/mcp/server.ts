@@ -1375,7 +1375,20 @@ async function executeTool(agent: Agent, name: string, args: Record<string, any>
 
     case "webhook_register": {
       const id = `wh_${Date.now()}_${require("crypto").randomBytes(4).toString("hex")}`;
-      _webhooks.set(id, { id, url: args.url, events: args.events, createdAt: Date.now() });
+      const webhookUrl = String(args.url || "");
+      try {
+        const parsed = new URL(webhookUrl);
+        if (parsed.protocol !== "https:") throw new Error("Webhook URL must use HTTPS");
+        const hostname = parsed.hostname;
+        if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" ||
+            hostname.startsWith("10.") || hostname.startsWith("192.168.") || hostname.startsWith("169.254.") ||
+            hostname === "::1" || hostname === "[::1]") {
+          throw new Error("Webhook URL must not point to private/local addresses");
+        }
+      } catch (e: any) {
+        return JSON.stringify({ error: e.message || "Invalid webhook URL" });
+      }
+      _webhooks.set(id, { id, url: webhookUrl, events: args.events, createdAt: Date.now() });
       return JSON.stringify({
         webhookId: id,
         url: args.url,
@@ -1865,6 +1878,17 @@ export async function startServer(): Promise<void> {
 
     // ── Portal API Key Verification ──────────────────────────────────────
     const PORTAL_URL = process.env.PORTAL_URL || "https://getbizsuite.com";
+    try {
+      const pu = new URL(PORTAL_URL);
+      if (pu.protocol !== "https:" && process.env.NODE_ENV === "production") {
+        throw new Error("PORTAL_URL must use HTTPS in production");
+      }
+    } catch (e: any) {
+      if (process.env.NODE_ENV === "production") {
+        console.error(`[mnemopay-mcp] FATAL: Invalid PORTAL_URL: ${e.message}`);
+        process.exit(1);
+      }
+    }
     const REQUIRE_PORTAL_AUTH = process.env.REQUIRE_PORTAL_AUTH !== "false";
 
     async function portalKeyAuth(req: any, res: any, next: any) {
@@ -1884,11 +1908,8 @@ export async function startServer(): Promise<void> {
         req._portalKey = { apiKey, valid: data.valid, within_limits: data.within_limits };
         next();
       } catch {
-        if (process.env.NODE_ENV === "production") {
-          res.status(503).json({ error: "Auth service unavailable" });
-          return;
-        }
-        next();
+        res.status(503).json({ error: "Auth service unavailable" });
+        return;
       }
     }
 
@@ -1926,7 +1947,7 @@ export async function startServer(): Promise<void> {
     function mcpAuth(req: any, res: any, next: any) {
       if (!MCP_AUTH_TOKEN) { next(); return; }
       const auth = req.headers.authorization;
-      if (!auth || auth !== `Bearer ${MCP_AUTH_TOKEN}`) {
+      if (!auth || !constantTimeEqual(auth, `Bearer ${MCP_AUTH_TOKEN}`)) {
         res.status(401).json({ error: "Unauthorized" });
         return;
       }

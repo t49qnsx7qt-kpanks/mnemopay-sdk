@@ -572,12 +572,6 @@ export class MnemoPayLite extends EventEmitter {
       // Restore fraud guard state
       if (raw.fraudGuard) {
         try {
-          const restored = FraudGuard.deserialize(raw.fraudGuard, this.fraud.config);
-          // Copy restored state into existing guard (preserve config from constructor)
-          Object.assign(this.fraud, {
-            // Only copy internal state, not config
-          });
-          // Re-create fraud guard with restored data
           const restoredGuard = FraudGuard.deserialize(raw.fraudGuard, this.fraud.config);
           (this as any).fraud = restoredGuard;
         } catch (e) {

@@ -203,9 +203,13 @@ export class IsolationForest {
     const forest = new IsolationForest(opts);
     try {
       const data = JSON.parse(json);
-      if (data.trees) forest.trees = data.trees;
-      if (data.buffer) forest.buffer = data.buffer;
-    } catch {}
+      if (Array.isArray(data.trees) && data.trees.length <= 500) forest.trees = data.trees;
+      if (Array.isArray(data.buffer) && data.buffer.length <= 50000) {
+        forest.buffer = data.buffer.filter((n: unknown) => typeof n === "number" && Number.isFinite(n));
+      }
+    } catch (e) {
+      console.error("[IsolationForest] deserialize failed:", (e as Error).message);
+    }
     return forest;
   }
 }
@@ -446,14 +450,22 @@ export class TransactionGraph {
     const graph = new TransactionGraph();
     try {
       const data = JSON.parse(json);
-      if (data.edges) graph.edges = new Map(data.edges);
-      if (data.agentMeta) {
+      if (Array.isArray(data.edges) && data.edges.length <= 100000) {
+        const validated = data.edges.filter(([k, v]: [unknown, unknown]) =>
+          typeof k === "string" && Array.isArray(v) &&
+          (v as unknown[]).every((e: any) => typeof e.from === "string" && typeof e.to === "string" && typeof e.amount === "number")
+        );
+        graph.edges = new Map(validated);
+      }
+      if (Array.isArray(data.agentMeta) && data.agentMeta.length <= 50000) {
         graph.agentMeta = new Map(
-          data.agentMeta.map(([k, v]: [string, any]) => [k, { ips: new Set(v.ips), createdAt: v.createdAt }]),
+          data.agentMeta.map(([k, v]: [string, any]) => [k, { ips: new Set(Array.isArray(v.ips) ? v.ips.slice(0, 1000) : []), createdAt: v.createdAt }]),
         );
       }
-      if (data.edgeCount) graph.edgeCount = data.edgeCount;
-    } catch {}
+      if (typeof data.edgeCount === "number" && Number.isFinite(data.edgeCount)) graph.edgeCount = data.edgeCount;
+    } catch (e) {
+      console.error("[TransactionGraph] deserialize failed:", (e as Error).message);
+    }
     return graph;
   }
 }
@@ -674,9 +686,16 @@ export class BehaviorProfile {
     const profile = new BehaviorProfile(opts);
     try {
       const data = JSON.parse(json);
-      if (data.agentEvents) profile.agentEvents = new Map(data.agentEvents);
-      if (data.baselines) profile.baselines = new Map(data.baselines);
-    } catch {}
+      if (Array.isArray(data.agentEvents) && data.agentEvents.length <= 10000) {
+        const validated = data.agentEvents.filter(([k, v]: [unknown, unknown]) => typeof k === "string" && Array.isArray(v));
+        profile.agentEvents = new Map(validated.map(([k, v]: [string, any[]]) => [k, v.slice(0, 5000)]));
+      }
+      if (Array.isArray(data.baselines) && data.baselines.length <= 10000) {
+        profile.baselines = new Map(data.baselines.filter(([k]: [unknown]) => typeof k === "string"));
+      }
+    } catch (e) {
+      console.error("[BehaviorProfile] deserialize failed:", (e as Error).message);
+    }
     return profile;
   }
 }
