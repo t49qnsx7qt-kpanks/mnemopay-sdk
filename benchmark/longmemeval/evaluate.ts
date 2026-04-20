@@ -19,7 +19,7 @@
 
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { MnemoPay, ReasoningPostProcessor } from "@mnemopay/sdk";
+import { MnemoPay, ReasoningPostProcessor, HyDEGenerator, CrossEncoderReranker } from "@mnemopay/sdk";
 import Anthropic from "@anthropic-ai/sdk";
 import type { LongMemEvalInstance, Hypothesis, Turn } from "./types.js";
 
@@ -43,6 +43,14 @@ function parseArgs() {
     recallStrategy: get("--recall-strategy", "score") as "score" | "vector" | "hybrid",
     reasoning: args.includes("--reasoning"),
     reasoningModel: get("--reasoning-model", ""),
+    embeddings: get("--embeddings", "bge") as "local" | "bge" | "openai",
+    hyde: args.includes("--hyde"),
+    hydeProvider: get("--hyde-provider", "anthropic") as "anthropic" | "openai" | "groq",
+    hydeModel: get("--hyde-model", ""),
+    hydeN: parseInt(get("--hyde-n", "3"), 10),
+    rerank: args.includes("--rerank"),
+    rerankModel: get("--rerank-model", "Xenova/bge-reranker-base"),
+    rerankPool: parseInt(get("--rerank-pool", "50"), 10),
   };
 }
 
@@ -76,33 +84,70 @@ function chunkContent(content: string, maxChars: number): string[] {
 
 // ─── Ingest Instance (inline, since MnemoPayLite is in-memory) ──────────────
 
+type RecalledMemory = {
+  id: string;
+  content: string;
+  importance: number;
+  score: number;
+  createdAt: Date;
+  lastAccessed: Date;
+  accessCount: number;
+  tags: string[];
+};
+
 async function ingestAndRecall(
   instance: LongMemEvalInstance,
   query: string,
   recallLimit: number,
-  recallStrategy: "score" | "vector" | "hybrid"
-): Promise<Array<{ id: string; content: string; importance: number; score: number; createdAt: Date; lastAccessed: Date; accessCount: number; tags: string[] }>> {
+  recallStrategy: "score" | "vector" | "hybrid",
+  embeddings: "local" | "bge" | "openai",
+  hydeQueries: string[] | null,
+  reranker: CrossEncoderReranker | null,
+  rerankPool: number,
+): Promise<RecalledMemory[]> {
   const agentId = `lme-${instance.question_id}`;
-  const agent = MnemoPay.quick(agentId, { recall: recallStrategy });
+  const agent = MnemoPay.quick(agentId, { recall: recallStrategy, embeddings });
 
-  // Ingest all sessions
   for (let i = 0; i < instance.haystack_sessions.length; i++) {
     const session = instance.haystack_sessions[i];
     const sessionId = instance.haystack_session_ids[i] ?? `session-${i}`;
     const date = instance.haystack_dates[i] ?? "unknown";
     const content = formatSession(session, sessionId, date);
     const chunks = chunkContent(content, 2000);
-
     for (const chunk of chunks) {
-      await agent.remember(chunk, {
-        tags: [`session:${sessionId}`, `date:${date}`],
-      });
+      await agent.remember(chunk, { tags: [`session:${sessionId}`, `date:${date}`] });
     }
   }
 
-  // Recall relevant memories
-  const memories = await agent.recall(query, recallLimit);
-  return memories;
+  // Run the original query plus any HyDE-expanded queries, union-dedupe by id,
+  // preserving the best score seen across all retrievals.
+  const queries = hydeQueries && hydeQueries.length > 0 ? [query, ...hydeQueries] : [query];
+  const perQueryLimit = reranker ? Math.max(recallLimit, rerankPool) : recallLimit;
+
+  const seen = new Map<string, RecalledMemory>();
+  for (const q of queries) {
+    const hits = (await agent.recall(q, perQueryLimit)) as RecalledMemory[];
+    for (const h of hits) {
+      const prev = seen.get(h.id);
+      if (!prev || h.score > prev.score) seen.set(h.id, h);
+    }
+  }
+  let merged = Array.from(seen.values()).sort((a, b) => b.score - a.score);
+
+  if (reranker && merged.length > 1) {
+    const pool = merged.slice(0, Math.max(rerankPool, recallLimit));
+    const reranked = await reranker.rerank(
+      query,
+      pool.map((m) => ({ id: m.id, content: m.content, priorScore: m.score })),
+      recallLimit,
+    );
+    const byId = new Map(pool.map((m) => [m.id, m]));
+    merged = reranked.map((r) => byId.get(r.item.id)!).filter(Boolean);
+  } else {
+    merged = merged.slice(0, recallLimit);
+  }
+
+  return merged;
 }
 
 // ─── Answer Generation ───────────────────────────────────────────────────────
@@ -193,6 +238,9 @@ async function main() {
   console.log(`Output file:     ${opts.outputFile}`);
   console.log(`Recall limit:    ${opts.recallLimit}`);
   console.log(`Recall strategy: ${opts.recallStrategy}`);
+  console.log(`Embeddings:      ${opts.embeddings}`);
+  console.log(`HyDE:            ${opts.hyde ? `ON (${opts.hydeProvider}, n=${opts.hydeN})` : "OFF"}`);
+  console.log(`Rerank:          ${opts.rerank ? `ON (${opts.rerankModel}, pool=${opts.rerankPool})` : "OFF"}`);
   console.log(`Model:           ${opts.model}`);
   console.log(`Reasoning:       ${opts.reasoning ? "ON" : "OFF"}`);
   if (opts.reasoning && opts.reasoningModel) {
@@ -266,23 +314,85 @@ async function main() {
         includeChainOfThought: true,
       })
     : null;
+
+  // HyDE generator — defaults to Anthropic Haiku, overridable to Groq (free) or OpenAI
+  let hydeGen: HyDEGenerator | null = null;
+  if (opts.hyde) {
+    const hydeKey =
+      opts.hydeProvider === "groq"
+        ? process.env.GROQ_API_KEY ?? ""
+        : opts.hydeProvider === "openai"
+          ? process.env.OPENAI_API_KEY ?? ""
+          : apiKey;
+    if (!hydeKey) {
+      console.error(`\nERROR: --hyde enabled but no API key found for provider ${opts.hydeProvider}`);
+      process.exit(1);
+    }
+    hydeGen = new HyDEGenerator({
+      provider: opts.hydeProvider,
+      apiKey: hydeKey,
+      model: opts.hydeModel || undefined,
+      numHypotheses: opts.hydeN,
+    });
+  }
+
+  const reranker = opts.rerank
+    ? new CrossEncoderReranker({ model: opts.rerankModel })
+    : null;
+
   const limiter = new RateLimiter(opts.concurrency);
 
   const t0 = Date.now();
   let completed = 0;
   let errors = 0;
 
-  // Process all questions
+  // Retry helper with exponential backoff for rate limits
+  async function withRetry<T>(fn: () => Promise<T>, label: string, maxRetries = 5): Promise<T> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        const is429 = err.message?.includes("429") || err.status === 429;
+        if (is429 && attempt < maxRetries) {
+          const delay = Math.min(30000, 5000 * Math.pow(2, attempt)); // 5s, 10s, 20s, 30s, 30s
+          console.error(`\n[${label}] Rate limited, retry ${attempt + 1}/${maxRetries} in ${delay / 1000}s...`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error("unreachable");
+  }
+
+  // Inter-question delay to respect rate limits (15s when reasoning, 5s otherwise)
+  const interQuestionDelay = opts.reasoning ? 15000 : 5000;
+
+  // Process all questions sequentially to respect rate limits
   const promises = instances.map(async (instance, idx) => {
     await limiter.acquire();
 
     try {
-      // Step 1: Ingest sessions and recall relevant memories
+      // Step 0: Optional HyDE expansion — generate hypothetical answers to use as extra queries
+      let hydeQueries: string[] | null = null;
+      if (hydeGen) {
+        const { hypotheses } = await withRetry(
+          () => hydeGen!.generate(instance.question),
+          instance.question_id + "/hyde",
+        );
+        hydeQueries = hypotheses;
+      }
+
+      // Step 1: Ingest sessions and recall relevant memories (with optional HyDE + rerank)
       const memories = await ingestAndRecall(
         instance,
         instance.question,
         opts.recallLimit,
-        opts.recallStrategy
+        opts.recallStrategy,
+        opts.embeddings,
+        hydeQueries,
+        reranker,
+        opts.rerankPool,
       );
 
       // Step 2: Build context — with optional reasoning layer
@@ -302,25 +412,22 @@ async function main() {
           tags: m.tags,
         }));
 
-        const { distilledContext } = await reasoner.distill(
-          instance.question,
-          recallResults
+        const { distilledContext } = await withRetry(
+          () => reasoner.distill(instance.question, recallResults).then((r) => r.distilledContext),
+          instance.question_id + "/reason"
         );
         context = [distilledContext];
       } else {
         context = memories.map((m) => m.content);
       }
 
-      // Step 3: Generate answer with Claude
-      const hypothesis = await generateAnswer(
-        client,
-        opts.model,
-        instance.question,
-        instance.question_date,
-        context
+      // Step 3: Generate answer with Claude (with retry)
+      const hypothesis = await withRetry(
+        () => generateAnswer(client, opts.model, instance.question, instance.question_date, context),
+        instance.question_id + "/answer"
       );
 
-      // Step 3: Write result
+      // Step 4: Write result
       const result: Hypothesis = {
         question_id: instance.question_id,
         hypothesis,
@@ -333,6 +440,11 @@ async function main() {
       process.stdout.write(
         `\r[${pct}%] ${completed}/${instances.length} done, ${errors} errors — ${elapsed}s elapsed`
       );
+
+      // Delay between questions to stay under rate limits
+      if (idx < instances.length - 1) {
+        await new Promise((r) => setTimeout(r, interQuestionDelay));
+      }
     } catch (err: any) {
       errors++;
       console.error(`\nError on ${instance.question_id}: ${err.message}`);

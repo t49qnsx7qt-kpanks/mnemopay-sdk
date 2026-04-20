@@ -2038,4 +2038,8 @@ export { EWMADetector, BehaviorMonitor, CanarySystem, DEFAULT_ANOMALY_CONFIG } f
 export type { EWMAState, EWMAAlert, BehaviorFingerprint, HijackDetection, CanaryTransaction, CanaryAlert, AnomalyConfig } from "./anomaly.js";
 export { ReasoningPostProcessor } from "./reasoning/post-processor.js";
 export type { ReasoningConfig, ReasoningResult } from "./reasoning/post-processor.js";
+export { HyDEGenerator } from "./recall/hyde.js";
+export type { HyDEConfig, HyDEResult } from "./recall/hyde.js";
+export { CrossEncoderReranker, rerankerStats } from "./recall/rerank.js";
+export type { RerankCandidate, RerankedResult, RerankerConfig } from "./recall/rerank.js";
 export { default as createSandboxServer } from "./mcp/server.js";
