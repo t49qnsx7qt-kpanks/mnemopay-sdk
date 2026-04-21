@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>v1.4.0: 77.2% on LongMemEval, 1M-op stress test, and the memory architecture — MnemoPay Journal</title>
+  <meta name="description" content="MnemoPay v1.4.0 ships with a 77.2% LongMemEval oracle score, 1M-op production stress test, EWMA anomaly detection, Merkle memory integrity, and a portable agent credit score (300-850).">
+  <meta property="og:title" content="v1.4.0: 77.2% on LongMemEval — MnemoPay Journal">
+  <meta property="og:description" content="What it took to hit 77.2% on LongMemEval oracle — and what still needs work. Plus: 1M-op stress test, Merkle integrity, EWMA anomaly detection, payment rails.">
+  <meta property="og:url" content="https://mnemopay.com/journal/v1-4-0-longmemeval-77-2.html">
+  <meta property="og:type" content="article">
+  <meta property="og:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="v1.4.0: 77.2% on LongMemEval — MnemoPay Journal">
+  <meta name="twitter:description" content="Ran LongMemEval oracle on v1.4.0. 500 questions, GPT-4o judge. 77.2% overall, 66.9% on multi-session. Here's what the architecture looks like and where we're still weak.">
+  <meta name="twitter:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
+  <link rel="canonical" href="https://mnemopay.com/journal/v1-4-0-longmemeval-77-2.html">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#07070d;--surface:#0e0e18;--border:#1c1c30;--text:#e8e8f0;--muted:#7a7a95;--accent:#6c5ce7;--accent2:#00cec9;--green:#00b894;--orange:#fdcb6e;--red:#e17055;--gradient:linear-gradient(135deg,#6c5ce7,#00cec9); }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.75}
+    a{color:var(--accent2);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .container{max-width:760px;margin:0 auto;padding:0 24px}
+    nav{border-bottom:1px solid var(--border);padding:14px 0;position:sticky;top:0;background:rgba(7,7,13,0.95);backdrop-filter:blur(12px);z-index:100}
+    nav .container{display:flex;justify-content:space-between;align-items:center}
+    nav .logo{font-size:1.2rem;font-weight:800} nav .logo span{background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    nav .links{display:flex;gap:20px;align-items:center}
+    nav .links a{color:var(--muted);font-size:0.88rem;font-weight:500}
+    nav .links a:hover{color:var(--text);text-decoration:none}
+    .btn{display:inline-block;padding:10px 22px;border-radius:8px;font-weight:600;font-size:.88rem;background:var(--gradient);color:#fff}
+    article{padding:60px 0 80px}
+    .journal-meta{display:flex;gap:16px;align-items:center;margin-bottom:32px;flex-wrap:wrap}
+    .tag{display:inline-block;padding:4px 12px;border-radius:20px;font-size:.75rem;font-weight:600;letter-spacing:.3px;background:rgba(108,92,231,.15);color:var(--accent-light,#8b7cf7);border:1px solid rgba(108,92,231,.3)}
+    .date{color:var(--muted);font-size:.82rem}
+    h1{font-size:2rem;font-weight:800;line-height:1.22;margin-bottom:16px;letter-spacing:-.5px}
+    .lede{font-size:1.1rem;color:var(--muted);margin-bottom:44px;line-height:1.65}
+    h2{font-size:1.25rem;font-weight:700;margin:44px 0 14px;color:var(--text)}
+    p{margin-bottom:18px;color:var(--text);font-size:.97rem}
+    ul{margin:0 0 18px 22px} li{margin-bottom:6px;font-size:.97rem;color:var(--text)}
+    code{background:#141422;padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:.83rem;color:var(--accent2)}
+    pre{background:#0f0f1e;border:1px solid var(--border);border-radius:10px;padding:20px 22px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.83rem;line-height:1.7;margin:4px 0 22px;color:#c3c3d8}
+    .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;margin:28px 0}
+    .stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 16px;text-align:center}
+    .stat .n{font-size:1.8rem;font-weight:800;background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.1}
+    .stat .l{font-size:.78rem;color:var(--muted);margin-top:6px}
+    .aside{background:var(--surface);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:18px 20px;margin:24px 0;font-size:.92rem;color:var(--muted)}
+    .cta-block{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:32px;margin:48px 0;text-align:center}
+    .cta-block p{color:var(--muted);margin-bottom:20px}
+    footer{border-top:1px solid var(--border);padding:24px 0;text-align:center;color:var(--muted);font-size:.8rem}
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <div class="logo">Mnemo<span>Pay</span></div>
+      <div class="links">
+        <a href="../index.html">Docs</a>
+        <a href="index.html">Journal</a>
+        <a href="../index.html#pricing" class="btn">Get Started Free</a>
+      </div>
+    </div>
+  </nav>
+
+  <article>
+    <div class="container">
+
+      <div class="journal-meta">
+        <span class="tag">Release</span>
+        <span class="tag">Benchmarks</span>
+        <span class="date">April 21, 2026</span>
+      </div>
+
+      <h1>v1.4.0: 77.2% on LongMemEval, 1M-op stress test, and the memory architecture</h1>
+
+      <p class="lede">We ran LongMemEval oracle on v1.4.0. 500 questions, Sonnet-4 model, GPT-4o judge. Overall score: 77.2%. Weakest bucket: multi-session at 66.9%. Here's what that means and what the architecture that gets you there actually looks like.</p>
+
+      <div class="stat-row">
+        <div class="stat"><div class="n">77.2%</div><div class="l">LongMemEval oracle</div></div>
+        <div class="stat"><div class="n">66.9%</div><div class="l">multi-session (weakest)</div></div>
+        <div class="stat"><div class="n">1M ops</div><div class="l">stress test passed</div></div>
+        <div class="stat"><div class="n">800+</div><div class="l">tests passing</div></div>
+        <div class="stat"><div class="n">3,549</div><div class="l">npm downloads (first month)</div></div>
+      </div>
+
+      <h2>The benchmark</h2>
+
+      <p>LongMemEval is a benchmark designed for exactly the scenario most memory benchmarks skip: long, multi-session histories with conflicting facts and temporal gaps. The oracle variant tests whether a model retrieves the right answer against a ground-truth answer set, scored by a judge model. We used Sonnet-4 for retrieval and GPT-4o as the judge, across 500 questions spanning single-session, multi-session, and cross-context categories.</p>
+
+      <p>The 77.2% overall score is honest — it's not cherry-picked from our best category. The multi-session bucket at 66.9% is where we're genuinely weakest, and that's the one that matters most for agents running across days or weeks. Threading context across gaps where the agent wasn't active is a harder problem than we've fully solved. I want to say that plainly rather than bury it in the marketing copy.</p>
+
+      <div class="aside">The weakest bucket isn't a footnote. Multi-session retrieval is the category that matters most for production agents. 66.9% means roughly 1 in 3 multi-session queries retrieves the wrong fact. We know why, and it's on the roadmap.</div>
+
+      <h2>Memory that decays and strengthens</h2>
+
+      <p>The core memory system in MnemoPay is built on two principles from neuroscience research: Ebbinghaus forgetting curves and Hebbian reinforcement. Memories decay in salience over time unless they're retrieved — that's the forgetting curve. Memories that keep being retrieved get reinforced — that's the Hebbian part.</p>
+
+      <p>In practice this means that when an agent recalls memories, it sees a ranked list where recency and retrieval frequency both factor into the score. A memory written six months ago that's been retrieved 40 times ranks higher than a memory written yesterday that's never been touched. A memory written yesterday about something that overrides the old fact ranks higher still, because the decay on the old fact has kicked in.</p>
+
+      <p>This is what lets us handle the scenario where "user prefers morning meetings" from three months ago competes with "user now works nights" from last week. The old memory has decayed. The new one surfaces first. The LLM doesn't have to figure out which one to trust from a flat blob — the SDK has already resolved the ranking.</p>
+
+      <h2>EWMA anomaly detection and canary honeypots</h2>
+
+      <p>One of the additions in v1.4.0 that I'm most confident about is the behavioral anomaly detection layer. Every agent builds a rolling behavioral baseline using EWMA — exponentially weighted moving average. When the observed behavior on a given payment event deviates past a threshold from that baseline, the SDK flags it. This runs on every payment event, not on a cron.</p>
+
+      <pre>// simplified EWMA anomaly check — runs on every payment event
+const alpha = 0.15;
+ewma = alpha * observed + (1 - alpha) * ewma;
+const deviation = Math.abs(observed - ewma) / ewma;
+if (deviation > ANOMALY_THRESHOLD) {
+  await flagAnomaly(agentId, { observed, ewma, deviation });
+}</pre>
+
+      <p>Canary honeypots supplement the EWMA layer. These are deliberate tripwires planted in the memory store — entries that should never appear in retrieval results under normal operation. If they get retrieved, it means something is wrong with the retrieval path, either a bug in memory scoring or something more adversarial. Catching that in the SDK before it reaches the payment decision is the whole point.</p>
+
+      <h2>Merkle integrity on memory</h2>
+
+      <p>Every memory write in v1.4.0 is hashed into a Merkle chain. That means forget operations are auditable — the hash of what was forgotten is retained in the chain. You can verify at any point that a memory state hasn't been tampered with. For agents handling budgets or making financial decisions, this matters for the same reason financial systems keep audit logs: you need to be able to reconstruct what the agent knew when it made a decision.</p>
+
+      <p>The chain verification is fast enough to run inline. It's not a background job you trigger periodically — every write is integrity-checked at write time.</p>
+
+      <h2>Payment rails and the portable credit score</h2>
+
+      <p>The other half of MnemoPay is payments. Stripe, Paystack, and Lightning are all live — real rails, not sandbox mocks. Every payment event generates an HMAC-SHA256-signed receipt. If you need to audit what an agent spent last month, you have a cryptographically verifiable trail.</p>
+
+      <p>The portable agent credit score (300-850) is new in v1.4.0. It's built from behavioral signals: payment consistency, anomaly flags, retrieval accuracy over sessions, identity verification status. The score lives in the JWT the SDK issues. Any system that accepts the token can read the score without a separate API call — the agent carries its own reputation across systems.</p>
+
+      <pre>import { MnemoPay } from '@mnemopay/sdk';
+
+const client = new MnemoPay({ apiKey: process.env.MNEMOPAY_API_KEY });
+
+// store a memory — decay and Merkle hash happen automatically
+await client.memory.store(agentId, {
+  content: 'user works evenings, async is preferred',
+  context: 'session-22',
+  importance: 0.9
+});
+
+// retrieve with decay-weighted ranking
+const recall = await client.memory.recall(agentId, {
+  query: 'user schedule preferences',
+  limit: 5
+});
+
+// charge with HMAC receipt
+const payment = await client.payments.charge({
+  agentId,
+  amount: 4.99,
+  currency: 'usd',
+  rail: 'stripe',
+  memo: 'vector search batch'
+});
+
+// read portable credit score
+const { score, tier } = await client.identity.getCreditScore(agentId);
+// score: 742, tier: 'trusted'</pre>
+
+      <h2>Distribution and access</h2>
+
+      <p>The SDK is listed in three MCP directories now: Smithery, ClawHub, and mcpservers.org. 3,549 npm downloads since the March 21 launch, 331/week run rate. Python SDK is live at 297 downloads. Apache 2.0, no lock-in — you can read every line of what's running in your agent.</p>
+
+      <p>Install:</p>
+
+      <pre>npm install @mnemopay/sdk
+# or
+pip install mnemopay</pre>
+
+      <p>What's shipping next is genuinely uncertain — I don't want to commit to a roadmap in a release post and then miss it. What I can say is the multi-session retrieval gap at 66.9% is the thing we're most focused on right now. When we have something real to show on that, there'll be another post.</p>
+
+      <div class="cta-block">
+        <p>Full docs, the LongMemEval methodology, and quickstart guides are at <a href="https://mnemopay.com">mnemopay.com</a>.</p>
+        <a href="https://mnemopay.com" class="btn">Get Started Free</a>
+      </div>
+
+    </div>
+  </article>
+
+  <footer>
+    <div class="container">MnemoPay &copy; 2026 &mdash; Apache 2.0 Licensed &mdash; Built by <a href="https://getbizsuite.com">Jerry Omiagbo</a> &mdash; <a href="index.html">Journal</a></div>
+  </footer>
+</body>
+</html>

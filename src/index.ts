@@ -18,6 +18,8 @@ import { type StorageAdapter, JSONFileStorage } from "./storage/sqlite.js";
 import { Ledger, type LedgerEntry, type LedgerSummary, type AccountBalance, type Currency } from "./ledger.js";
 import { IdentityRegistry, constantTimeEqual, type AgentIdentity, type CapabilityToken, type Permission, type IdentityVerification, type KYARecord } from "./identity.js";
 import { AdaptiveEngine, type AdaptiveConfig, type AgentInsight, type BusinessMetrics, type AdaptationRecord } from "./adaptive.js";
+import { formatForClaudeCache, serializeMemoriesForCache, type ClaudeCacheBlock, type FormatForClaudeCacheOptions } from "./claude-cache.js";
+import { SubagentCostTracker } from "./subagent-cost.js";
 
 // ─── Browser-compatible EventEmitter ──────────────────────────────────────
 // Replaces Node's "events" module so MnemoPayLite runs in browsers too.
@@ -356,6 +358,8 @@ export class MnemoPayLite extends EventEmitter {
   readonly identity: IdentityRegistry;
   /** Adaptive business intelligence — learns from operations, optimizes within secure bounds */
   readonly adaptive: AdaptiveEngine;
+  /** Per-subagent cost attribution — tracks inference costs per subagent in the double-entry ledger */
+  readonly subagentCosts: SubagentCostTracker;
   /** Settlement streak tracking (GridStamp cross-pollination) */
   private _streak: AgentStreak = { currentStreak: 0, bestStreak: 0, lastSettlement: 0, streakBonus: 0 };
   /** Earned achievement badges */
@@ -402,6 +406,7 @@ export class MnemoPayLite extends EventEmitter {
     this.ledger = new Ledger();
     this.identity = new IdentityRegistry();
     this.adaptive = new AdaptiveEngine();
+    this.subagentCosts = new SubagentCostTracker(this.ledger);
 
     // Use provided storage adapter, or auto-detect persistence
     if (storage) {
@@ -812,7 +817,32 @@ export class MnemoPayLite extends EventEmitter {
 
   async recall(limit?: number): Promise<Memory[]>;
   async recall(query: string, limit?: number): Promise<Memory[]>;
-  async recall(queryOrLimit?: string | number, maybeLimit?: number): Promise<Memory[]> {
+  /**
+   * Recall memories and optionally format them as a Claude API cache block.
+   *
+   * When `opts.formatForClaudeCache` is `true` the return type is a `ClaudeCacheBlock`
+   * ready to embed in the `system` array of an `anthropic.messages.create()` call.
+   * The block carries `cache_control: { type: "ephemeral", ttl: 3600 }` which instructs
+   * the Anthropic API to cache this prefix for up to 1 hour. Subsequent turns that share
+   * the same recall payload get a ~90% reduction in effective input-token cost (typical
+   * range observed with stable recall prefixes and warm 1h cache).
+   *
+   * Serialisation is stable: memories are sorted by id, so identical recall inputs
+   * produce byte-identical text and the cache prefix reliably hits.
+   *
+   * @example
+   * ```ts
+   * const block = await agent.recall("user preferences", 5, { formatForClaudeCache: true });
+   * await anthropic.messages.create({
+   *   model: "claude-opus-4-7",
+   *   max_tokens: 1024,
+   *   system: [{ type: "text", text: "You are helpful." }, block],
+   *   messages: [{ role: "user", content: userMessage }],
+   * });
+   * ```
+   */
+  async recall(query: string, limit: number, opts: { formatForClaudeCache: true; cacheOpts?: FormatForClaudeCacheOptions }): Promise<ClaudeCacheBlock>;
+  async recall(queryOrLimit?: string | number, maybeLimit?: number, opts?: { formatForClaudeCache?: boolean; cacheOpts?: FormatForClaudeCacheOptions }): Promise<Memory[] | ClaudeCacheBlock> {
     // Parse overloaded args
     const query = typeof queryOrLimit === "string" ? queryOrLimit : undefined;
     const limit = typeof queryOrLimit === "number" ? queryOrLimit : (maybeLimit ?? 5);
@@ -847,7 +877,24 @@ export class MnemoPayLite extends EventEmitter {
     this.emit("memory:recalled", { count: results.length });
     this.adaptive.observe({ type: "memory_recall", agentId: this.agentId, timestamp: Date.now() });
     this.log(`Recalled ${results.length} memories (strategy: ${this.recallEngine.strategy})`);
+
+    if (opts?.formatForClaudeCache) {
+      return formatForClaudeCache(results, opts.cacheOpts);
+    }
     return results;
+  }
+
+  /**
+   * Static helper: convert any array of Memory objects into a Claude API cache block.
+   * Useful when you've already fetched raw memories and want to convert them without
+   * re-running recall.
+   *
+   * @param memories - Memory array from any `recall()` call
+   * @param opts     - Optional serialisation / TTL overrides
+   * @returns        ClaudeCacheBlock ready for the Anthropic Messages API
+   */
+  static formatForClaudeCache(memories: Memory[], opts?: FormatForClaudeCacheOptions): ClaudeCacheBlock {
+    return formatForClaudeCache(memories, opts);
   }
 
   async forget(id: string): Promise<boolean> {
@@ -2026,6 +2073,19 @@ export class MnemoPay extends EventEmitter {
   static create(config: MnemoPayConfig): MnemoPay {
     return new MnemoPay(config);
   }
+
+  /**
+   * Static helper: convert any array of Memory objects into a Claude API cache block.
+   * Useful when you've already fetched raw memories and want to convert them without
+   * re-running recall. Delegates to the module-level `formatForClaudeCache()`.
+   *
+   * @param memories - Memory array from any `recall()` call
+   * @param opts     - Optional serialisation / TTL overrides
+   * @returns        ClaudeCacheBlock ready for the Anthropic Messages API
+   */
+  static formatForClaudeCache(memories: Memory[], opts?: FormatForClaudeCacheOptions): ClaudeCacheBlock {
+    return formatForClaudeCache(memories, opts);
+  }
 }
 
 // ─── Re-exports ─────────────────────────────────────────────────────────────
@@ -2083,3 +2143,7 @@ export type { EntityType, ExtractedEntity, EntityExtractionOptions, CanonicalEnt
 export { EntityGraph } from "./recall/graph.js";
 export type { GraphNode, GraphEdge, SpreadResult } from "./recall/graph.js";
 export { default as createSandboxServer } from "./mcp/server.js";
+export { formatForClaudeCache, serializeMemoriesForCache } from "./claude-cache.js";
+export type { ClaudeCacheBlock, FormatForClaudeCacheOptions } from "./claude-cache.js";
+export { SubagentCostTracker, computeSubagentCost, MODEL_PRICING } from "./subagent-cost.js";
+export type { AttributeSubagentCostParams, SubagentCostRecord, SubagentCostBreakdownEntry, ModelPricing } from "./subagent-cost.js";

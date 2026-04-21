@@ -131,7 +131,7 @@ console.log(await callTool("http://localhost:3000/tools/expensive"));
 
 idempotency falls out of the design here. the `tx.id` is stable for the lifetime of the charge; retrying with the same header is safe because the server's check is "does this completed tx cover the price?" and not "is this the first time I've seen this header?"
 
-## where Agent FICO saves your ass
+## where the agent credit score saves your ass
 
 the obvious abuse pattern: an attacker spins up agents that hit your 402 endpoint, charge, immediately refund, charge, refund. each round forces your server to do real work even if no money settles. you become a free LLM amplifier for them.
 
@@ -166,7 +166,7 @@ this is why the x402 receiver field matters. you pin it server-side, the parent 
 npm install @mnemopay/sdk
 ```
 
-- npm: https://www.npmjs.com/package/@mnemopay/sdk (current: 1.0.1)
+- npm: https://www.npmjs.com/package/@mnemopay/sdk (current: 1.4.0)
 - repo: https://github.com/mnemopay/mnemopay-sdk
 - python: `pip install mnemopay` (1.0.0b1)
 

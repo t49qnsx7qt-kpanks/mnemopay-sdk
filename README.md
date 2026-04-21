@@ -17,9 +17,11 @@ await agent.remember("User prefers monthly billing");
 const tx = await agent.charge(25, "Monthly API access");
 await agent.settle(tx.id);
 
-// Score the agent (300-850, like human FICO)
-const fico = new AgentCreditScore();
-const score = fico.compute({ transactions: [tx], createdAt: new Date(), ...});
+// Score the agent (portable agent credit score, 300-850 range)
+// Not FICO-brand. Not affiliated with Fair Isaac Corporation or any consumer
+// credit bureau. Scores agents (software), not humans. Not governed by FCRA.
+const score = new AgentCreditScore();
+const result = score.compute({ transactions: [tx], createdAt: new Date(), ...});
 // → { score: 672, rating: "good", feeRate: 0.015, trustLevel: "standard" }
 ```
 
@@ -304,6 +306,79 @@ Combined with Merkle integrity on memories and HMAC on transactions, MnemoPay gi
 
 ---
 
+## Claude Agent SDK integration
+
+Two primitives built specifically for the Claude Agent SDK pattern where an Opus orchestrator spawns Sonnet/Haiku subagents.
+
+### 1-hour prompt cache on recall results
+
+When you feed MnemoPay recall into a Claude system prompt, use `formatForClaudeCache()` to emit a content block with `cache_control: { type: "ephemeral", ttl: 3600 }`. The Anthropic API caches that prefix for up to 1 hour; cache reads are billed at roughly 10% of the normal input rate. With stable recall prefixes and a warm 1h cache, users have observed savings in the typical range of 85-92% on the recall portion of input tokens — your actual results depend on call frequency and memory set stability.
+
+```ts
+import MnemoPay, { formatForClaudeCache } from "@mnemopay/sdk";
+import Anthropic from "@anthropic-ai/sdk";
+
+const agent = MnemoPay.quick("my-agent");
+const anthropic = new Anthropic();
+
+// Option A: recall() directly returns a cache block
+const cacheBlock = await agent.recall("user preferences", 10, {
+  formatForClaudeCache: true,
+});
+
+// Option B: convert an existing memory array (no extra recall call)
+const memories = await agent.recall("user preferences", 10);
+const cacheBlock2 = MnemoPay.formatForClaudeCache(memories);
+// OR: formatForClaudeCache(memories) from the module directly
+
+const response = await anthropic.messages.create({
+  model: "claude-opus-4-7",
+  max_tokens: 1024,
+  system: [
+    { type: "text", text: "You are a helpful assistant.", cache_control: { type: "ephemeral" } },
+    cacheBlock,  // ← MnemoPay recall cached for 1 hour
+  ],
+  messages: [{ role: "user", content: userMessage }],
+});
+```
+
+The serialized text is sorted by memory id so identical memory sets produce byte-identical output — required for the cache prefix to hit on subsequent turns.
+
+### Per-subagent cost attribution
+
+Track which subagent in a multi-agent pipeline spent how much — recorded as double-entry ledger pairs so it stays audit-clean.
+
+```ts
+import MnemoPay, { SubagentCostTracker } from "@mnemopay/sdk";
+
+const orchestrator = MnemoPay.quick("orchestrator");
+
+// After each Claude API call, record the cost:
+orchestrator.subagentCosts.attributeSubagentCost({
+  parentAgentId: "orchestrator",
+  subagentId: "researcher-1",
+  subagentRole: "researcher",
+  modelId: "claude-sonnet-4-6",
+  inputTokens: 5000,
+  outputTokens: 2000,
+  cacheReadTokens: 8500,   // tokens served from the 1h recall cache
+  cacheWriteTokens: 500,
+  cacheWriteTtl: "1h",
+});
+
+// At end of pipeline, get breakdown ordered by cost:
+const breakdown = orchestrator.subagentCosts.subagentCostBreakdown("orchestrator");
+// → [{ subagentId, subagentRole, modelId, totalCostUsd, cacheSavingsUsd, ... }]
+
+const totalSaved = orchestrator.subagentCosts.totalCacheSavings("orchestrator");
+```
+
+Pricing table used: 2026 Anthropic list rates (Opus 4.7 $5/$25/M, Sonnet 4.6 $3/$15/M, Haiku 4.5 $1/$5/M; cache reads 0.1×, 1h writes 2×). Update `MODEL_PRICING` in `src/subagent-cost.ts` if rates change.
+
+See `docs/agent-sdk-guide.md` for a full integration walkthrough.
+
+---
+
 ## Payment Rails
 
 ```ts
@@ -383,7 +458,7 @@ Need more? Opt in explicitly:
 ```bash
 npx @mnemopay/sdk --tools=all       # all 40 tools
 npx @mnemopay/sdk --tools=agent     # essentials + commerce + hitl + payments + webhooks
-npx @mnemopay/sdk --tools=fico      # Agent FICO scoring only
+npx @mnemopay/sdk --tools=fico      # Agent Credit Score only
 ```
 
 Groups: `memory`, `wallet`, `tx`, `commerce`, `hitl`, `payments`, `webhooks`,

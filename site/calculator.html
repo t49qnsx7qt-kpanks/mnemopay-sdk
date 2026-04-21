@@ -1,14 +1,14 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Agent Chargeback Calculator — MnemoPay</title>
-  <meta name="description" content="Calculate what agent-initiated chargebacks are actually costing your SaaS — and what MnemoPay's cryptographic receipts save you."/>
-  <meta property="og:title" content="Agent Chargeback Calculator — MnemoPay"/>
-  <meta property="og:description" content="How much are agent disputes costing you? Find out in 30 seconds."/>
-  <meta property="og:type" content="website"/>
-  <style>
+ <meta charset="utf-8"/>
+ <meta name="viewport" content="width=device-width, initial-scale=1"/>
+ <title>Agent Chargeback Calculator, MnemoPay</title>
+ <meta name="description" content="Calculate what agent-initiated chargebacks are actually costing your SaaS, and what MnemoPay's cryptographic receipts save you."/>
+ <meta property="og:title" content="Agent Chargeback Calculator, MnemoPay"/>
+ <meta property="og:description" content="How much are agent disputes costing you? Find out in 30 seconds."/>
+ <meta property="og:type" content="website"/>
+ <style>
     :root {
       --bg: #05070f;
       --panel: #0c1022;
@@ -177,117 +177,117 @@
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <nav class="nav">
-      <a href="/">&larr; MnemoPay</a>
-      <span style="color: var(--border)">/</span>
-      <a href="/calculator.html">Chargeback Calculator</a>
-    </nav>
+ <div class="wrap">
+ <nav class="nav">
+ <a href="/">&larr; MnemoPay</a>
+ <span style="color: var(--border)">/</span>
+ <a href="/calculator.html">Chargeback Calculator</a>
+ </nav>
 
-    <h1>How much are agent chargebacks <span class="gradient">actually costing you</span>?</h1>
-    <p class="sub">Agents run up charges, users dispute them, and your finance team pays the bill twice — once in refunds, once in dispute fees. Plug in your numbers.</p>
+ <h1>How much are agent chargebacks <span class="gradient">actually costing you</span>?</h1>
+ <p class="sub">Agents run up charges, users dispute them, and your finance team pays the bill twice, once in refunds, once in dispute fees. Plug in your numbers.</p>
 
-    <div class="grid">
-      <!-- Inputs -->
-      <div class="card">
-        <h2>Your numbers</h2>
+ <div class="grid">
+ <!-- Inputs -->
+ <div class="card">
+ <h2>Your numbers</h2>
 
-        <div class="field">
-          <label for="txns">Monthly agent transactions</label>
-          <input type="number" id="txns" value="50000" min="0" step="1000"/>
-          <div class="hint">Charges initiated by your AI agents per month</div>
-        </div>
+ <div class="field">
+ <label for="txns">Monthly agent transactions</label>
+ <input type="number" id="txns" value="50000" min="0" step="1000"/>
+ <div class="hint">Charges initiated by your AI agents per month</div>
+ </div>
 
-        <div class="field">
-          <label for="avg">Average transaction size ($)</label>
-          <input type="number" id="avg" value="12" min="0" step="1" />
-          <div class="hint">The mean dollar value per charge</div>
-        </div>
+ <div class="field">
+ <label for="avg">Average transaction size ($)</label>
+ <input type="number" id="avg" value="12" min="0" step="1" />
+ <div class="hint">The mean dollar value per charge</div>
+ </div>
 
-        <div class="field">
-          <label for="cbrate">Current chargeback / dispute rate (%)</label>
-          <input type="number" id="cbrate" value="1.2" min="0" max="100" step="0.1"/>
-          <div class="hint">Industry average for agent-initiated txns is 0.9 – 2.1%</div>
-        </div>
+ <div class="field">
+ <label for="cbrate">Current chargeback / dispute rate (%)</label>
+ <input type="number" id="cbrate" value="1.2" min="0" max="100" step="0.1"/>
+ <div class="hint">Industry average for agent-initiated txns is 0.9 – 2.1%</div>
+ </div>
 
-        <div class="field">
-          <label for="cbfee">Dispute fee per chargeback ($)</label>
-          <input type="number" id="cbfee" value="15" min="0" step="1"/>
-          <div class="hint">Stripe: $15 · Paystack: ₦2,500 · Visa: $20-50</div>
-        </div>
+ <div class="field">
+ <label for="cbfee">Dispute fee per chargeback ($)</label>
+ <input type="number" id="cbfee" value="15" min="0" step="1"/>
+ <div class="hint">Stripe: $15 · Paystack: ₦2,500 · Visa: $20-50</div>
+ </div>
 
-        <div class="field">
-          <label for="winrate">% of disputes you currently win</label>
-          <input type="number" id="winrate" value="22" min="0" max="100" step="1"/>
-          <div class="hint">Industry average without cryptographic evidence: 20-30%</div>
-        </div>
-      </div>
+ <div class="field">
+ <label for="winrate">% of disputes you currently win</label>
+ <input type="number" id="winrate" value="22" min="0" max="100" step="1"/>
+ <div class="hint">Industry average without cryptographic evidence: 20-30%</div>
+ </div>
+ </div>
 
-      <!-- Results -->
-      <div class="card">
-        <h2>Your annual cost</h2>
+ <!-- Results -->
+ <div class="card">
+ <h2>Your annual cost</h2>
 
-        <div class="result-row">
-          <span class="label">Transactions per year</span>
-          <span class="value" id="out-txns">600,000</span>
-        </div>
-        <div class="result-row">
-          <span class="label">Chargebacks per year</span>
-          <span class="value" id="out-cbs">7,200</span>
-        </div>
-        <div class="result-row">
-          <span class="label">Refunded revenue</span>
-          <span class="value danger" id="out-refunds">$86,400</span>
-        </div>
-        <div class="result-row">
-          <span class="label">Dispute fees</span>
-          <span class="value danger" id="out-fees">$108,000</span>
-        </div>
-        <div class="result-row total">
-          <span class="label"><strong>Total annual bleed</strong></span>
-          <span class="value danger big" id="out-total">$194,400</span>
-        </div>
+ <div class="result-row">
+ <span class="label">Transactions per year</span>
+ <span class="value" id="out-txns">600,000</span>
+ </div>
+ <div class="result-row">
+ <span class="label">Chargebacks per year</span>
+ <span class="value" id="out-cbs">7,200</span>
+ </div>
+ <div class="result-row">
+ <span class="label">Refunded revenue</span>
+ <span class="value danger" id="out-refunds">$86,400</span>
+ </div>
+ <div class="result-row">
+ <span class="label">Dispute fees</span>
+ <span class="value danger" id="out-fees">$108,000</span>
+ </div>
+ <div class="result-row total">
+ <span class="label"><strong>Total annual bleed</strong></span>
+ <span class="value danger big" id="out-total">$194,400</span>
+ </div>
 
-        <div style="margin-top: 32px; padding-top: 24px; border-top: 2px dashed var(--border);">
-          <h2 style="margin-bottom: 16px;">With MnemoPay receipts</h2>
-          <div class="result-row">
-            <span class="label">New dispute win rate</span>
-            <span class="value green" id="out-newwin">78%</span>
-          </div>
-          <div class="result-row">
-            <span class="label">Disputes won back</span>
-            <span class="value green" id="out-wonback">4,032</span>
-          </div>
-          <div class="result-row">
-            <span class="label">MnemoPay fee (1.9% of recovered)</span>
-            <span class="value" id="out-mnemofee">$919</span>
-          </div>
-          <div class="result-row total">
-            <span class="label"><strong>Net annual savings</strong></span>
-            <span class="value green big" id="out-savings">$47,411</span>
-          </div>
-        </div>
-      </div>
-    </div>
+ <div style="margin-top: 32px; padding-top: 24px; border-top: 2px dashed var(--border);">
+ <h2 style="margin-bottom: 16px;">With MnemoPay receipts</h2>
+ <div class="result-row">
+ <span class="label">New dispute win rate</span>
+ <span class="value green" id="out-newwin">78%</span>
+ </div>
+ <div class="result-row">
+ <span class="label">Disputes won back</span>
+ <span class="value green" id="out-wonback">4,032</span>
+ </div>
+ <div class="result-row">
+ <span class="label">MnemoPay fee (1.9% of recovered)</span>
+ <span class="value" id="out-mnemofee">$919</span>
+ </div>
+ <div class="result-row total">
+ <span class="label"><strong>Net annual savings</strong></span>
+ <span class="value green big" id="out-savings">$47,411</span>
+ </div>
+ </div>
+ </div>
+ </div>
 
-    <div class="cta">
-      <h3>Ready to stop bleeding on agent disputes?</h3>
-      <p>Every MnemoPay charge produces a cryptographic receipt your finance team can use as dispute evidence. Free to start.</p>
-      <div class="cta-buttons">
-        <a class="btn btn-primary" href="https://www.npmjs.com/package/@mnemopay/sdk">npm install @mnemopay/sdk</a>
-        <a class="btn btn-ghost" href="mailto:omiagbogold@icloud.com?subject=MnemoPay%20Pilot%20-%20Chargeback%20Reduction">Book a 15-min call</a>
-      </div>
-      <div class="share">
-        Share this calculator: <button id="copy-btn">copy link</button>
-      </div>
-    </div>
+ <div class="cta">
+ <h3>Ready to stop bleeding on agent disputes?</h3>
+ <p>Every MnemoPay charge produces a cryptographic receipt your finance team can use as dispute evidence. Free to start.</p>
+ <div class="cta-buttons">
+ <a class="btn btn-primary" href="https://www.npmjs.com/package/@mnemopay/sdk">npm install @mnemopay/sdk</a>
+ <a class="btn btn-ghost" href="mailto:omiagbogold@icloud.com?subject=MnemoPay%20Pilot%20-%20Chargeback%20Reduction">Book a 15-min call</a>
+ </div>
+ <div class="share">
+ Share this calculator: <button id="copy-btn">copy link</button>
+ </div>
+ </div>
 
-    <div class="disclaimer">
-      <strong>How we calculated this.</strong> "New dispute win rate" assumes that providing cryptographic receipts (signed HMAC transaction log + Merkle-rooted memory integrity proof) raises dispute defensibility from the industry baseline (~22%) to ~78%, based on the observed defensibility delta when presenting structured audit trails in card-network dispute processes. MnemoPay's 1.9% fee is applied to the <em>recovered</em> revenue only, not to normal transaction volume. Real-world results vary by rail, jurisdiction, and the specifics of your dispute workflow. Numbers shown are illustrative — run your own pilot before committing budget.
-    </div>
-  </div>
+ <div class="disclaimer">
+ <strong>How we calculated this.</strong> "New dispute win rate" assumes that providing cryptographic receipts (signed HMAC transaction log + Merkle-rooted memory integrity proof) raises dispute defensibility from the industry baseline (~22%) to ~78%, based on the observed defensibility delta when presenting structured audit trails in card-network dispute processes. MnemoPay's 1.9% fee is applied to the <em>recovered</em> revenue only, not to normal transaction volume. Real-world results vary by rail, jurisdiction, and the specifics of your dispute workflow. Numbers shown are illustrative, run your own pilot before committing budget.
+ </div>
+ </div>
 
-  <script>
+ <script>
     const fmt = (n) => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
     const usd = (n) => "$" + fmt(Math.round(n));
 
