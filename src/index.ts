@@ -11,6 +11,7 @@
  */
 
 import { RecallEngine, type RecallStrategy, type EmbeddingProvider, type RecallEngineConfig } from "./recall/engine.js";
+import type { PersistenceOptions, PersistenceAdapter } from "./recall/persistence/types.js";
 import { FraudGuard, type FraudConfig, type RiskAssessment, type Dispute, type PlatformFeeRecord, type RequestContext } from "./fraud.js";
 import { type PaymentRail, type HoldOptions, MockRail } from "./rails/index.js";
 import { type StorageAdapter, JSONFileStorage } from "./storage/sqlite.js";
@@ -388,7 +389,13 @@ export class MnemoPayLite extends EventEmitter {
     this.agentId = agentId;
     this.decay = decay;
     this.debugMode = debug;
-    this.recallEngine = new RecallEngine(recallConfig);
+    // Inject agentId into recall config so the persistence adapter can scope
+    // rows by agent. Callers may override by setting recallConfig.agentId
+    // explicitly; default is this.agentId.
+    this.recallEngine = new RecallEngine({
+      ...recallConfig,
+      agentId: recallConfig?.agentId ?? this.agentId,
+    });
     this.fraud = new FraudGuard(fraudConfig);
     this.paymentRail = paymentRail ?? new MockRail();
     this.requireCounterparty = requireCounterparty;
@@ -994,7 +1001,7 @@ export class MnemoPayLite extends EventEmitter {
     // ── Fraud check ──────────────────────────────────────────────────────
     const pendingCount = this._pendingCount; // O(1) counter
     const risk = this.fraud.assessCharge(
-      this.agentId, amount, this._reputation, this._createdAt, pendingCount, ctx,
+      this.agentId, amount, this._reputation, this._createdAt, pendingCount, ctx, reason,
     );
     if (!risk.allowed) {
       this.audit("fraud:blocked", { amount, reason, riskScore: risk.score, signals: risk.signals.map((s) => s.type) });
@@ -1976,14 +1983,37 @@ export class MnemoPay extends EventEmitter {
     requireCounterparty?: boolean;
     /** Storage adapter: SQLiteStorage, JSONFileStorage, or custom. Default: auto-detect JSON file. */
     storage?: StorageAdapter;
+    /**
+     * Vector persistence backend. Default: in-process memory (zero infra).
+     * Pass `{ type: "neon", url: process.env.NEON_URL }` to persist embeddings
+     * in Neon/Postgres via pgvector, or `{ type: "custom", adapter }` for a
+     * pre-built PersistenceAdapter. Orthogonal to the `embeddings` option.
+     */
+    persist?: PersistenceOptions | PersistenceAdapter;
   }): MnemoPayLite {
-    const recallConfig: Partial<RecallEngineConfig> | undefined = opts?.recall
+    // Auto-wire SQLite FTS5 into hybrid recall when a SQLiteStorage is passed.
+    // Detect via duck-typing so we don't need an import cycle.
+    const storageHasFTS =
+      opts?.storage &&
+      typeof (opts.storage as unknown as { searchMemoriesFTS?: unknown }).searchMemoriesFTS === "function";
+
+    // Build recall config whenever recall strategy, persist, or FTS-capable storage is set.
+    const hasRecallOpts =
+      opts?.recall !== undefined || opts?.persist !== undefined || storageHasFTS;
+    const recallConfig: Partial<RecallEngineConfig> | undefined = hasRecallOpts
       ? {
-          strategy: opts.recall,
-          embeddingProvider: opts.embeddings,
-          openaiApiKey: opts.openaiApiKey,
-          scoreWeight: opts.scoreWeight,
-          vectorWeight: opts.vectorWeight,
+          strategy: opts?.recall,
+          embeddingProvider: opts?.embeddings,
+          openaiApiKey: opts?.openaiApiKey,
+          scoreWeight: opts?.scoreWeight,
+          vectorWeight: opts?.vectorWeight,
+          persist: opts?.persist,
+          ...(storageHasFTS
+            ? {
+                sqliteStorage: opts!.storage as unknown as RecallEngineConfig["sqliteStorage"],
+                sqliteAgentId: agentId,
+              }
+            : {}),
         }
       : undefined;
     return new MnemoPayLite(agentId, opts?.decay ?? 0.05, opts?.debug ?? false, recallConfig, opts?.fraud, opts?.paymentRail, opts?.requireCounterparty ?? false, opts?.storage);
@@ -2002,8 +2032,12 @@ export class MnemoPay extends EventEmitter {
 
 export default MnemoPay;
 export { autoScore, computeScore, reputationTier };
-export { RecallEngine, cosineSimilarity, localEmbed, l2Normalize } from "./recall/engine.js";
+export { RecallEngine, cosineSimilarity, localEmbed, l2Normalize, bgeStats } from "./recall/engine.js";
 export type { RecallStrategy, EmbeddingProvider, RecallEngineConfig, RecallResult } from "./recall/engine.js";
+export { MemoryAdapter } from "./recall/persistence/memory.js";
+export { NeonAdapter } from "./recall/persistence/neon.js";
+export type { NeonAdapterConfig } from "./recall/persistence/neon.js";
+export type { PersistenceAdapter, PersistenceOptions, PersistedRow, SearchHit } from "./recall/persistence/types.js";
 export { FraudGuard, RateLimiter, DEFAULT_FRAUD_CONFIG, DEFAULT_RATE_LIMIT } from "./fraud.js";
 export type { FraudConfig, FeeTier, FraudSignal, RiskAssessment, Dispute, PlatformFeeRecord, RequestContext, RateLimitConfig, GeoProfile, GeoFraudConfig } from "./fraud.js";
 export { IsolationForest, TransactionGraph, BehaviorProfile } from "./fraud-ml.js";
@@ -2038,8 +2072,14 @@ export { EWMADetector, BehaviorMonitor, CanarySystem, DEFAULT_ANOMALY_CONFIG } f
 export type { EWMAState, EWMAAlert, BehaviorFingerprint, HijackDetection, CanaryTransaction, CanaryAlert, AnomalyConfig } from "./anomaly.js";
 export { ReasoningPostProcessor } from "./reasoning/post-processor.js";
 export type { ReasoningConfig, ReasoningResult } from "./reasoning/post-processor.js";
-export { HyDEGenerator } from "./recall/hyde.js";
+export { HyDEGenerator, shouldUseHyDE } from "./recall/hyde.js";
 export type { HyDEConfig, HyDEResult } from "./recall/hyde.js";
 export { CrossEncoderReranker, rerankerStats } from "./recall/rerank.js";
-export type { RerankCandidate, RerankedResult, RerankerConfig } from "./recall/rerank.js";
+export type { RerankCandidate, RerankedResult, RerankerConfig, RerankOptions } from "./recall/rerank.js";
+export { summarizeSession, summarizeAndTime, formatSummaryMemory } from "./recall/summarizer.js";
+export type { SessionTurn, SummarizerOptions, SummarizedSession } from "./recall/summarizer.js";
+export { extractEntities, canonicalize, normalizeEntityKey, levenshtein } from "./recall/entities.js";
+export type { EntityType, ExtractedEntity, EntityExtractionOptions, CanonicalEntry, CanonicalizeResult } from "./recall/entities.js";
+export { EntityGraph } from "./recall/graph.js";
+export type { GraphNode, GraphEdge, SpreadResult } from "./recall/graph.js";
 export { default as createSandboxServer } from "./mcp/server.js";

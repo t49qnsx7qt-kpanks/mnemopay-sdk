@@ -699,3 +699,72 @@ describe("Stress: Fraud Under Load", () => {
     expect(restored.stats().totalChargesTracked).toBe(200);
   }, 30000);
 });
+
+// ─── Replay Detection (regression guards) ─────────────────────────────────
+//
+// These tests lock in the fix for a silent regression where:
+//   1. `charge()` never forwarded `reason` to `assessCharge()`, so the
+//      ReplayDetector fingerprint was never populated.
+//   2. Even when signals fired, the composite-score math capped critical
+//      severity at 0.9 — below a blockThreshold of 1.0 — so "always blocks"
+//      signals silently allowed the charge.
+// Both bugs shipped in v1.2.0–v1.3.1 and left the replay protection dead
+// across three public releases. Any regression here should trip CI loud.
+
+describe("Replay Detection (regression)", () => {
+  it("blocks the second identical-fingerprint charge within 60s", async () => {
+    const agent = MnemoPay.quick("replay-regression-1", {
+      fraud: { settlementHoldMinutes: 0, disputeWindowMinutes: 0 },
+    });
+
+    // First charge primes the fingerprint — must succeed.
+    const first = await agent.charge(10, "identical-fingerprint");
+    expect(first.id).toBeTruthy();
+
+    // Second charge with the same (amount, reason) inside 60s must throw.
+    await expect(
+      agent.charge(10, "identical-fingerprint"),
+    ).rejects.toThrow(/risk score|replay/i);
+  });
+
+  it("allows repeated charges when the reason (idempotency key) varies", async () => {
+    const agent = MnemoPay.quick("replay-regression-2", {
+      fraud: { settlementHoldMinutes: 0, disputeWindowMinutes: 0 },
+    });
+
+    // Same amount, different reasons — legitimate retry pattern.
+    for (let i = 0; i < 5; i++) {
+      const tx = await agent.charge(10, `legit-idempotency-${i}`);
+      expect(tx.id).toBeTruthy();
+      await agent.settle(tx.id);
+    }
+  });
+
+  it("forces composite score to 1.0 on any critical-severity signal", () => {
+    // Direct unit test of the scoring path. A single critical signal at
+    // weight 0.9 used to produce composite 0.9 (below 1.0 blockThreshold);
+    // after the fix it is forced to 1.0 and the charge is rejected.
+    const guard = new FraudGuard({
+      settlementHoldMinutes: 0,
+      disputeWindowMinutes: 0,
+    });
+
+    const agentId = "critical-force-block";
+    const reason = "replay-target";
+
+    // Prime the fingerprint. This first call sees no prior, so it passes.
+    const first = guard.assessCharge(
+      agentId, 10, 1.0, new Date(Date.now() - 86_400_000), 0, undefined, reason,
+    );
+    expect(first.allowed).toBe(true);
+
+    // Second call with identical fingerprint inside 60s fires the critical
+    // replay signal, which must force composite to 1.0 and block.
+    const second = guard.assessCharge(
+      agentId, 10, 1.0, new Date(Date.now() - 86_400_000), 0, undefined, reason,
+    );
+    expect(second.allowed).toBe(false);
+    expect(second.score).toBe(1);
+    expect(second.signals.some((s) => s.severity === "critical")).toBe(true);
+  });
+});

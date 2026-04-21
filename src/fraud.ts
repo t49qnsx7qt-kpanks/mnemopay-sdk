@@ -210,7 +210,10 @@ class ReplayDetector {
 
   check(agentId: string, amount: number, reason: string, counterpartyId?: string): FraudSignal | null {
     const raw = `${agentId}|${amount}|${reason}|${counterpartyId ?? ""}`;
-    const fp = require("crypto").createHash("sha256").update(raw).digest("hex") as string;
+    // 64-bit truncated SHA-256. Collision probability for 1K-entry cap
+    // ≈ 1000² / 2⁶⁴ ≈ 5e-14 — well below any realistic threat model, while
+    // keeping key size 4× smaller than the full 64-char hex.
+    const fp = require("crypto").createHash("sha256").update(raw).digest("hex").slice(0, 16) as string;
     const now = Date.now();
 
     // Prune entries older than 5 minutes
@@ -235,13 +238,15 @@ class ReplayDetector {
         description: `Transaction replayed ${timestamps.length} times in 5 minutes (agent=${agentId}, amount=${amount})`,
         weight: 0.9,
       };
-    // Same fingerprint within 60 seconds → high
+    // Same fingerprint within 60 seconds → critical (agents should never
+    // replay identical charges; a retry after network error should use a
+    // new idempotency key / reason, not an identical fingerprint)
     } else if (timestamps.length > 0 && now - timestamps[timestamps.length - 1] < 60_000) {
       signal = {
         type: "replay_detected",
-        severity: "high",
+        severity: "critical",
         description: `Duplicate transaction detected within 60s (agent=${agentId}, amount=${amount})`,
-        weight: 0.6,
+        weight: 0.9,
       };
     }
 
@@ -249,8 +254,12 @@ class ReplayDetector {
     timestamps.push(now);
     this.fingerprints.set(fp, timestamps);
 
-    // Cap map at 10,000 entries to prevent unbounded growth
-    if (this.fingerprints.size > 10_000) {
+    // Cap map at 1,000 entries per FraudGuard to prevent unbounded growth.
+    // Rationale: the map only tracks entries within the 5-min window, so a
+    // legitimate agent sustaining 1K distinct fingerprints/5min = 200 TPS of
+    // *unique* transactions — a deliberately paranoid ceiling. Under 50-100
+    // concurrent FraudGuard instances this keeps total footprint under ~5 MB.
+    if (this.fingerprints.size > 1_000) {
       const firstKey = this.fingerprints.keys().next().value;
       if (firstKey !== undefined) this.fingerprints.delete(firstKey);
     }
@@ -576,13 +585,22 @@ export class FraudGuard {
         );
 
     // Use maximum of weighted average and max single signal
-    const compositeScore = Math.min(
+    let compositeScore = Math.min(
       Math.max(
         signals.reduce((sum, s) => sum + s.weight, 0) / Math.max(signals.length * 0.7, 1),
         signals.length > 0 ? Math.max(...signals.map((s) => s.weight)) * 0.85 : 0,
       ),
       1.0,
     );
+
+    // Any critical-severity signal forces an immediate block — this is the
+    // documented behavior of sanctioned-country and replay-detected signals,
+    // and matches standard fraud-engine convention. Without this, a lone
+    // weight=0.9 critical signal produces composite 0.9, which silently
+    // passes a blockThreshold of 1.0.
+    if (signals.some((s) => s.severity === "critical")) {
+      compositeScore = 1.0;
+    }
 
     const level = compositeScore >= this.config.blockThreshold
       ? "blocked"

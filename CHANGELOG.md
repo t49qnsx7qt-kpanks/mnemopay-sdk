@@ -4,6 +4,48 @@ All notable changes to `@mnemopay/sdk` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.4.0] — 2026-04-20
+
+### Security
+
+- **Replay-attack protection restored.** From v1.2.0 through v1.3.1 the
+  `reason` argument passed to `charge()` was not being forwarded into the
+  fraud engine, leaving `ReplayDetector` without the third component of its
+  fingerprint. A second identical charge inside the 60-second window was
+  therefore not detected as a replay. Fixed in `src/index.ts` by forwarding
+  `reason` into `FraudGuard.assessCharge()`.
+- **Composite risk score: critical-severity floor.** When any single fraud
+  signal carries `severity: "critical"`, the composite score is now forced
+  to `1.0` regardless of the weighted-average result. Previously a single
+  critical signal could be diluted by other low-severity signals and slip
+  under `blockThreshold`. The 60-second duplicate-fingerprint signal was
+  also upgraded from `high` (weight 0.6) to `critical` (weight 0.9), giving
+  replay attempts a hard block under the default config.
+- **`CommerceEngine.purchase()` idempotency.** The charge `reason` now
+  includes the `orderId` so sequential autonomous purchases of the same
+  product don't trip the replay detector. Models the real-world invariant
+  that every purchase is a distinct order.
+
+### Added
+
+- **1M-transaction stress harness** (`tests/stress/stress-1m.test.ts`).
+  100 agents × 10,000 ops, mixed workload, 2% adversarial replay injection,
+  p99 latency SLO, global ledger integrity check. Companion tests at 300K
+  and 500K remain in the suite.
+- **`BENCHMARKS.md`** at repo root — reproducible 300K / 500K / 1M
+  benchmark results. Verified $15.1M simulated value, $0.00 ledger drift,
+  100.0% adversarial detection at the top scale.
+- **Replay-detection regression tests** appended to `tests/fraud.test.ts`.
+  Three tests cover: (a) second identical charge within 60s throws,
+  (b) different reasons allow repeated charges with the same amount,
+  (c) direct `FraudGuard.assessCharge()` unit test proving the composite is
+  forced to 1.0 on critical signals.
+
+### Changed
+
+- `.gitignore` — excludes heavy research artifacts (`benchmark/longmemeval/results/`,
+  `bge-model/`, temp run logs, `*.eval-results-gpt-4o`) from source control.
+
 ## [1.3.1] — 2026-04-16
 
 ### Security

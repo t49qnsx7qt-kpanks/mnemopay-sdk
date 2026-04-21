@@ -405,7 +405,9 @@ describe("Money-Losing Edge Cases", () => {
     const agent = MnemoPay.quick("thirds", { fraud: { platformFeeRate: 0, maxChargesPerMinute: 100000, maxChargesPerHour: 1000000, maxChargesPerDay: 10000000, maxDailyVolume: 100000000, settlementHoldMinutes: 0, disputeWindowMinutes: 0 } });
 
     for (let i = 0; i < 100; i++) {
-      const tx = await agent.charge(0.33, "Third");
+      // Unique reason per iteration — real-world idempotency pattern, and
+      // avoids colliding with ReplayDetector's 60s-duplicate rule.
+      const tx = await agent.charge(0.33, `Third-${i}`);
       await agent.settle(tx.id);
     }
 

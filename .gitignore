@@ -13,8 +13,19 @@ gtm/
 marketing/data/
 marketing/logs/
 benchmark/longmemeval/data/
+benchmark/longmemeval/results/
+benchmark/longmemeval/bge-model/
+benchmark/longmemeval/Usersbizsu.mnemopaydata/
 benchmark/results/
 benchmark/longmemeval-repo/
+
+# Temp run logs
+.tmp-*.log
+*.eval-results-gpt-4o
+
+# Experimental / scratch dirs
+playground/
+hyperframes-poc/
 
 # Local build artifacts
 .vercel

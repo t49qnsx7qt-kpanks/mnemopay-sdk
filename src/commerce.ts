@@ -431,10 +431,13 @@ export class CommerceEngine {
     }
     // DON'T set approved=true yet — wait until escrow succeeds
 
-    // Create escrow hold via MnemoPay charge
+    // Create escrow hold via MnemoPay charge. Include orderId in the reason
+    // so each purchase has a unique idempotency fingerprint — prevents a
+    // replay-detector false positive when the same product is purchased
+    // repeatedly (each order is a distinct commercial event).
     const tx = await this.agent.charge(
       product.price,
-      `Purchase: ${product.title} from ${product.merchant}`,
+      `Purchase: ${product.title} from ${product.merchant} [order:${orderId}]`,
     );
     order.txId = tx.id;
     order.approved = true;  // NOW set approved — funds are locked
