@@ -110,6 +110,36 @@ function parseHypotheses(raw: string, expected: number): string[] {
   return out.slice(0, expected);
 }
 
+/**
+ * HyDE is net-harmful for questions whose answer is a *specific closed fact*
+ * the LLM would have to invent (a date, a count, a duration between two
+ * events). The fabricated value enters the retrieval query and pulls in chunks
+ * that mention that value in unrelated contexts — verifier-biased noise that
+ * swamps the real evidence. Bench data (LongMemEval oracle, 2026-04-20):
+ * temporal-reasoning dropped 6.0pt and knowledge-update dropped 7.7pt when
+ * HyDE ran blindly on every question.
+ *
+ * Heuristic: skip HyDE when the question asks for a count of time units,
+ * a duration between events, or uses explicit update/recency language. For
+ * open-ended or preference questions HyDE still helps, so the default is ON
+ * and we only gate off the known failure modes.
+ */
+const HYDE_SKIP_PATTERNS: RegExp[] = [
+  /\bhow\s+(?:many|long)\b.*\b(?:day|days|week|weeks|month|months|year|years|hour|hours|minute|minutes)\b/i,
+  /\bhow\s+much\s+time\b/i,
+  /\b(?:days?|weeks?|months?|years?|hours?)\s+(?:between|before|after|since|apart|ago)\b/i,
+  /\btime\s+(?:between|difference|passed|elapsed)\b/i,
+  /\b(?:currently|right\s+now|most\s+recent(?:ly)?|latest|newest|last\s+time|still)\b/i,
+  /\b(?:updated?|changed|switched|replaced|upgraded)\s+(?:to|from)?\b/i,
+];
+
+export function shouldUseHyDE(query: string): boolean {
+  for (const re of HYDE_SKIP_PATTERNS) {
+    if (re.test(query)) return false;
+  }
+  return true;
+}
+
 export class HyDEGenerator {
   private readonly config: Required<HyDEConfig>;
 

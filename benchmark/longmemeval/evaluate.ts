@@ -19,7 +19,17 @@
 
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { MnemoPay, ReasoningPostProcessor, HyDEGenerator, CrossEncoderReranker } from "@mnemopay/sdk";
+import {
+  MnemoPay,
+  ReasoningPostProcessor,
+  HyDEGenerator,
+  CrossEncoderReranker,
+  shouldUseHyDE,
+  summarizeSession,
+  formatSummaryMemory,
+  extractEntities,
+  EntityGraph,
+} from "@mnemopay/sdk";
 import Anthropic from "@anthropic-ai/sdk";
 import type { LongMemEvalInstance, Hypothesis, Turn } from "./types.js";
 
@@ -51,6 +61,12 @@ function parseArgs() {
     rerank: args.includes("--rerank"),
     rerankModel: get("--rerank-model", "Xenova/bge-reranker-base"),
     rerankPool: parseInt(get("--rerank-pool", "50"), 10),
+    summarize: args.includes("--summarize"),
+    summarizeProvider: get("--summarize-provider", "groq") as "groq" | "anthropic",
+    summarizeModel: get("--summarize-model", ""),
+    graph: args.includes("--graph"),
+    graphWeight: parseFloat(get("--graph-weight", "0.18")),
+    graphMaxHops: parseInt(get("--graph-max-hops", "2"), 10),
   };
 }
 
@@ -104,9 +120,13 @@ async function ingestAndRecall(
   hydeQueries: string[] | null,
   reranker: CrossEncoderReranker | null,
   rerankPool: number,
+  summarizeOpts: { enabled: boolean; provider: "groq" | "anthropic"; model?: string } | null,
+  graphOpts: { enabled: boolean; weight: number; maxHops: number; provider: "groq" | "anthropic" } | null,
 ): Promise<RecalledMemory[]> {
   const agentId = `lme-${instance.question_id}`;
   const agent = MnemoPay.quick(agentId, { recall: recallStrategy, embeddings });
+
+  const graph = graphOpts?.enabled ? new EntityGraph() : null;
 
   for (let i = 0; i < instance.haystack_sessions.length; i++) {
     const session = instance.haystack_sessions[i];
@@ -114,8 +134,63 @@ async function ingestAndRecall(
     const date = instance.haystack_dates[i] ?? "unknown";
     const content = formatSession(session, sessionId, date);
     const chunks = chunkContent(content, 2000);
+    const chunkIds: string[] = [];
     for (const chunk of chunks) {
-      await agent.remember(chunk, { tags: [`session:${sessionId}`, `date:${date}`] });
+      const id = await agent.remember(chunk, { tags: [`session:${sessionId}`, `date:${date}`] });
+      chunkIds.push(id);
+    }
+
+    // Optional: summarize this session into a dated 200-token digest and
+    // store it as an additional memory. This is Win #1 — the single biggest
+    // multi-session retrieval lever per the Mem0/Mastra literature.
+    let summaryId: string | null = null;
+    let summaryText: string | null = null;
+    if (summarizeOpts?.enabled && session.length > 0) {
+      try {
+        const summary = await summarizeSession(
+          session.map((t) => ({
+            role: t.role === "human" ? "user" : "assistant",
+            content: t.content,
+          })),
+          {
+            provider: summarizeOpts.provider,
+            model: summarizeOpts.model || undefined,
+            date,
+          },
+        );
+        summaryText = summary;
+        const formatted = formatSummaryMemory({ sessionId, date, summary });
+        summaryId = await agent.remember(formatted, {
+          tags: [`session:${sessionId}`, `date:${date}`, "type:summary"],
+          importance: 0.85,
+        });
+      } catch {
+        // Summarization failures are non-fatal — raw chunks still cover the session.
+      }
+    }
+
+    // Optional: Win #2 — extract entities from the summary (or first chunk if
+    // no summary) and register all chunk+summary IDs as mentions of those
+    // entities. Pairwise edges inside one session give us co-occurrence graph.
+    if (graph && graphOpts?.enabled) {
+      const extractionSource = summaryText ?? chunks[0] ?? "";
+      if (extractionSource) {
+        try {
+          const entities = await extractEntities(extractionSource, {
+            provider: graphOpts.provider,
+            maxEntities: 15,
+          });
+          if (entities.length > 0) {
+            const memIdsForSession = summaryId ? [...chunkIds, summaryId] : chunkIds;
+            // Register each mem id against every entity in the session
+            for (const memId of memIdsForSession) {
+              graph.ingestMemoryEntities({ memoryId: memId, entities });
+            }
+          }
+        } catch {
+          // Extraction failures are non-fatal.
+        }
+      }
     }
   }
 
@@ -134,12 +209,80 @@ async function ingestAndRecall(
   }
   let merged = Array.from(seen.values()).sort((a, b) => b.score - a.score);
 
+  // Win #2: graph spreading activation. Extract entities from the query,
+  // BFS 2-hop through the per-agent co-occurrence graph, and blend the
+  // spread score as a 6th retrieval signal. Memories mentioning query
+  // entities directly (hop 0) get the strongest boost; 2-hop neighbors
+  // get a softer lift just enough to surface them into the rerank pool.
+  if (graph && graphOpts?.enabled) {
+    try {
+      const qEntities = await extractEntities(query, {
+        provider: graphOpts.provider,
+        maxEntities: 8,
+      });
+      const seeds: string[] = [];
+      for (const e of qEntities) {
+        const id = graph.findByName(e.name);
+        if (id) seeds.push(id);
+      }
+      if (seeds.length > 0) {
+        const spread = graph.spread(seeds, graphOpts.maxHops);
+        const w = graphOpts.weight;
+        merged = merged
+          .map((m) => {
+            const s = spread.memoryScores.get(m.id) ?? 0;
+            // Boost the surfaced score — preserve the original ordering
+            // for memories with zero spread, and additively lift those
+            // the graph points at. Cap at 1 to stay comparable to scores.
+            const boosted = Math.min(1, m.score + w * s);
+            return { ...m, score: boosted };
+          })
+          .sort((a, b) => b.score - a.score);
+        // Also promote any graph-highlighted memory that didn't make the
+        // original cut — pull up to graphMaxHops * 4 extras from the agent.
+        const knownIds = new Set(merged.map((m) => m.id));
+        const spreadEntries: [string, number][] = Array.from(spread.memoryScores.entries());
+        const missing: string[] = spreadEntries
+          .filter(([id]) => !knownIds.has(id))
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, graphOpts.maxHops * 4)
+          .map(([id]) => id);
+        if (missing.length > 0) {
+          // Re-fetch these IDs from the agent's memory store
+          const allMems = (await agent.recall("", 10000)) as RecalledMemory[];
+          const byId = new Map(allMems.map((m) => [m.id, m]));
+          for (const id of missing) {
+            const m = byId.get(id);
+            if (m) {
+              const s = spread.memoryScores.get(id) ?? 0;
+              merged.push({ ...m, score: Math.min(1, m.score + w * s) });
+            }
+          }
+          merged.sort((a, b) => b.score - a.score);
+        }
+      }
+    } catch {
+      // Graph lookup failures are non-fatal.
+    }
+  }
+
   if (reranker && merged.length > 1) {
     const pool = merged.slice(0, Math.max(rerankPool, recallLimit));
+    // Preserve ~40% of the topK for the most-recent candidates. Pure rerank
+    // (preserveRecency=0) collapses multi-evidence questions to a single best
+    // chunk; knowledge-update and temporal-reasoning need both the original
+    // mention and the updated/second mention to survive.
+    const preserveRecency = Math.ceil(recallLimit * 0.4);
     const reranked = await reranker.rerank(
       query,
-      pool.map((m) => ({ id: m.id, content: m.content, priorScore: m.score })),
+      pool.map((m) => ({
+        id: m.id,
+        content: m.content,
+        priorScore: m.score,
+        timestamp: m.createdAt,
+      })),
       recallLimit,
+      { preserveRecency },
     );
     const byId = new Map(pool.map((m) => [m.id, m]));
     merged = reranked.map((r) => byId.get(r.item.id)!).filter(Boolean);
@@ -241,6 +384,8 @@ async function main() {
   console.log(`Embeddings:      ${opts.embeddings}`);
   console.log(`HyDE:            ${opts.hyde ? `ON (${opts.hydeProvider}, n=${opts.hydeN})` : "OFF"}`);
   console.log(`Rerank:          ${opts.rerank ? `ON (${opts.rerankModel}, pool=${opts.rerankPool})` : "OFF"}`);
+  console.log(`Summarize:       ${opts.summarize ? `ON (${opts.summarizeProvider}${opts.summarizeModel ? ` ${opts.summarizeModel}` : ""})` : "OFF"}`);
+  console.log(`Graph:           ${opts.graph ? `ON (weight=${opts.graphWeight}, maxHops=${opts.graphMaxHops})` : "OFF"}`);
   console.log(`Model:           ${opts.model}`);
   console.log(`Reasoning:       ${opts.reasoning ? "ON" : "OFF"}`);
   if (opts.reasoning && opts.reasoningModel) {
@@ -373,9 +518,12 @@ async function main() {
     await limiter.acquire();
 
     try {
-      // Step 0: Optional HyDE expansion — generate hypothetical answers to use as extra queries
+      // Step 0: Optional HyDE expansion — generate hypothetical answers to use as extra queries.
+      // Skip HyDE on closed-fact questions (temporal durations, count-of-time-units,
+      // "most recent" / "updated to" patterns) where fabricated hypotheses pollute
+      // retrieval with plausible-but-wrong specifics.
       let hydeQueries: string[] | null = null;
-      if (hydeGen) {
+      if (hydeGen && shouldUseHyDE(instance.question)) {
         const { hypotheses } = await withRetry(
           () => hydeGen!.generate(instance.question),
           instance.question_id + "/hyde",
@@ -393,6 +541,21 @@ async function main() {
         hydeQueries,
         reranker,
         opts.rerankPool,
+        opts.summarize
+          ? {
+              enabled: true,
+              provider: opts.summarizeProvider,
+              model: opts.summarizeModel || undefined,
+            }
+          : null,
+        opts.graph
+          ? {
+              enabled: true,
+              weight: opts.graphWeight,
+              maxHops: opts.graphMaxHops,
+              provider: opts.summarizeProvider, // reuse the same free/paid provider
+            }
+          : null,
       );
 
       // Step 2: Build context — with optional reasoning layer
@@ -412,7 +575,7 @@ async function main() {
           tags: m.tags,
         }));
 
-        const { distilledContext } = await withRetry(
+        const distilledContext = await withRetry(
           () => reasoner.distill(instance.question, recallResults).then((r) => r.distilledContext),
           instance.question_id + "/reason"
         );

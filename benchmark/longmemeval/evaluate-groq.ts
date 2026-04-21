@@ -10,7 +10,7 @@
 
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
-import { MnemoPay } from "@mnemopay/sdk";
+import { MnemoPay, HyDEGenerator, CrossEncoderReranker } from "@mnemopay/sdk";
 import type { LongMemEvalInstance, Hypothesis, Turn } from "./types.js";
 
 // ─── CLI Args ────────────────────────────────────────────────────────────────
@@ -31,6 +31,14 @@ function parseArgs() {
     model: get("--model", "llama-3.3-70b-versatile"),
     concurrency: parseInt(get("--concurrency", "2"), 10), // Lower for Groq rate limits
     recallStrategy: get("--recall-strategy", "score") as "score" | "vector" | "hybrid",
+    embeddings: get("--embeddings", "bge") as "local" | "bge" | "openai",
+    hyde: args.includes("--hyde"),
+    hydeProvider: get("--hyde-provider", "groq") as "anthropic" | "openai" | "groq",
+    hydeModel: get("--hyde-model", ""),
+    hydeN: parseInt(get("--hyde-n", "3"), 10),
+    rerank: args.includes("--rerank"),
+    rerankModel: get("--rerank-model", "Xenova/bge-reranker-base"),
+    rerankPool: parseInt(get("--rerank-pool", "50"), 10),
   };
 }
 
@@ -64,21 +72,37 @@ function chunkContent(content: string, maxChars: number): string[] {
 
 // ─── Ingest Instance ─────────────────────────────────────────────────────────
 
+type RecalledMemory = {
+  id: string;
+  content: string;
+  importance: number;
+  score: number;
+  createdAt: Date;
+  lastAccessed: Date;
+  accessCount: number;
+  tags: string[];
+};
+
 async function ingestAndRecall(
   instance: LongMemEvalInstance,
   query: string,
   recallLimit: number,
-  recallStrategy: "score" | "vector" | "hybrid"
+  recallStrategy: "score" | "vector" | "hybrid",
+  embeddings: "local" | "bge" | "openai",
+  hydeQueries: string[] | null,
+  reranker: CrossEncoderReranker | null,
+  rerankPool: number,
 ): Promise<string[]> {
   const agentId = `lme-${instance.question_id}`;
-  const agent = MnemoPay.quick(agentId, { recall: recallStrategy });
+  const agent = MnemoPay.quick(agentId, { recall: recallStrategy, embeddings });
 
   for (let i = 0; i < instance.haystack_sessions.length; i++) {
     const session = instance.haystack_sessions[i];
     const sessionId = instance.haystack_session_ids[i] ?? `session-${i}`;
     const date = instance.haystack_dates[i] ?? "unknown";
     const content = formatSession(session, sessionId, date);
-    const chunks = chunkContent(content, 8000);
+    // Match evaluate.ts / evaluate-gemini.ts chunk size (2000) for comparability.
+    const chunks = chunkContent(content, 2000);
 
     for (const chunk of chunks) {
       await agent.remember(chunk, {
@@ -87,8 +111,33 @@ async function ingestAndRecall(
     }
   }
 
-  const memories = await agent.recall(query, recallLimit);
-  return memories.map((m) => m.content);
+  const queries = hydeQueries && hydeQueries.length > 0 ? [query, ...hydeQueries] : [query];
+  const perQueryLimit = reranker ? Math.max(recallLimit, rerankPool) : recallLimit;
+
+  const seen = new Map<string, RecalledMemory>();
+  for (const q of queries) {
+    const hits = (await agent.recall(q, perQueryLimit)) as RecalledMemory[];
+    for (const h of hits) {
+      const prev = seen.get(h.id);
+      if (!prev || h.score > prev.score) seen.set(h.id, h);
+    }
+  }
+  let merged = Array.from(seen.values()).sort((a, b) => b.score - a.score);
+
+  if (reranker && merged.length > 1) {
+    const pool = merged.slice(0, Math.max(rerankPool, recallLimit));
+    const reranked = await reranker.rerank(
+      query,
+      pool.map((m) => ({ id: m.id, content: m.content, priorScore: m.score })),
+      recallLimit,
+    );
+    const byId = new Map(pool.map((m) => [m.id, m]));
+    merged = reranked.map((r) => byId.get(r.item.id)!).filter(Boolean);
+  } else {
+    merged = merged.slice(0, recallLimit);
+  }
+
+  return merged.map((m) => m.content);
 }
 
 // ─── Groq Answer Generation (OpenAI-compatible) ─────────────────────────────
@@ -198,6 +247,9 @@ async function main() {
   console.log(`Output file:     ${opts.outputFile}`);
   console.log(`Recall limit:    ${opts.recallLimit}`);
   console.log(`Recall strategy: ${opts.recallStrategy}`);
+  console.log(`Embeddings:      ${opts.embeddings}`);
+  console.log(`HyDE:            ${opts.hyde ? `ON (${opts.hydeProvider}, n=${opts.hydeN})` : "OFF"}`);
+  console.log(`Rerank:          ${opts.rerank ? `ON (${opts.rerankModel}, pool=${opts.rerankPool})` : "OFF"}`);
   console.log(`Model:           ${opts.model}`);
   console.log(`Concurrency:     ${opts.concurrency}`);
 
@@ -206,6 +258,29 @@ async function main() {
     console.error("\nERROR: GROQ_API_KEY environment variable is required.");
     process.exit(1);
   }
+
+  let hydeGen: HyDEGenerator | null = null;
+  if (opts.hyde) {
+    const hydeKeyEnv =
+      opts.hydeProvider === "groq" ? "GROQ_API_KEY"
+      : opts.hydeProvider === "openai" ? "OPENAI_API_KEY"
+      : "ANTHROPIC_API_KEY";
+    const hydeKey = process.env[hydeKeyEnv];
+    if (!hydeKey) {
+      console.error(`\nERROR: --hyde requires ${hydeKeyEnv} for provider=${opts.hydeProvider}`);
+      process.exit(1);
+    }
+    hydeGen = new HyDEGenerator({
+      provider: opts.hydeProvider,
+      apiKey: hydeKey,
+      model: opts.hydeModel || undefined,
+      numHypotheses: opts.hydeN,
+    });
+  }
+
+  const reranker: CrossEncoderReranker | null = opts.rerank
+    ? new CrossEncoderReranker({ model: opts.rerankModel })
+    : null;
 
   if (!existsSync(opts.dataFile)) {
     console.error(`\nERROR: Data file not found: ${opts.dataFile}`);
@@ -260,11 +335,23 @@ async function main() {
     await limiter.acquire();
 
     try {
+      let hydeQueries: string[] | null = null;
+      if (hydeGen) {
+        try {
+          const { hypotheses } = await hydeGen.generate(instance.question);
+          hydeQueries = hypotheses;
+        } catch { hydeQueries = null; }
+      }
+
       const context = await ingestAndRecall(
         instance,
         instance.question,
         opts.recallLimit,
-        opts.recallStrategy
+        opts.recallStrategy,
+        opts.embeddings,
+        hydeQueries,
+        reranker,
+        opts.rerankPool,
       );
 
       const hypothesis = await generateAnswer(
@@ -296,11 +383,22 @@ async function main() {
         console.log("  Rate limited, waiting 60s...");
         await new Promise(r => setTimeout(r, 60000));
         try {
+          let retryHyde: string[] | null = null;
+          if (hydeGen) {
+            try {
+              const { hypotheses } = await hydeGen.generate(instance.question);
+              retryHyde = hypotheses;
+            } catch { /* keep null */ }
+          }
           const context = await ingestAndRecall(
             instance,
             instance.question,
             opts.recallLimit,
-            opts.recallStrategy
+            opts.recallStrategy,
+            opts.embeddings,
+            retryHyde,
+            reranker,
+            opts.rerankPool,
           );
           const hypothesis = await generateAnswer(
             apiKey,

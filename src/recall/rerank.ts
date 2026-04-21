@@ -16,6 +16,14 @@ export interface RerankCandidate {
   content: string;
   /** Original first-stage score (preserved for fallback / ablation). */
   priorScore?: number;
+  /**
+   * Creation timestamp. Required only when rerank() is called with
+   * `preserveRecency > 0` — otherwise ignored. Enables the reranker to reserve
+   * topK slots for the most recent candidates, which is critical for
+   * knowledge-update and temporal-reasoning questions where a pure relevance
+   * signal drops the load-bearing second-evidence chunk.
+   */
+  timestamp?: Date;
 }
 
 export interface RerankedResult<T extends RerankCandidate = RerankCandidate> {
@@ -32,6 +40,18 @@ export interface RerankerConfig {
   maxCandidates?: number;
   /** Truncate each candidate's content to this many chars before scoring. */
   maxContentChars?: number;
+}
+
+export interface RerankOptions {
+  /**
+   * Reserve this many of the topK slots for the most-recent candidates (by
+   * `timestamp`) that would not otherwise have made the cut. Defaults to 0
+   * (pure relevance). On benchmarks with multi-evidence questions (temporal,
+   * knowledge-update), preserveRecency = ceil(topK * 0.4) recovers the breadth
+   * that a unimodal cross-encoder otherwise culls. Candidates without a
+   * `timestamp` are ignored by this logic.
+   */
+  preserveRecency?: number;
 }
 
 export const rerankerStats = {
@@ -102,6 +122,7 @@ export class CrossEncoderReranker {
     query: string,
     candidates: T[],
     topK?: number,
+    options: RerankOptions = {},
   ): Promise<RerankedResult<T>[]> {
     if (candidates.length === 0) return [];
 
@@ -139,6 +160,28 @@ export class CrossEncoderReranker {
     rerankerStats.calls++;
 
     scored.sort((a, b) => b.rerankScore - a.rerankScore);
-    return typeof topK === "number" && topK > 0 ? scored.slice(0, topK) : scored;
+
+    const k = typeof topK === "number" && topK > 0 ? topK : scored.length;
+    const reserve = Math.max(0, Math.min(options.preserveRecency ?? 0, k));
+
+    if (reserve === 0) return scored.slice(0, k);
+
+    const relevanceSlots = Math.max(0, k - reserve);
+    const relevantPart = scored.slice(0, relevanceSlots);
+    const takenIds = new Set(relevantPart.map((r) => r.item.id));
+
+    // Most-recent slots: sort the remainder by timestamp DESC, take `reserve`.
+    // Candidates missing a timestamp sink to the bottom (they cannot claim a
+    // recency slot, so the feature degrades gracefully when callers forget to
+    // pass createdAt).
+    const remainder = scored.filter((r) => !takenIds.has(r.item.id));
+    const byRecency = remainder.slice().sort((a, b) => {
+      const ta = a.item.timestamp instanceof Date ? a.item.timestamp.getTime() : -Infinity;
+      const tb = b.item.timestamp instanceof Date ? b.item.timestamp.getTime() : -Infinity;
+      return tb - ta;
+    });
+    const recencyPart = byRecency.slice(0, reserve);
+
+    return [...relevantPart, ...recencyPart];
   }
 }

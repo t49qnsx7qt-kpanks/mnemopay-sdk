@@ -15,8 +15,23 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { MnemoPay } from "@mnemopay/sdk";
+import { execSync } from "node:child_process";
+import { MnemoPay, bgeStats } from "@mnemopay/sdk";
 import type { LongMemEvalInstance, Turn } from "./types.js";
+
+function getGitSha(): string {
+  try {
+    return execSync("git rev-parse HEAD", { encoding: "utf-8" }).trim();
+  } catch {
+    return "unknown";
+  }
+}
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+  return sorted[idx];
+}
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -97,9 +112,10 @@ async function main() {
 
   let answerInRecalled = 0;
   let sessionHit = 0;
+  let allSessionsHit = 0;
   let total = 0;
 
-  const byType: Record<string, { answerHit: number; sessionHit: number; total: number }> = {};
+  const byType: Record<string, { answerHit: number; sessionHit: number; allSessionsHit: number; total: number }> = {};
 
   const details: Array<{
     qid: string;
@@ -108,14 +124,22 @@ async function main() {
     answer: string;
     answerFound: boolean;
     sessionFound: boolean;
+    allSessionsFound: boolean;
     recalledSessions: string[];
+    recalledSnippets: Array<{ sessionId: string; firstLine: string }>;
     answerSessions: string[];
     recallCount: number;
+    haystackSize: number;
   }> = [];
+
+  const haystackSizes: number[] = [];
 
   for (const inst of instances) {
     const agentId = `lme-recall-${inst.question_id}`;
-    const agent = MnemoPay.quick(agentId, { recall: opts.recallStrategy });
+    const agent = MnemoPay.quick(agentId, {
+      recall: opts.recallStrategy,
+      embeddings: "bge",
+    });
 
     // Ingest all sessions
     for (let i = 0; i < inst.haystack_sessions.length; i++) {
@@ -140,15 +164,25 @@ async function main() {
     // Check 2: Were the correct answer sessions retrieved?
     const answerSessionIds = new Set(inst.answer_session_ids ?? []);
     const recalledSessionIds: string[] = [];
+    const recalledSnippets: Array<{ sessionId: string; firstLine: string }> = [];
     for (const text of recalledTexts) {
       const match = text.match(/\[Session (\S+)/);
-      if (match) recalledSessionIds.push(match[1]);
+      if (match) {
+        const sid = match[1];
+        recalledSessionIds.push(sid);
+        const lines = text.split("\n");
+        const firstContent = lines.slice(1).find(l => l.trim().length > 0) ?? "";
+        recalledSnippets.push({ sessionId: sid, firstLine: firstContent.slice(0, 200) });
+      }
     }
     const sessionFound = recalledSessionIds.some(sid => answerSessionIds.has(sid));
+    const recalledSet = new Set(recalledSessionIds);
+    const allSessionsFound = answerSessionIds.size > 0
+      && Array.from(answerSessionIds).every(sid => recalledSet.has(sid));
 
     // Track stats
     const qtype = inst.question_type ?? "unknown";
-    if (!byType[qtype]) byType[qtype] = { answerHit: 0, sessionHit: 0, total: 0 };
+    if (!byType[qtype]) byType[qtype] = { answerHit: 0, sessionHit: 0, allSessionsHit: 0, total: 0 };
     byType[qtype].total++;
     total++;
 
@@ -160,6 +194,13 @@ async function main() {
       sessionHit++;
       byType[qtype].sessionHit++;
     }
+    if (allSessionsFound) {
+      allSessionsHit++;
+      byType[qtype].allSessionsHit++;
+    }
+
+    const haystackSize = inst.haystack_sessions.length;
+    haystackSizes.push(haystackSize);
 
     details.push({
       qid: inst.question_id,
@@ -168,9 +209,12 @@ async function main() {
       answer: inst.answer,
       answerFound,
       sessionFound,
+      allSessionsFound,
       recalledSessions: recalledSessionIds,
+      recalledSnippets,
       answerSessions: inst.answer_session_ids ?? [],
       recallCount: memories.length,
+      haystackSize,
     });
 
     const pct = ((total / instances.length) * 100).toFixed(1);
@@ -192,39 +236,98 @@ async function main() {
   console.log(`  Time:               ${(totalMs / 1000).toFixed(1)}s`);
   console.log(`  Avg per question:   ${(totalMs / total / 1000).toFixed(2)}s\n`);
 
-  console.log(`  ANSWER IN RECALLED: ${answerInRecalled}/${total} = ${((answerInRecalled/total)*100).toFixed(1)}%`);
-  console.log(`  SESSION HIT RATE:   ${sessionHit}/${total} = ${((sessionHit/total)*100).toFixed(1)}%\n`);
+  console.log(`  ANSWER IN RECALLED:     ${answerInRecalled}/${total} = ${((answerInRecalled/total)*100).toFixed(1)}%`);
+  console.log(`  SESSION-RECALL@20 ANY:  ${sessionHit}/${total} = ${((sessionHit/total)*100).toFixed(1)}%`);
+  console.log(`  SESSION-RECALL@20 ALL:  ${allSessionsHit}/${total} = ${((allSessionsHit/total)*100).toFixed(1)}%\n`);
 
   console.log(`  By Question Type:`);
-  console.log(`  ${"─".repeat(56)}`);
-  console.log(`  ${"Type".padEnd(30)} ${"Answer Hit".padEnd(13)} ${"Session Hit".padEnd(13)}`);
-  console.log(`  ${"─".repeat(56)}`);
+  console.log(`  ${"─".repeat(78)}`);
+  console.log(`  ${"Type".padEnd(30)} ${"Any-Gold".padEnd(18)} ${"All-Gold".padEnd(18)}`);
+  console.log(`  ${"─".repeat(78)}`);
   for (const [qtype, stats] of Object.entries(byType).sort()) {
-    const aPct = ((stats.answerHit / stats.total) * 100).toFixed(1);
-    const sPct = ((stats.sessionHit / stats.total) * 100).toFixed(1);
+    const anyPct = ((stats.sessionHit / stats.total) * 100).toFixed(1);
+    const allPct = ((stats.allSessionsHit / stats.total) * 100).toFixed(1);
     console.log(
-      `  ${qtype.padEnd(30)} ${`${stats.answerHit}/${stats.total} (${aPct}%)`.padEnd(13)} ${`${stats.sessionHit}/${stats.total} (${sPct}%)`.padEnd(13)}`
+      `  ${qtype.padEnd(30)} ${`${stats.sessionHit}/${stats.total} (${anyPct}%)`.padEnd(18)} ${`${stats.allSessionsHit}/${stats.total} (${allPct}%)`.padEnd(18)}`
     );
   }
-  console.log(`  ${"─".repeat(56)}`);
+  console.log(`  ${"─".repeat(78)}\n`);
+
+  const sortedHaystack = [...haystackSizes].sort((a, b) => a - b);
+  const hMin = sortedHaystack[0] ?? 0;
+  const hMedian = percentile(sortedHaystack, 50);
+  const hP90 = percentile(sortedHaystack, 90);
+  const hMax = sortedHaystack[sortedHaystack.length - 1] ?? 0;
+  console.log(`  Haystack sessions per question: min=${hMin}, median=${hMedian}, p90=${hP90}, max=${hMax}`);
+
+  // Rank worst: missed all gold sessions, then missed any gold session
+  const worst10 = [...details]
+    .map(d => ({
+      ...d,
+      _rank: (d.sessionFound ? 1 : 0) * 1000 + (d.allSessionsFound ? 1 : 0) * 100 + (d.answerFound ? 1 : 0),
+    }))
+    .sort((a, b) => a._rank - b._rank)
+    .slice(0, 10)
+    .map(d => ({
+      qid: d.qid,
+      qtype: d.qtype,
+      question: d.question,
+      goldSessions: d.answerSessions,
+      retrievedTop20: d.recalledSnippets,
+      sessionFound: d.sessionFound,
+      allSessionsFound: d.allSessionsFound,
+    }));
+
+  const runConfig = {
+    dataFile: opts.dataFile,
+    recallStrategy: opts.recallStrategy,
+    recallLimit: opts.recallLimit,
+    chunkSize: 2000,
+    chunkAlignment: "line-aligned",
+    embedder: {
+      provider: "bge",
+      model: bgeStats.model,
+      dimensions: bgeStats.dimensions,
+      loadTimeMs: bgeStats.loadTimeMs,
+      totalEmbedTimeMs: bgeStats.totalEmbedTimeMs,
+      embedCount: bgeStats.embedCount,
+      avgEmbedMs: bgeStats.embedCount > 0
+        ? +(bgeStats.totalEmbedTimeMs / bgeStats.embedCount).toFixed(2)
+        : 0,
+      loaded: bgeStats.loaded,
+    },
+    topK: opts.recallLimit,
+    gitSha: getGitSha(),
+    node: process.version,
+    timestamp: new Date().toISOString(),
+  };
 
   // Save detailed results
   const outDir = `results/recall_only_${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
   mkdirSync(outDir, { recursive: true });
   writeFileSync(`${outDir}/details.json`, JSON.stringify(details, null, 2));
+  writeFileSync(`${outDir}/worst10.json`, JSON.stringify(worst10, null, 2));
   writeFileSync(`${outDir}/summary.json`, JSON.stringify({
-    recallStrategy: opts.recallStrategy,
-    recallLimit: opts.recallLimit,
+    runConfig,
     totalQuestions: total,
     answerInRecalled: { count: answerInRecalled, pct: ((answerInRecalled/total)*100).toFixed(1) },
-    sessionHitRate: { count: sessionHit, pct: ((sessionHit/total)*100).toFixed(1) },
+    sessionRecallAt20_anyGold: { count: sessionHit, pct: ((sessionHit/total)*100).toFixed(1) },
+    sessionRecallAt20_allGold: { count: allSessionsHit, pct: ((allSessionsHit/total)*100).toFixed(1) },
+    haystackDistribution: {
+      min: hMin,
+      median: hMedian,
+      p90: hP90,
+      max: hMax,
+    },
     byType: Object.fromEntries(
       Object.entries(byType).map(([k, v]) => [k, {
         total: v.total,
         answerHit: v.answerHit,
         answerHitPct: ((v.answerHit / v.total) * 100).toFixed(1),
-        sessionHit: v.sessionHit,
-        sessionHitPct: ((v.sessionHit / v.total) * 100).toFixed(1),
+        sessionHit_anyGold: v.sessionHit,
+        sessionHit_anyGoldPct: ((v.sessionHit / v.total) * 100).toFixed(1),
+        sessionHit_allGold: v.allSessionsHit,
+        sessionHit_allGoldPct: ((v.allSessionsHit / v.total) * 100).toFixed(1),
       }])
     ),
     timeMs: totalMs,
@@ -232,17 +335,17 @@ async function main() {
 
   console.log(`\n  Results saved: ${outDir}/`);
 
-  // Show some misses
-  const misses = details.filter(d => !d.answerFound).slice(0, 5);
-  if (misses.length > 0) {
-    console.log(`\n  Sample misses (answer NOT in recalled memories):`);
-    for (const m of misses) {
-      console.log(`    [${m.qtype}] Q: ${m.question.slice(0, 80)}...`);
-      console.log(`      Gold: "${m.answer.slice(0, 60)}"`);
-      console.log(`      Recalled ${m.recallCount} memories from sessions: [${m.recalledSessions.slice(0, 5).join(", ")}]`);
-      console.log(`      Answer sessions: [${m.answerSessions.join(", ")}]`);
-      console.log();
+  console.log(`\n  Worst 10 questions (ranked by missed gold sessions):\n`);
+  for (let i = 0; i < worst10.length; i++) {
+    const w = worst10[i];
+    console.log(`  #${i + 1} [${w.qtype}] qid=${w.qid}`);
+    console.log(`    Q: ${w.question}`);
+    console.log(`    Gold sessions: [${w.goldSessions.join(", ")}]`);
+    console.log(`    Retrieved top-20:`);
+    for (const s of w.retrievedTop20) {
+      console.log(`      - ${s.sessionId} | ${s.firstLine}`);
     }
+    console.log();
   }
 }
 

@@ -14,9 +14,25 @@
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+import type { PersistenceAdapter, PersistenceOptions } from "./persistence/types.js";
+import { MemoryAdapter } from "./persistence/memory.js";
+import { NeonAdapter } from "./persistence/neon.js";
+
 export type RecallStrategy = "score" | "vector" | "hybrid";
 
-export type EmbeddingProvider = "openai" | "local";
+export type EmbeddingProvider = "openai" | "local" | "bge";
+
+export type { PersistenceAdapter, PersistenceOptions } from "./persistence/types.js";
+
+// BGE embedder timing + model info, populated lazily on first call
+export const bgeStats = {
+  model: "Xenova/bge-small-en-v1.5",
+  dimensions: 384,
+  loadTimeMs: 0,
+  totalEmbedTimeMs: 0,
+  embedCount: 0,
+  loaded: false,
+};
 
 export interface RecallEngineConfig {
   strategy: RecallStrategy;
@@ -70,6 +86,22 @@ export interface RecallEngineConfig {
    * FTS score is converted into a [0..1]-ish similarity-ish scalar.
    */
   ftsWeight?: number;
+
+  /**
+   * Persistence adapter for vector storage. Defaults to an in-process
+   * MemoryAdapter (zero deps). Pass `{ type: "neon", url }` to persist in
+   * Neon/Postgres via pgvector, or a pre-built adapter via
+   * `{ type: "custom", adapter }`. Orthogonal to the embedding provider.
+   */
+  persist?: PersistenceOptions | PersistenceAdapter;
+
+  /**
+   * Agent id used to scope persisted rows. Required when `persist.type` is
+   * "neon" so that rows from different agents never collide. Defaults to
+   * "default" for the in-process MemoryAdapter so existing callers keep
+   * working without changes.
+   */
+  agentId?: string;
 }
 
 export interface VectorMemory {
@@ -267,8 +299,8 @@ export function localEmbed(text: string, dimensions = 384): Float32Array {
   // Expand with preference synonyms
   const expanded = new Set(baseTokens);
   for (const tok of baseTokens) {
-    const syns = PREFERENCE_SYNONYMS[tok];
-    if (syns) for (const s of syns) expanded.add(s);
+    const syns = Object.hasOwn(PREFERENCE_SYNONYMS, tok) ? PREFERENCE_SYNONYMS[tok] : undefined;
+    if (Array.isArray(syns)) for (const s of syns) expanded.add(s);
   }
   const tokens = Array.from(expanded);
 
@@ -307,6 +339,37 @@ export function localEmbed(text: string, dimensions = 384): Float32Array {
   return l2Normalize(vec);
 }
 
+// ─── BGE Embedding (local ONNX via @xenova/transformers) ────────────────────
+
+let bgeExtractor: ((text: string, opts: any) => Promise<{ data: Float32Array }>) | null = null;
+
+async function bgeEmbed(text: string): Promise<Float32Array> {
+  if (!bgeExtractor) {
+    const t0 = Date.now();
+    const { pipeline, env } = await import("@xenova/transformers");
+    const localPath = process.env.BGE_LOCAL_MODEL_PATH;
+    if (localPath) {
+      env.localModelPath = localPath;
+      env.allowRemoteModels = false;
+    }
+    bgeExtractor = (await pipeline(
+      "feature-extraction",
+      bgeStats.model,
+    )) as unknown as (text: string, opts: any) => Promise<{ data: Float32Array }>;
+    bgeStats.loadTimeMs = Date.now() - t0;
+    bgeStats.loaded = true;
+  }
+  const t0 = Date.now();
+  const output = await bgeExtractor(text, { pooling: "mean", normalize: true });
+  bgeStats.totalEmbedTimeMs += Date.now() - t0;
+  bgeStats.embedCount++;
+  const vec = output.data instanceof Float32Array ? output.data : new Float32Array(output.data);
+  if (vec.length !== bgeStats.dimensions) {
+    throw new Error(`BGE dimensions mismatch: got ${vec.length}, expected ${bgeStats.dimensions}`);
+  }
+  return vec;
+}
+
 // ─── OpenAI Embedding ───────────────────────────────────────────────────────
 
 async function openaiEmbed(
@@ -336,7 +399,16 @@ async function openaiEmbed(
 
 // ─── Recall Engine ──────────────────────────────────────────────────────────
 
-function sanitizeFTS5Query(rawQuery: string): string {
+const PREFERENCE_FTS_INJECTIONS = [
+  "prefer",
+  "favorite",
+  "love",
+  "like",
+  "enjoy",
+  "use",
+];
+
+function sanitizeFTS5Query(rawQuery: string, injectPreference = false): string {
   // Keep underscores to allow exact tokens like TOPIC_FACT_123 to survive sanitation.
   const cleaned = (rawQuery ?? "")
     .toString()
@@ -350,22 +422,93 @@ function sanitizeFTS5Query(rawQuery: string): string {
 
   if (tokens.length === 0) return "";
 
+  // For preference-intent queries ("recommend resources for video editing"), the
+  // query rarely shares a content word with memories like "I use Adobe Premiere".
+  // Inject preference verbs so BM25 can reach those statements via OR matching.
+  const finalTokens = injectPreference
+    ? Array.from(new Set([...tokens, ...PREFERENCE_FTS_INJECTIONS]))
+    : tokens;
+
   // FTS5: build a simple OR query: token1 OR token2 OR ...
-  return tokens.join(" OR ");
+  return finalTokens.join(" OR ");
+}
+
+function resolvePersistence(
+  persist: PersistenceOptions | PersistenceAdapter | undefined,
+): { adapter: PersistenceAdapter; ownsAdapter: boolean } {
+  // Heuristic: a full adapter has all five required methods.
+  if (
+    persist &&
+    typeof (persist as PersistenceAdapter).set === "function" &&
+    typeof (persist as PersistenceAdapter).get === "function" &&
+    typeof (persist as PersistenceAdapter).delete === "function" &&
+    typeof (persist as PersistenceAdapter).search === "function" &&
+    typeof (persist as PersistenceAdapter).close === "function"
+  ) {
+    return { adapter: persist as PersistenceAdapter, ownsAdapter: false };
+  }
+
+  const opts = (persist as PersistenceOptions | undefined) ?? { type: "memory" };
+  switch (opts.type) {
+    case "memory":
+      return { adapter: new MemoryAdapter(), ownsAdapter: true };
+    case "custom":
+      return { adapter: opts.adapter, ownsAdapter: false };
+    case "neon": {
+      // NeonAdapter is safe to import eagerly: it only dynamic-imports `pg`
+      // inside getPool(), so adapter construction is zero-cost and does not
+      // require `pg` to be installed until the first set/get/search call.
+      return {
+        adapter: new NeonAdapter({
+          url: opts.url,
+          table: opts.table,
+          skipBootstrap: opts.skipBootstrap,
+        }),
+        ownsAdapter: true,
+      };
+    }
+    default: {
+      const _exhaustive: never = opts;
+      throw new Error(`RecallEngine: unknown persist option: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
 }
 
 export class RecallEngine {
-  private config: Required<RecallEngineConfig>;
+  private config: Required<Omit<RecallEngineConfig, "persist" | "agentId">> & {
+    agentId: string;
+  };
+  private adapter: PersistenceAdapter;
+  private ownsAdapter: boolean;
+  /**
+   * Write-through cache of embeddings keyed by memory id.
+   *
+   * Populated on every `embed()` / `getOrEmbed()` and consulted during
+   * `search()` re-ranking so the hot path stays fast regardless of backend.
+   * For the memory adapter this is effectively a no-op mirror; for Neon it
+   * avoids N serial round-trips per recall.
+   */
   private vectors: Map<string, Float32Array> = new Map();
+  /**
+   * Content cache — needed so we can write-through to the adapter on every
+   * embed() call (the adapter stores content+embedding+metadata atomically).
+   * Falls back to "" when we only have an id.
+   */
+  private contents: Map<string, string> = new Map();
 
   constructor(config: Partial<RecallEngineConfig> = {}) {
+    const { adapter, ownsAdapter } = resolvePersistence(config.persist);
+    this.adapter = adapter;
+    this.ownsAdapter = ownsAdapter;
+
     this.config = {
       strategy: config.strategy ?? "score",
       embeddingProvider: config.embeddingProvider ?? "local",
       openaiApiKey: config.openaiApiKey ?? process.env.OPENAI_API_KEY ?? "",
       embeddingModel: config.embeddingModel ?? "text-embedding-3-small",
       dimensions:
-        config.dimensions ?? (config.embeddingProvider === "openai" ? 1536 : 384),
+        config.dimensions ??
+        (config.embeddingProvider === "openai" ? 1536 : 384),
       scoreWeight: config.scoreWeight ?? 0.4,
       vectorWeight: config.vectorWeight ?? 0.6,
       sqliteStorage: (config.sqliteStorage as any) ?? undefined,
@@ -373,7 +516,8 @@ export class RecallEngine {
       ftsCandidateLimit: config.ftsCandidateLimit ?? 50,
       ftsWeight: config.ftsWeight ?? 0.15,
       vectorKMultiplier: config.vectorKMultiplier ?? 3,
-    } as Required<RecallEngineConfig>;
+      agentId: config.agentId ?? "default",
+    } as Required<Omit<RecallEngineConfig, "persist" | "agentId">> & { agentId: string };
 
     const weightSum = this.config.scoreWeight + this.config.vectorWeight;
     if (Math.abs(weightSum - 1.0) > 0.01) {
@@ -397,7 +541,11 @@ export class RecallEngine {
     return this.config.strategy;
   }
 
-  async embed(id: string, content: string): Promise<Float32Array> {
+  async embed(
+    id: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<Float32Array> {
     let vec: Float32Array;
 
     if (this.config.embeddingProvider === "openai" && this.config.openaiApiKey) {
@@ -405,36 +553,80 @@ export class RecallEngine {
         vec = await openaiEmbed(
           content,
           this.config.openaiApiKey,
-          this.config.embeddingModel
+          this.config.embeddingModel,
         );
       } catch (e: any) {
         console.warn(
           `[mnemopay:recall] OpenAI embedding failed, falling back to local provider: ${
             e?.message ?? String(e)
-          }`
+          }`,
         );
         vec = localEmbed(content, this.config.dimensions);
       }
+    } else if (this.config.embeddingProvider === "bge") {
+      vec = await bgeEmbed(content);
     } else {
       vec = localEmbed(content, this.config.dimensions);
     }
 
     this.vectors.set(id, vec);
+    this.contents.set(id, content);
+    // Write-through to the persistence adapter. For MemoryAdapter this is
+    // effectively a local store mirror; for Neon it executes one INSERT.
+    await this.adapter.set(this.config.agentId, id, content, vec, metadata);
     return vec;
   }
 
   async getOrEmbed(id: string, content: string): Promise<Float32Array> {
     const cached = this.vectors.get(id);
     if (cached) return cached;
+
+    // Cache miss: try the persistence adapter before re-embedding.
+    // This matters for Neon — a freshly constructed engine can reuse
+    // embeddings that were written in a previous process.
+    try {
+      const row = await this.adapter.get(this.config.agentId, id);
+      if (row && row.embedding.length > 0) {
+        this.vectors.set(id, row.embedding);
+        this.contents.set(id, row.content);
+        return row.embedding;
+      }
+    } catch {
+      // Fall through to re-embed on adapter failure. Errors on the write
+      // path in embed() will surface the underlying problem clearly.
+    }
+
     return this.embed(id, content);
   }
 
   remove(id: string): void {
     this.vectors.delete(id);
+    this.contents.delete(id);
+    // Fire-and-forget adapter delete. The MemoryAdapter resolves synchronously;
+    // Neon resolves async but we do not await to keep the signature sync-compatible
+    // with the original Map-based API (callers may chain `await` via `removeAsync`).
+    const p = this.adapter.delete(this.config.agentId, id);
+    void p.catch(() => {
+      /* surface errors via next adapter call */
+    });
+  }
+
+  /** Async variant of remove() that awaits the adapter delete. */
+  async removeAsync(id: string): Promise<void> {
+    this.vectors.delete(id);
+    this.contents.delete(id);
+    await this.adapter.delete(this.config.agentId, id);
   }
 
   removeBatch(ids: string[]): void {
-    for (const id of ids) this.vectors.delete(id);
+    for (const id of ids) {
+      this.vectors.delete(id);
+      this.contents.delete(id);
+      const p = this.adapter.delete(this.config.agentId, id);
+      void p.catch(() => {
+        /* surface errors via next adapter call */
+      });
+    }
   }
 
   purgeStaleVectors(validIds: Set<string>): number {
@@ -442,6 +634,11 @@ export class RecallEngine {
     for (const id of this.vectors.keys()) {
       if (!validIds.has(id)) {
         this.vectors.delete(id);
+        this.contents.delete(id);
+        const p = this.adapter.delete(this.config.agentId, id);
+        void p.catch(() => {
+          /* surface errors via next adapter call */
+        });
         purged++;
       }
     }
@@ -450,6 +647,29 @@ export class RecallEngine {
 
   clear(): void {
     this.vectors.clear();
+    this.contents.clear();
+    // Adapter clear is not part of the PersistenceAdapter interface because
+    // semantics vary (MemoryAdapter clears one agent; Neon would truncate).
+    // For the built-in MemoryAdapter we clear the agent bucket explicitly.
+    if (this.adapter instanceof MemoryAdapter) {
+      this.adapter.clearAgent(this.config.agentId);
+    }
+  }
+
+  /**
+   * Release adapter resources (e.g. close the Neon pool).
+   * Safe to call multiple times; callers should always invoke this when
+   * shutting down a long-lived process.
+   */
+  async close(): Promise<void> {
+    if (this.ownsAdapter) {
+      await this.adapter.close();
+    }
+  }
+
+  /** Expose the underlying adapter for advanced use cases and tests. */
+  getAdapter(): PersistenceAdapter {
+    return this.adapter;
   }
 
   private embedQuery(query: string): Promise<Float32Array> {
@@ -457,15 +677,18 @@ export class RecallEngine {
       return openaiEmbed(
         query,
         this.config.openaiApiKey,
-        this.config.embeddingModel
+        this.config.embeddingModel,
       ).catch((e: any) => {
         console.warn(
           `[mnemopay:recall] OpenAI query embedding failed, falling back to local provider: ${
             e?.message ?? String(e)
-          }`
+          }`,
         );
         return localEmbed(query, this.config.dimensions);
       });
+    }
+    if (this.config.embeddingProvider === "bge") {
+      return bgeEmbed(query);
     }
     return Promise.resolve(localEmbed(query, this.config.dimensions));
   }
@@ -505,12 +728,15 @@ export class RecallEngine {
     const q = (query ?? "").toString();
     const queryVec = await this.embedQuery(q);
 
-    // Preference queries ("favorite", "prefer", "like", etc.) need stronger FTS weight
-    // since lexical matching is more reliable than hash embeddings for paraphrase matching
-    const PREFERENCE_QUERY_TERMS = /\b(favorite|prefer|like|enjoy|love|hate|dislike|allergic|restriction|diet)\b/i;
-    const isPreferenceQuery = PREFERENCE_QUERY_TERMS.test(q);
+    // Preference queries need stronger FTS weight — lexical matching is more reliable
+    // than hash embeddings for paraphrase matching. Cover both explicit ("favorite")
+    // and implicit ("recommend a hotel") phrasings since LongMemEval preference
+    // questions almost never use the explicit verbs.
+    const EXPLICIT_PREFERENCE = /\b(favorite|prefer|like|enjoy|love|hate|dislike|allergic|restriction|diet)\b/i;
+    const IMPLICIT_PREFERENCE = /\b(recommend|recommendation|suggest|suggestion|advice|advise|which|what.+should|can you (recommend|suggest))\b/i;
+    const isPreferenceQuery = EXPLICIT_PREFERENCE.test(q) || IMPLICIT_PREFERENCE.test(q);
     const effectiveFtsWeight = isPreferenceQuery
-      ? Math.max(this.config.ftsWeight ?? 0.15, 0.35)
+      ? Math.max(this.config.ftsWeight ?? 0.15, 0.45)
       : (this.config.ftsWeight ?? 0.15);
 
     let candidateMems = memories;
@@ -524,7 +750,7 @@ export class RecallEngine {
       typeof this.config.sqliteStorage.searchMemoriesFTS === "function"
     ) {
       try {
-        const ftsQuery = sanitizeFTS5Query(q.slice(0, 500));
+        const ftsQuery = sanitizeFTS5Query(q.slice(0, 500), isPreferenceQuery);
         if (!ftsQuery) {
           // If query has no usable tokens, skip FTS and use in-memory candidates.
           candidateMems = memories;
