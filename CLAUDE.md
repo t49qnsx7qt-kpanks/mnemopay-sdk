@@ -78,3 +78,21 @@ Content ready: Show HN, Dev.to tutorial, 12 tweets, 3 LinkedIn posts
 - Use string amounts (always numbers)
 - Forget settle() after charge()
 - Skip `npm test` before committing
+
+## Work Pattern (Karpathy-style: research → build → automate)
+
+Before every non-trivial task, spend 10 min on research, then build, then automate one adjacent thing.
+
+1. **Research first.** Check what exists: existing code in this repo (Grep/Read), prior session memory, competitor patterns, npm packages, recent papers or tweets. If the user asks for X, first verify X doesn't already exist here. If it does, extend it instead of rebuilding.
+2. **Build the minimum.** Ship the smallest useful version. No speculative abstractions, no future-proofing, no "while I'm here" refactors. Three similar lines beat a premature helper.
+3. **Automate one adjacent thing.** Every manual task you just did — turn it into a cron, a script, a test, or a note in `status.md`. Do not ship the same manual task twice.
+4. **Verify before claiming done.** Run `npm test`. For UI changes, actually load it. For marketing scripts, dry-run before live-run. "Tests pass" is not the same as "it works."
+5. **Update memory.** If something non-obvious happened (new service tier, bug class, vendor policy change), save it to `~/.claude/projects/C--WINDOWS-system32/memory/` so the next session doesn't re-learn it.
+
+Checklist before marking a task complete:
+- [ ] I grepped the repo for prior art.
+- [ ] I ran the tests that cover what I changed.
+- [ ] I removed the hardest manual step from this task for next time (or noted why I can't).
+- [ ] `status.md` reflects what shipped and what's still open.
+
+**Status file pattern.** At session start, read `status.md` at repo root (it's the one-page dashboard of live work). At session end, update it. Format: `## Shipped today` / `## In progress` / `## Blocked` / `## Next session`. Keep it under 60 lines — if it's longer, archive old entries to `status-archive.md`.

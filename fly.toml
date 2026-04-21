@@ -9,6 +9,8 @@ primary_region = 'dfw'
   NODE_ENV = 'production'
   MNEMOPAY_PERSIST_DIR = '/data'
   MNEMOPAY_URL = 'https://mnemopay-mcp.fly.dev'
+  PORTAL_URL = 'https://getbizsuite.com'
+  REQUIRE_PORTAL_AUTH = 'true'
 
 [mounts]
   source = 'mnemopay_data'
