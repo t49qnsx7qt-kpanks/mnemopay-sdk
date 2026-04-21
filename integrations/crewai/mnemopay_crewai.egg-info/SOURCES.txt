@@ -1,8 +1,0 @@
-README.md
-mnemopay_crewai.py
-pyproject.toml
-mnemopay_crewai.egg-info/PKG-INFO
-mnemopay_crewai.egg-info/SOURCES.txt
-mnemopay_crewai.egg-info/dependency_links.txt
-mnemopay_crewai.egg-info/requires.txt
-mnemopay_crewai.egg-info/top_level.txt

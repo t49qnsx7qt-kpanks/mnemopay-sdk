@@ -1,2 +1,0 @@
-[hermes_agent.plugins]
-mnemopay = mnemopay_hermes:register
