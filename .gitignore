@@ -2,6 +2,13 @@ node_modules/
 dist/
 *.tsbuildinfo
 .env
+.mcp-publisher-dns.key
+server.json
+server.dns.json
+mcp-publisher.exe
+mcp-publisher.tar.gz
+benchmark/longmemeval/eval_error.log
+benchmark/longmemeval/longmemeval-repo
 integrations/*/dist/
 integrations/*/*.egg-info/
 integrations/*/build/

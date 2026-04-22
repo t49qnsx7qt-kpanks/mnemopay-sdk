@@ -21,6 +21,27 @@ import { AdaptiveEngine, type AdaptiveConfig, type AgentInsight, type BusinessMe
 import { formatForClaudeCache, serializeMemoriesForCache, type ClaudeCacheBlock, type FormatForClaudeCacheOptions } from "./claude-cache.js";
 import { SubagentCostTracker } from "./subagent-cost.js";
 
+// ─── Module-level exit-hook registry ──────────────────────────────────────
+// One set of process listeners shared across every MnemoPay instance so
+// creating N instances (benchmarks, tests, serverless reuse) never leaks N
+// listeners onto the process object.
+
+const _flushCallbacks = new Set<() => void>();
+let _globalExitHooksInstalled = false;
+
+function _installGlobalExitHooks(): void {
+  if (_globalExitHooksInstalled) return;
+  if (typeof process === "undefined" || !process.on) return;
+  _globalExitHooksInstalled = true;
+  const flushAll = () => {
+    for (const f of _flushCallbacks) { try { f(); } catch {} }
+  };
+  process.on("beforeExit", flushAll);
+  process.on("SIGINT", () => { flushAll(); process.exit(0); });
+  process.on("SIGTERM", () => { flushAll(); process.exit(0); });
+  process.on("uncaughtException", (err) => { flushAll(); throw err; });
+}
+
 // ─── Browser-compatible EventEmitter ──────────────────────────────────────
 // Replaces Node's "events" module so MnemoPayLite runs in browsers too.
 
@@ -338,6 +359,7 @@ export class MnemoPayLite extends EventEmitter {
   private _refundingTxIds: Set<string> = new Set();
   /** Track whether process exit hooks have been registered (prevent listener leak) */
   private _exitHooksRegistered = false;
+  private _flushCallback: (() => void) | null = null;
   /** Guard against concurrent wallet mutations */
   private _walletLock: Promise<void> = Promise.resolve();
   /** Max wallet balance — prevents overflow/accumulation attacks */
@@ -444,27 +466,38 @@ export class MnemoPayLite extends EventEmitter {
       // Auto-save every 30 seconds
       this.persistTimer = setInterval(() => this._saveToDisk(), 30_000);
 
-      // Hook process exit signals to flush data before shutdown.
-      // This prevents memory loss on restart, SIGTERM, or uncaught exceptions.
-      // Guard: only register once per instance to prevent listener leaks on repeated calls.
-      if (typeof process !== "undefined" && process.on && !this._exitHooksRegistered) {
+      // Register this instance's flush into the module-level registry.
+      // One set of process listeners is shared across ALL MnemoPay instances
+      // (see _installGlobalExitHooks at the top of this module).
+      if (!this._exitHooksRegistered) {
         this._exitHooksRegistered = true;
-        const flush = () => { this._saveToDisk(); };
-        process.on("beforeExit", flush);
-        process.on("SIGINT", () => { flush(); process.exit(0); });
-        process.on("SIGTERM", () => { flush(); process.exit(0); });
-        // Save on uncaught exception too — data is more valuable than a clean exit
-        process.on("uncaughtException", (err) => {
-          flush();
-          this.log(`Uncaught exception (data saved): ${err.message}`);
-          process.exit(1);
-        });
+        this._flushCallback = () => { this._saveToDisk(); };
+        _flushCallbacks.add(this._flushCallback);
+        _installGlobalExitHooks();
       }
 
       this.log(`Persistence enabled: ${this.persistPath}`);
     } catch (e) {
       this.log(`Persistence unavailable (browser?): ${e}`);
     }
+  }
+
+  /**
+   * Release this instance's process-exit flush registration and its auto-save timer.
+   * Call from benchmark loops / tests / serverless cleanup to avoid unbounded
+   * growth of the module-level flush set. Final save runs synchronously first.
+   */
+  destroy(): void {
+    try { this._saveToDisk(); } catch {}
+    if (this.persistTimer) {
+      clearInterval(this.persistTimer);
+      this.persistTimer = undefined;
+    }
+    if (this._flushCallback) {
+      _flushCallbacks.delete(this._flushCallback);
+      this._flushCallback = null;
+    }
+    this._exitHooksRegistered = false;
   }
 
   private _loadFromDisk(): void {
