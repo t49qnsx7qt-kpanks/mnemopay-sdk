@@ -1,783 +1,617 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
- <meta charset="UTF-8">
- <meta name="viewport" content="width=device-width, initial-scale=1.0">
- <title>MnemoPay, Production Payment Infrastructure for AI Agents</title>
- <meta name="description" content="Production payment infrastructure for AI agents. Stripe, Paystack, Lightning. Autonomous shopping with escrow. Agent Credit Score (300-850). Open source.">
- <meta property="og:title" content="MnemoPay, Payment Infrastructure for AI Agents">
- <meta property="og:description" content="Production payment infrastructure for AI agents. Real payment rails. Autonomous shopping with human-approved escrow. Agent Credit Score. Open source.">
- <meta property="og:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
- <meta property="og:type" content="website">
- <meta name="twitter:card" content="summary_large_image">
- <meta name="twitter:title" content="MnemoPay, Payment Infrastructure for AI Agents">
- <meta name="twitter:description" content="Real payment rails. Autonomous shopping. Agent Credit Score. Production infrastructure for AI agents that handle money.">
- <meta name="twitter:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
- <link rel="preconnect" href="https://fonts.googleapis.com">
- <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
- <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
- <style>
-    :root {
-      --bg: #07070d;
-      --surface: #0e0e18;
-      --surface2: #141422;
-      --border: #1c1c30;
-      --text: #e8e8f0;
-      --muted: #7a7a95;
-      --accent: #6c5ce7;
-      --accent-light: #8b7cf7;
-      --accent2: #00cec9;
-      --accent2-light: #33e8e3;
-      --green: #00b894;
-      --orange: #fdcb6e;
-      --red: #e17055;
-      --code-bg: #0f0f1e;
-      --gradient: linear-gradient(135deg, #6c5ce7 0%, #00cec9 100%);
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      overflow-x: hidden;
-    }
-    a { color: var(--accent2); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .container { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MnemoPay — payment infrastructure for AI agents</title>
+<meta name="description" content="Production payment infrastructure for AI agents. Stripe, Paystack, Lightning. Autonomous shopping with escrow. Agent Credit Score (300-850). Open source.">
+<meta property="og:title" content="MnemoPay — payment infrastructure for AI agents">
+<meta property="og:description" content="Real payment rails. Autonomous shopping with human-approved escrow. Agent Credit Score. Open source.">
+<meta property="og:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MnemoPay — payment infrastructure for AI agents">
+<meta name="twitter:description" content="Real payment rails. Autonomous shopping. Agent Credit Score. Production infrastructure for agents that handle money.">
+<meta name="twitter:image" content="https://getbizsuite.com/mnemopay/img/hero-ceo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#06060c; --surface:#0c0c16; --surface2:#11111e; --border:#1a1a30;
+    --text:#e8e8f0; --muted:#7a7a95; --accent:#6c5ce7; --accent2:#00cec9;
+    --green:#00b894; --code-bg:#0a0a14;
+    --gradient:linear-gradient(135deg,#6c5ce7 0%,#00cec9 100%);
+    --ease:cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:auto}
+  html.lenis,html.lenis body{height:auto}
+  .lenis.lenis-smooth{scroll-behavior:auto!important}
+  .lenis.lenis-smooth [data-lenis-prevent]{overscroll-behavior:contain}
+  .lenis.lenis-stopped{overflow:hidden}
+  .lenis.lenis-smooth iframe{pointer-events:none}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+    background:var(--bg); color:var(--text); line-height:1.6;
+    overflow-x:hidden; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--accent2); text-decoration:none}
+  a:hover{text-decoration:underline}
+  .container{max-width:1140px; margin:0 auto; padding:0 24px}
 
-    /* Nav */
-    nav {
-      border-bottom: 1px solid var(--border);
-      padding: 14px 0;
-      position: sticky; top: 0; background: rgba(7,7,13,0.92); backdrop-filter: blur(12px); z-index: 100;
-    }
-    nav .container { display: flex; justify-content: space-between; align-items: center; }
-    nav .logo { font-size: 1.4rem; font-weight: 800; color: var(--text); letter-spacing: -0.5px; }
-    nav .logo span { background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    nav .links { display: flex; gap: 28px; align-items: center; }
-    nav .links a { color: var(--muted); font-size: 0.88rem; font-weight: 500; }
-    nav .links a:hover { color: var(--text); text-decoration: none; }
-    .btn {
-      display: inline-block; padding: 11px 26px; border-radius: 8px;
-      font-weight: 600; font-size: 0.88rem; transition: all 0.2s; cursor: pointer;
-    }
-    .btn-primary { background: var(--gradient); color: #fff; border: none; }
-    .btn-primary:hover { opacity: 0.9; text-decoration: none; transform: translateY(-1px); }
-    .btn-ghost { border: 1px solid var(--border); color: var(--text); background: transparent; }
-    .btn-ghost:hover { border-color: var(--accent); text-decoration: none; }
-    .btn-large { padding: 14px 36px; font-size: 1rem; border-radius: 10px; }
+  /* Reveal on scroll — Pattern B canonical */
+  .reveal{opacity:0; transform:translateY(28px); transition:opacity 0.9s var(--ease), transform 0.9s var(--ease)}
+  .reveal.in{opacity:1; transform:translateY(0)}
+  .reveal-d1{transition-delay:0.06s}
+  .reveal-d2{transition-delay:0.12s}
+  .reveal-d3{transition-delay:0.18s}
+  .reveal-d4{transition-delay:0.24s}
+  @media (prefers-reduced-motion:reduce){
+    .reveal{opacity:1!important; transform:none!important; transition:none!important}
+  }
 
-    /* Hero */
-    .hero {
-      padding: 80px 0 60px;
-      position: relative;
-    }
-    .hero .container {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 60px;
-      align-items: center;
-    }
-    .hero-content { position: relative; z-index: 2; }
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: var(--surface2); border: 1px solid var(--border);
-      padding: 6px 16px; border-radius: 100px; font-size: 0.8rem; color: var(--accent2);
-      margin-bottom: 24px; font-weight: 500;
-    }
-    .hero-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-    .hero h1 {
-      font-size: 3.6rem;
-      font-weight: 900;
-      line-height: 1.08;
-      margin-bottom: 20px;
-      letter-spacing: -1.5px;
-    }
-    .hero h1 .gradient {
-      background: var(--gradient);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    }
-    .hero p {
-      font-size: 1.15rem;
-      color: var(--muted);
-      margin-bottom: 32px;
-      line-height: 1.7;
-    }
-    .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
-    .install-cmd {
-      display: inline-flex; align-items: center; gap: 12px;
-      background: var(--code-bg); border: 1px solid var(--border);
-      padding: 12px 20px; border-radius: 8px; font-family: 'JetBrains Mono', monospace;
-      font-size: 0.88rem; color: var(--accent2); cursor: pointer; transition: all 0.2s;
-    }
-    .install-cmd:hover { border-color: var(--accent); }
-    .install-cmd .dollar { color: var(--muted); user-select: none; }
-    .install-cmd .copy { color: var(--muted); font-size: 0.75rem; font-family: 'Inter', sans-serif; }
-    .hero-image {
-      position: relative;
-      display: flex;
-      justify-content: center;
-    }
-    .hero-image img {
-      width: 100%;
-      max-width: 420px;
-      border-radius: 20px;
-      border: 1px solid var(--border);
-      box-shadow: 0 40px 80px rgba(108,92,231,0.15), 0 0 0 1px rgba(108,92,231,0.05);
-    }
-    .hero-image::after {
-      content: '';
-      position: absolute;
-      top: -40px; right: -40px; bottom: -40px; left: -40px;
-      background: radial-gradient(circle at center, rgba(108,92,231,0.08) 0%, transparent 70%);
-      z-index: -1;
-    }
+  /* Nav */
+  nav{
+    border-bottom:1px solid var(--border); padding:14px 0;
+    position:sticky; top:0;
+    background:rgba(6,6,12,0.72); backdrop-filter:blur(14px) saturate(140%); -webkit-backdrop-filter:blur(14px) saturate(140%);
+    z-index:100;
+  }
+  nav .container{display:flex; justify-content:space-between; align-items:center}
+  nav .logo{font-size:1.4rem; font-weight:800; letter-spacing:-0.5px}
+  nav .logo span{background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text}
+  nav .links{display:flex; gap:28px; align-items:center}
+  nav .links a{color:var(--muted); font-size:0.88rem; font-weight:500; transition:color 0.4s var(--ease)}
+  nav .links a:hover{color:var(--text); text-decoration:none}
+  .btn{
+    display:inline-block; padding:11px 26px; border-radius:8px;
+    font-weight:600; font-size:0.88rem; cursor:pointer;
+    transition:transform 0.5s var(--ease), background 0.5s var(--ease), border-color 0.5s var(--ease), opacity 0.5s var(--ease);
+  }
+  .btn-primary{background:var(--gradient); color:#fff; border:none}
+  .btn-primary:hover{opacity:0.92; text-decoration:none; transform:translateY(-2px)}
+  .btn-ghost{border:1px solid var(--border); color:var(--text); background:transparent}
+  .btn-ghost:hover{border-color:var(--accent); text-decoration:none; transform:translateY(-2px)}
+  .btn-large{padding:14px 36px; font-size:1rem; border-radius:10px}
 
-    /* Stats bar */
-    .stats {
-      display: grid; grid-template-columns: repeat(5, 1fr);
-      border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
-      background: var(--surface);
-    }
-    .stat {
-      text-align: center; padding: 28px 16px;
-      border-right: 1px solid var(--border);
-    }
-    .stat:last-child { border-right: none; }
-    .stat .num { font-size: 1.8rem; font-weight: 800; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .stat .label { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+  /* Hero */
+  .hero{position:relative; padding:96px 0 84px; isolation:isolate}
+  .hero-canvas{position:absolute; inset:0; z-index:0; opacity:0.85; pointer-events:none}
+  .hero-canvas canvas{width:100%!important; height:100%!important; display:block}
+  .hero-canvas::after{
+    content:''; position:absolute; inset:0; z-index:1;
+    background:radial-gradient(60% 80% at 50% 60%, transparent 0%, var(--bg) 100%);
+  }
+  .hero .container{
+    position:relative; z-index:2;
+    display:grid; grid-template-columns:1.05fr 0.95fr; gap:60px; align-items:center;
+  }
+  .hero-content{position:relative}
+  .hero-badge{
+    display:inline-flex; align-items:center; gap:8px;
+    background:var(--surface2); border:1px solid var(--border);
+    padding:6px 16px; border-radius:100px; font-size:0.8rem; color:var(--accent2);
+    margin-bottom:24px; font-weight:500;
+  }
+  .hero-badge .dot{width:6px; height:6px; border-radius:50%; background:var(--green); animation:pulse 2.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1; transform:scale(1)} 50%{opacity:0.45; transform:scale(0.85)}}
+  .hero h1{
+    font-size:3.7rem; font-weight:900; line-height:1.06;
+    margin-bottom:22px; letter-spacing:-1.6px;
+  }
+  .hero h1 .gradient{background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text}
+  .hero p.lead{font-size:1.15rem; color:var(--muted); margin-bottom:32px; line-height:1.7; max-width:560px}
+  .hero-actions{display:flex; gap:14px; flex-wrap:wrap; align-items:center}
+  .install-cmd{
+    display:inline-flex; align-items:center; gap:12px;
+    background:var(--code-bg); border:1px solid var(--border);
+    padding:12px 20px; border-radius:8px; font-family:'JetBrains Mono',monospace;
+    font-size:0.88rem; color:var(--accent2); cursor:pointer;
+    transition:border-color 0.5s var(--ease), transform 0.5s var(--ease);
+  }
+  .install-cmd:hover{border-color:var(--accent); transform:translateY(-2px)}
+  .install-cmd .dollar{color:var(--muted); user-select:none}
+  .install-cmd .copy{color:var(--muted); font-size:0.75rem; font-family:'Inter',sans-serif}
+  .hero-image{position:relative; display:flex; justify-content:center}
+  .hero-image img{
+    width:100%; max-width:420px; border-radius:20px;
+    border:1px solid var(--border);
+    box-shadow:0 40px 100px rgba(108,92,231,0.2), 0 0 0 1px rgba(108,92,231,0.06);
+    transition:transform 0.8s var(--ease);
+  }
+  .hero-image:hover img{transform:translateY(-6px)}
+  .hero-image::after{
+    content:''; position:absolute; inset:-40px; z-index:-1;
+    background:radial-gradient(circle at center, rgba(108,92,231,0.12) 0%, transparent 70%);
+  }
 
-    /* Section headings */
-    .section-header { text-align: center; margin-bottom: 56px; }
-    .section-header h2 { font-size: 2.4rem; font-weight: 800; margin-bottom: 12px; letter-spacing: -0.5px; }
-    .section-header p { color: var(--muted); font-size: 1.05rem; max-width: 600px; margin: 0 auto; }
+  /* Stats */
+  .stats{
+    display:grid; grid-template-columns:repeat(5,1fr);
+    border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+    background:var(--surface);
+  }
+  .stat{text-align:center; padding:30px 16px; border-right:1px solid var(--border)}
+  .stat:last-child{border-right:none}
+  .stat .num{font-size:1.85rem; font-weight:800; background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text}
+  .stat .label{font-size:0.8rem; color:var(--muted); margin-top:4px}
 
-    /* Code example */
-    .code-section { padding: 90px 0; }
-    pre {
-      background: var(--code-bg); border: 1px solid var(--border);
-      border-radius: 14px; padding: 28px 32px; overflow-x: auto;
-      font-family: 'JetBrains Mono', monospace; font-size: 0.88rem;
-      line-height: 1.8; max-width: 700px; margin: 0 auto;
-    }
-    .kw { color: #c792ea; } .str { color: #c3e88d; } .fn { color: #82aaff; }
-    .cm { color: #546e7a; } .num { color: #f78c6c; } .aw { color: #c792ea; }
+  /* Section headings */
+  .section-header{text-align:center; margin-bottom:56px}
+  .section-header h2{font-size:2.5rem; font-weight:800; margin-bottom:12px; letter-spacing:-0.6px}
+  .section-header p{color:var(--muted); font-size:1.05rem; max-width:600px; margin:0 auto}
 
-    /* Features grid */
-    .features { padding: 90px 0; }
-    .features-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
-    }
-    .feature {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 14px; padding: 32px; transition: border-color 0.3s;
-    }
-    .feature:hover { border-color: var(--accent); }
-    .feature-icon { font-size: 2rem; margin-bottom: 16px; }
-    .feature h3 { font-size: 1.05rem; margin-bottom: 10px; font-weight: 700; }
-    .feature p { color: var(--muted); font-size: 0.88rem; line-height: 1.65; }
+  /* MCP wedge */
+  .mcp-wedge{padding:84px 0; background:linear-gradient(135deg,#0a0e27 0%,#1a1f3a 100%); color:#fff}
+  .mcp-wedge .container{max-width:1100px}
+  .mcp-wedge .pill{display:inline-block; padding:6px 14px; border-radius:999px; background:rgba(124,92,255,0.2); color:#a48bff; font-size:0.82rem; font-weight:600; margin-bottom:18px}
+  .mcp-wedge h2{font-size:2.3rem; line-height:1.15; margin-bottom:18px; font-weight:800; letter-spacing:-0.5px}
+  .mcp-wedge h2 .grad{background:linear-gradient(90deg,#7c5cff,#22d3ee); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text}
+  .mcp-wedge p{font-size:1.1rem; color:#c5c9e0; max-width:720px; line-height:1.65; margin-bottom:28px}
+  .mcp-wedge pre{background:#05070f; border:1px solid #1e2540; border-radius:12px; padding:24px; overflow-x:auto; font-size:0.92rem; color:#e0e4f0; margin-bottom:26px}
+  .mcp-wedge .row{display:flex; gap:16px; flex-wrap:wrap; align-items:center}
+  .mcp-wedge .cta{background:linear-gradient(90deg,#7c5cff,#5436ff); color:#fff; padding:13px 26px; border-radius:12px; font-weight:700; transition:transform 0.5s var(--ease), opacity 0.5s var(--ease)}
+  .mcp-wedge .cta:hover{transform:translateY(-2px); opacity:0.94; text-decoration:none}
+  .mcp-wedge .note{color:#8990ae; font-size:0.88rem}
 
-    /* Comparison */
-    .comparison { padding: 90px 0; border-top: 1px solid var(--border); }
-    .comp-table {
-      width: 100%; border-collapse: collapse; margin-top: 16px;
-      background: var(--surface); border-radius: 14px; overflow: hidden;
-      border: 1px solid var(--border);
-    }
-    .comp-table th, .comp-table td {
-      padding: 14px 20px; text-align: center; font-size: 0.88rem;
-      border-bottom: 1px solid var(--border);
-    }
-    .comp-table th {
-      background: var(--surface2); color: var(--muted); font-weight: 600;
-      text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px;
-    }
-    .comp-table td:first-child { text-align: left; font-weight: 600; color: var(--text); }
-    .comp-table tr:last-child td { border-bottom: none; }
-    .comp-table .check { color: var(--green); font-weight: 700; }
-    .comp-table .cross { color: #444; }
-    .comp-table .highlight { background: rgba(108,92,231,0.06); }
-    .comp-table .highlight td:first-child {
-      background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      font-weight: 800;
-    }
+  /* Code */
+  .code-section{padding:88px 0}
+  pre{
+    background:var(--code-bg); border:1px solid var(--border); border-radius:14px;
+    padding:28px 32px; overflow-x:auto; font-family:'JetBrains Mono',monospace;
+    font-size:0.88rem; line-height:1.8; max-width:720px; margin:0 auto;
+  }
+  .kw{color:#c792ea} .str{color:#c3e88d} .fn{color:#82aaff}
+  .cm{color:#546e7a} .num-tok{color:#f78c6c} .aw{color:#c792ea}
 
-    /* Ad gallery */
-    .gallery { padding: 90px 0; border-top: 1px solid var(--border); overflow: hidden; }
-    .gallery-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
-      max-width: 900px; margin: 0 auto;
-    }
-    .gallery-card {
-      position: relative; border-radius: 14px; overflow: hidden;
-      border: 1px solid var(--border); transition: transform 0.3s;
-    }
-    .gallery-card:hover { transform: translateY(-4px); }
-    .gallery-card img { width: 100%; display: block; aspect-ratio: 1; object-fit: cover; }
-    .gallery-card .overlay {
-      position: absolute; bottom: 0; left: 0; right: 0;
-      padding: 20px; background: linear-gradient(transparent, rgba(0,0,0,0.85));
-    }
-    .gallery-card .overlay h4 { font-size: 0.95rem; margin-bottom: 4px; }
-    .gallery-card .overlay p { font-size: 0.78rem; color: var(--muted); }
+  /* How it works */
+  .how-it-works{padding:88px 0; border-top:1px solid var(--border)}
+  .steps{display:grid; grid-template-columns:repeat(4,1fr); gap:20px; max-width:980px; margin:0 auto}
+  .step{text-align:center; padding:24px 16px}
+  .step-num{
+    width:48px; height:48px; border-radius:12px; display:inline-flex;
+    align-items:center; justify-content:center;
+    background:var(--surface2); border:1px solid var(--border);
+    font-size:1.1rem; font-weight:800; color:var(--accent2); margin-bottom:16px;
+    transition:transform 0.6s var(--ease), border-color 0.6s var(--ease);
+  }
+  .step:hover .step-num{transform:translateY(-3px); border-color:var(--accent)}
+  .step h4{font-size:0.98rem; margin-bottom:8px}
+  .step p{font-size:0.84rem; color:var(--muted); line-height:1.55}
 
-    /* Pricing */
-    .pricing { padding: 90px 0; border-top: 1px solid var(--border); }
-    .pricing-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 20px; max-width: 960px; margin: 0 auto;
-    }
-    .price-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 16px; padding: 36px 28px; position: relative; transition: border-color 0.3s;
-    }
-    .price-card:hover { border-color: var(--accent); }
-    .price-card.featured {
-      border-color: var(--accent);
-      box-shadow: 0 0 40px rgba(108,92,231,0.12);
-    }
-    .price-card .badge {
-      position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
-      background: var(--gradient); color: #fff; font-size: 0.7rem; font-weight: 700;
-      padding: 4px 16px; border-radius: 100px; text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .price-card h3 { font-size: 1.1rem; margin-bottom: 6px; font-weight: 700; }
-    .price-card .price {
-      font-size: 2.8rem; font-weight: 900; margin: 8px 0 4px;
-      letter-spacing: -1px;
-    }
-    .price-card .price.free { background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .price-card .price small { font-size: 1rem; font-weight: 400; color: var(--muted); }
-    .price-card .fee {
-      display: inline-block; background: var(--surface2); border: 1px solid var(--border);
-      padding: 4px 12px; border-radius: 6px; font-size: 0.8rem; color: var(--accent2);
-      margin: 12px 0 20px; font-weight: 600;
-    }
-    .price-card .desc { color: var(--muted); font-size: 0.85rem; margin-bottom: 24px; }
-    .price-card ul { list-style: none; margin-bottom: 28px; }
-    .price-card ul li {
-      padding: 7px 0; font-size: 0.88rem; color: var(--muted);
-      display: flex; align-items: center; gap: 10px;
-    }
-    .price-card ul li .tick { color: var(--green); font-weight: 700; flex-shrink: 0; }
-    .price-card .cta-btn {
-      display: block; width: 100%; text-align: center; padding: 12px;
-      border-radius: 8px; font-weight: 600; font-size: 0.88rem; transition: all 0.2s;
-    }
-    .price-card .cta-btn.primary { background: var(--gradient); color: #fff; border: none; }
-    .price-card .cta-btn.outline { border: 1px solid var(--border); color: var(--text); background: transparent; }
-    .price-card .cta-btn:hover { opacity: 0.9; text-decoration: none; transform: translateY(-1px); }
+  /* Features */
+  .features{padding:88px 0; border-top:1px solid var(--border)}
+  .features-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px}
+  .feature{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:14px; padding:30px;
+    transition:border-color 0.6s var(--ease), transform 0.6s var(--ease), background 0.6s var(--ease);
+  }
+  .feature:hover{border-color:var(--accent); transform:translateY(-3px); background:var(--surface2)}
+  .feature-icon{font-size:1.85rem; margin-bottom:14px}
+  .feature h3{font-size:1.04rem; margin-bottom:10px; font-weight:700}
+  .feature p{color:var(--muted); font-size:0.88rem; line-height:1.65}
 
-    /* How it works */
-    .how-it-works { padding: 90px 0; border-top: 1px solid var(--border); }
-    .steps {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
-      max-width: 960px; margin: 0 auto;
-    }
-    .step { text-align: center; padding: 24px 16px; }
-    .step-num {
-      width: 48px; height: 48px; border-radius: 12px; display: inline-flex;
-      align-items: center; justify-content: center;
-      background: var(--surface2); border: 1px solid var(--border);
-      font-size: 1.1rem; font-weight: 800; color: var(--accent2); margin-bottom: 16px;
-    }
-    .step h4 { font-size: 0.95rem; margin-bottom: 8px; }
-    .step p { font-size: 0.82rem; color: var(--muted); line-height: 1.5; }
+  /* Comparison */
+  .comparison{padding:88px 0; border-top:1px solid var(--border)}
+  .comp-table{
+    width:100%; border-collapse:collapse; margin-top:16px;
+    background:var(--surface); border-radius:14px; overflow:hidden;
+    border:1px solid var(--border);
+  }
+  .comp-table th, .comp-table td{padding:14px 20px; text-align:center; font-size:0.88rem; border-bottom:1px solid var(--border)}
+  .comp-table th{background:var(--surface2); color:var(--muted); font-weight:600; text-transform:uppercase; font-size:0.74rem; letter-spacing:0.5px}
+  .comp-table td:first-child{text-align:left; font-weight:600; color:var(--text)}
+  .comp-table tr:last-child td{border-bottom:none}
+  .comp-table .check{color:var(--green); font-weight:700}
+  .comp-table .cross{color:#444}
+  .comp-table .highlight{background:rgba(108,92,231,0.06)}
+  .comp-table .highlight td:first-child{background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; font-weight:800}
 
-    /* Rails */
-    .rails { padding: 90px 0; border-top: 1px solid var(--border); }
-    .rails-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
-      max-width: 900px; margin: 0 auto;
-    }
-    .rail-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 14px; padding: 32px; text-align: center; transition: border-color 0.3s;
-    }
-    .rail-card:hover { border-color: var(--accent); }
-    .rail-card h3 { font-size: 1.15rem; margin-bottom: 6px; font-weight: 700; }
-    .rail-card .region { color: var(--accent2); font-size: 0.82rem; margin-bottom: 14px; font-weight: 600; }
-    .rail-card p { color: var(--muted); font-size: 0.85rem; }
+  /* Rails */
+  .rails{padding:88px 0; border-top:1px solid var(--border)}
+  .rails-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px; max-width:920px; margin:0 auto}
+  .rail-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:30px; text-align:center;
+    transition:border-color 0.6s var(--ease), transform 0.6s var(--ease);
+  }
+  .rail-card:hover{border-color:var(--accent); transform:translateY(-3px)}
+  .rail-card h3{font-size:1.15rem; margin-bottom:6px; font-weight:700}
+  .rail-card .region{color:var(--accent2); font-size:0.82rem; margin-bottom:14px; font-weight:600}
+  .rail-card p{color:var(--muted); font-size:0.86rem}
 
-    /* CTA */
-    .cta-section {
-      padding: 100px 0; text-align: center;
-      border-top: 1px solid var(--border);
-      position: relative;
-    }
-    .cta-section::before {
-      content: '';
-      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-      width: 600px; height: 300px;
-      background: radial-gradient(ellipse, rgba(108,92,231,0.08) 0%, transparent 70%);
-    }
-    .cta-section h2 { font-size: 2.6rem; font-weight: 900; margin-bottom: 16px; letter-spacing: -1px; }
-    .cta-section p { color: var(--muted); font-size: 1.1rem; margin-bottom: 36px; }
-    .cta-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  /* Pricing */
+  .pricing{padding:88px 0; border-top:1px solid var(--border)}
+  .pricing-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px; max-width:980px; margin:0 auto}
+  .price-card{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:16px; padding:36px 28px; position:relative;
+    transition:border-color 0.6s var(--ease), transform 0.6s var(--ease), box-shadow 0.6s var(--ease);
+  }
+  .price-card:hover{border-color:var(--accent); transform:translateY(-3px)}
+  .price-card.featured{border-color:var(--accent); box-shadow:0 0 50px rgba(108,92,231,0.14)}
+  .price-card .badge{position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:var(--gradient); color:#fff; font-size:0.7rem; font-weight:700; padding:4px 16px; border-radius:100px; text-transform:uppercase; letter-spacing:0.5px}
+  .price-card h3{font-size:1.1rem; margin-bottom:6px; font-weight:700}
+  .price-card .price{font-size:2.85rem; font-weight:900; margin:8px 0 4px; letter-spacing:-1px}
+  .price-card .price.free{background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text}
+  .price-card .price small{font-size:1rem; font-weight:400; color:var(--muted)}
+  .price-card .fee{display:inline-block; background:var(--surface2); border:1px solid var(--border); padding:4px 12px; border-radius:6px; font-size:0.8rem; color:var(--accent2); margin:12px 0 20px; font-weight:600}
+  .price-card .desc{color:var(--muted); font-size:0.86rem; margin-bottom:24px}
+  .price-card ul{list-style:none; margin-bottom:28px}
+  .price-card ul li{padding:7px 0; font-size:0.88rem; color:var(--muted); display:flex; align-items:center; gap:10px}
+  .price-card ul li .tick{color:var(--green); font-weight:700; flex-shrink:0}
+  .price-card .cta-btn{display:block; width:100%; text-align:center; padding:12px; border-radius:8px; font-weight:600; font-size:0.88rem; transition:opacity 0.5s var(--ease), transform 0.5s var(--ease)}
+  .price-card .cta-btn.primary{background:var(--gradient); color:#fff; border:none}
+  .price-card .cta-btn.outline{border:1px solid var(--border); color:var(--text); background:transparent}
+  .price-card .cta-btn:hover{opacity:0.92; text-decoration:none; transform:translateY(-2px)}
 
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--border);
-      padding: 36px 0; text-align: center;
-      color: var(--muted); font-size: 0.82rem;
-    }
-    footer a { color: var(--muted); }
-    footer a:hover { color: var(--text); }
+  /* CTA */
+  .cta-section{padding:104px 0; text-align:center; border-top:1px solid var(--border); position:relative; overflow:hidden}
+  .cta-section::before{
+    content:''; position:absolute; top:0; left:50%; transform:translateX(-50%);
+    width:680px; height:340px;
+    background:radial-gradient(ellipse, rgba(108,92,231,0.12) 0%, transparent 70%);
+    pointer-events:none;
+  }
+  .cta-section h2{font-size:2.7rem; font-weight:900; margin-bottom:16px; letter-spacing:-1px}
+  .cta-section p{color:var(--muted); font-size:1.1rem; margin-bottom:36px}
+  .cta-actions{display:flex; gap:14px; justify-content:center; flex-wrap:wrap}
 
-    @media (max-width: 968px) {
-      .hero .container { grid-template-columns: 1fr; text-align: center; }
-      .hero h1 { font-size: 2.6rem; }
-      .hero-actions { justify-content: center; }
-      .hero-image { order: -1; }
-      .hero-image img { max-width: 300px; }
-      .stats { grid-template-columns: repeat(3, 1fr); }
-      .stat:nth-child(4), .stat:nth-child(5) { border-top: 1px solid var(--border); }
-      .features-grid { grid-template-columns: 1fr; }
-      .pricing-grid { grid-template-columns: 1fr; }
-      .gallery-grid { grid-template-columns: repeat(2, 1fr); }
-      .steps { grid-template-columns: repeat(2, 1fr); }
-      .rails-grid { grid-template-columns: 1fr; }
-      .comp-table { font-size: 0.8rem; }
-      .comp-table th, .comp-table td { padding: 10px 8px; }
-    }
-    @media (max-width: 520px) {
-      .stats { grid-template-columns: repeat(2, 1fr); }
-      .gallery-grid { grid-template-columns: 1fr; }
-      .steps { grid-template-columns: 1fr; }
-    }
-  </style>
- <script type="application/ld+json">
- {
- "@context": "https://schema.org",
- "@type": "SoftwareApplication",
- "name": "MnemoPay",
- "applicationCategory": "DeveloperApplication",
- "operatingSystem": "Any",
- "description": "Production payment infrastructure for AI agents. Stripe, Paystack, Lightning. Autonomous shopping with escrow. Agent Credit Score (300-850). Open source.",
- "url": "https://getbizsuite.com/mnemopay/",
- "image": "https://getbizsuite.com/mnemopay/img/hero-ceo.png",
- "offers": [
- {
- "@type": "Offer",
- "name": "Free",
- "price": "0",
- "priceCurrency": "USD",
- "description": "Core SDK with 1.9% transaction fee"
- },
- {
- "@type": "Offer",
- "name": "Pro",
- "price": "49",
- "priceCurrency": "USD",
- "billingDuration": "P1M",
- "description": "Pro plan with persistence, analytics, and 1.5% fee"
- },
- {
- "@type": "Offer",
- "name": "Enterprise",
- "price": "299",
- "priceCurrency": "USD",
- "billingDuration": "P1M",
- "description": "Enterprise plan with dedicated support, SLA, and 1.0% fee"
- }
- ]
- }
- </script>
+  /* Footer */
+  footer{border-top:1px solid var(--border); padding:36px 0; text-align:center; color:var(--muted); font-size:0.82rem}
+  footer a{color:var(--muted)}
+  footer a:hover{color:var(--text)}
+
+  @media (max-width:968px){
+    .hero .container{grid-template-columns:1fr; text-align:center}
+    .hero h1{font-size:2.6rem}
+    .hero p.lead{margin-left:auto; margin-right:auto}
+    .hero-actions{justify-content:center}
+    .hero-image{order:-1}
+    .hero-image img{max-width:300px}
+    .stats{grid-template-columns:repeat(3,1fr)}
+    .stat:nth-child(4),.stat:nth-child(5){border-top:1px solid var(--border)}
+    .features-grid{grid-template-columns:1fr}
+    .pricing-grid{grid-template-columns:1fr}
+    .steps{grid-template-columns:repeat(2,1fr)}
+    .rails-grid{grid-template-columns:1fr}
+    .comp-table{font-size:0.8rem}
+    .comp-table th,.comp-table td{padding:10px 8px}
+  }
+  @media (max-width:520px){
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .steps{grid-template-columns:1fr}
+  }
+</style>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"MnemoPay","applicationCategory":"DeveloperApplication","operatingSystem":"Any","description":"Production payment infrastructure for AI agents. Stripe, Paystack, Lightning. Autonomous shopping with escrow. Agent Credit Score (300-850). Open source.","url":"https://getbizsuite.com/mnemopay/","image":"https://getbizsuite.com/mnemopay/img/hero-ceo.png","offers":[{"@type":"Offer","name":"Free","price":"0","priceCurrency":"USD","description":"Core SDK with 1.9% transaction fee"},{"@type":"Offer","name":"Pro","price":"49","priceCurrency":"USD","billingDuration":"P1M","description":"Pro plan with persistence, analytics, and 1.5% fee"},{"@type":"Offer","name":"Enterprise","price":"299","priceCurrency":"USD","billingDuration":"P1M","description":"Enterprise plan with dedicated support, SLA, and 1.0% fee"}]}
+</script>
 </head>
 <body>
- <nav>
- <div class="container">
- <div class="logo">Mnemo<span>Pay</span></div>
- <div class="links">
- <a href="#features">Features</a>
- <a href="#comparison">Compare</a>
- <a href="/calculator.html">Calculator</a>
- <a href="#pricing">Pricing</a>
- <a href="https://github.com/mnemopay/mnemopay-sdk">GitHub</a>
- <a href="#pricing" class="btn btn-primary">Get Started Free</a>
- </div>
- </div>
- </nav>
+<nav>
+  <div class="container">
+    <div class="logo">Mnemo<span>Pay</span></div>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#comparison">Compare</a>
+      <a href="/calculator.html">Calculator</a>
+      <a href="#pricing">Pricing</a>
+      <a href="https://github.com/mnemopay/mnemopay-sdk">GitHub</a>
+      <a href="#pricing" class="btn btn-primary">Get Started Free</a>
+    </div>
+  </div>
+</nav>
 
- <!-- HERO -->
- <section class="hero">
- <div class="container">
- <div class="hero-content">
- <div class="hero-badge"><span class="dot"></span> v1.4.0 - LongMemEval 77.2% - 1M-op stress tested</div>
- <h1>The trust layer for <span class="gradient">AI agents that handle money</span></h1>
- <p>Credit scores, hash-chained ledgers, reputation streaks, behavioral finance, and real payment rails in one SDK. Your agents charge through Stripe, Paystack, or Lightning. Every purchase goes through escrow. Bad actors get blocked automatically. 200,000-operation stress tested with zero drift.</p>
- <div class="hero-actions">
- <div class="install-cmd" onclick="navigator.clipboard.writeText('npm install @mnemopay/sdk');this.querySelector('.copy').textContent='copied!'">
- <span class="dollar">$</span>
- <span>npm install @mnemopay/sdk</span>
- <span class="copy">copy</span>
- </div>
- <a href="https://github.com/mnemopay/mnemopay-sdk" class="btn btn-ghost">View on GitHub</a>
- </div>
- </div>
- <div class="hero-image">
- <img src="img/hero-ceo.png" alt="MnemoPay, Built for the agent economy">
- </div>
- </div>
- </section>
+<section class="hero">
+  <div class="hero-canvas" id="hero-canvas" aria-hidden="true"></div>
+  <div class="container">
+    <div class="hero-content">
+      <div class="hero-badge reveal"><span class="dot"></span> v1.4.0 — LongMemEval 77.2% — 1M-op stress tested</div>
+      <h1 class="reveal reveal-d1">The trust layer for <span class="gradient">AI agents that handle money</span></h1>
+      <p class="lead reveal reveal-d2">Credit scores, hash-chained ledgers, reputation streaks, behavioral finance, and real payment rails in one SDK. Your agents charge through Stripe, Paystack, or Lightning. Every purchase goes through escrow. Bad actors get blocked automatically. 200,000-operation stress tested with zero drift.</p>
+      <div class="hero-actions reveal reveal-d3">
+        <div class="install-cmd" onclick="navigator.clipboard.writeText('npm install @mnemopay/sdk');this.querySelector('.copy').textContent='copied!'">
+          <span class="dollar">$</span>
+          <span>npm install @mnemopay/sdk</span>
+          <span class="copy">copy</span>
+        </div>
+        <a href="https://github.com/mnemopay/mnemopay-sdk" class="btn btn-ghost">View on GitHub</a>
+      </div>
+    </div>
+    <div class="hero-image reveal reveal-d2">
+      <img src="img/hero-ceo.png" alt="MnemoPay — built for the agent economy" loading="eager">
+    </div>
+  </div>
+</section>
 
- <!-- STATS -->
- <section class="stats">
- <div class="stat"><div class="num">200K+</div><div class="label">Ops stress tested</div></div>
- <div class="stat"><div class="num">300-850</div><div class="label">Agent Credit Score</div></div>
- <div class="stat"><div class="num">3</div><div class="label">Payment rails</div></div>
- <div class="stat"><div class="num">SHA-256</div><div class="label">Hash-chained ledger</div></div>
- <div class="stat"><div class="num">$0</div><div class="label">To start</div></div>
- </section>
+<section class="stats">
+  <div class="stat reveal"><div class="num">200K+</div><div class="label">Ops stress tested</div></div>
+  <div class="stat reveal reveal-d1"><div class="num">300-850</div><div class="label">Agent Credit Score</div></div>
+  <div class="stat reveal reveal-d2"><div class="num">3</div><div class="label">Payment rails</div></div>
+  <div class="stat reveal reveal-d3"><div class="num">SHA-256</div><div class="label">Hash-chained ledger</div></div>
+  <div class="stat reveal reveal-d4"><div class="num">$0</div><div class="label">To start</div></div>
+</section>
 
- <!-- MCP WEDGE -->
- <section class="mcp-wedge" style="background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%); color: #fff; padding: 80px 0;">
- <div class="container" style="max-width: 1100px; margin: 0 auto; padding: 0 24px;">
- <div style="display: inline-block; padding: 6px 14px; border-radius: 999px; background: rgba(124, 92, 255, 0.2); color: #a48bff; font-size: 0.85rem; font-weight: 600; margin-bottom: 18px;">FOR MCP SERVER AUTHORS</div>
- <h2 style="font-size: 2.4rem; line-height: 1.15; margin: 0 0 18px; font-weight: 800;">Charge per-call for your MCP server.<br/><span style="background: linear-gradient(90deg, #7c5cff, #22d3ee); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Down to 0.1¢ per tool invocation.</span></h2>
- <p style="font-size: 1.15rem; color: #c5c9e0; max-width: 720px; line-height: 1.6; margin: 0 0 32px;">Stripe's fees make sub-cent payments impossible. Lightning makes them trivial. MnemoPay gives your MCP server a billing layer in two lines of code -- agents with low credit scores get blocked automatically.</p>
- <pre style="background: #05070f; border: 1px solid #1e2540; border-radius: 12px; padding: 24px; overflow-x: auto; font-size: 0.95rem; color: #e0e4f0; margin: 0 0 28px;"><code>import MnemoPay from "@mnemopay/sdk";
+<section class="mcp-wedge">
+  <div class="container">
+    <div class="pill reveal">FOR MCP SERVER AUTHORS</div>
+    <h2 class="reveal reveal-d1">Charge per-call for your MCP server.<br><span class="grad">Down to 0.1¢ per tool invocation.</span></h2>
+    <p class="reveal reveal-d2">Stripe's fees make sub-cent payments impossible. Lightning makes them trivial. MnemoPay gives your MCP server a billing layer in two lines of code — agents with low credit scores get blocked automatically.</p>
+    <pre class="reveal reveal-d3"><code>import MnemoPay from "@mnemopay/sdk";
 const agent = MnemoPay.quick("my-mcp-server");
 
 // Inside your tool handler:
 const tx = await agent.charge(0.002, "embed_document");  // 0.2¢
 if (tx.status === "blocked") return { error: "Payment declined" };
 await agent.settle(tx.id);</code></pre>
- <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
- <a href="mailto:omiagbogold@icloud.com?subject=MnemoPay%20MCP%20Design%20Partner" style="background: linear-gradient(90deg, #7c5cff, #5436ff); color: #fff; padding: 14px 28px; border-radius: 12px; font-weight: 700; text-decoration: none; display: inline-block;">Apply for free forever tier →</a>
- <span style="color: #8990ae; font-size: 0.9rem;">First 10 MCP servers only. Logo in README is the only ask.</span>
- </div>
- </div>
- </section>
+    <div class="row reveal reveal-d4">
+      <a href="mailto:omiagbogold@icloud.com?subject=MnemoPay%20MCP%20Design%20Partner" class="cta">Apply for free forever tier →</a>
+      <span class="note">First 10 MCP servers only. Logo in README is the only ask.</span>
+    </div>
+  </div>
+</section>
 
- <!-- CODE -->
- <section class="code-section">
- <div class="container">
- <div class="section-header">
- <h2>Real Stripe charge in 6 lines.</h2>
- <p>Not a mock. Not a testnet. Actual money moves.</p>
- </div>
- <pre><code><span class="kw">import</span> MnemoPay <span class="kw">from</span> <span class="str">"@mnemopay/sdk"</span>;
+<section class="code-section">
+  <div class="container">
+    <div class="section-header reveal">
+      <h2>Real Stripe charge in 6 lines.</h2>
+      <p>Not a mock. Not a testnet. Actual money moves.</p>
+    </div>
+    <pre class="reveal reveal-d1"><code><span class="kw">import</span> MnemoPay <span class="kw">from</span> <span class="str">"@mnemopay/sdk"</span>;
 
 <span class="kw">const</span> agent = MnemoPay.<span class="fn">quick</span>(<span class="str">"billing-agent"</span>, {
   <span class="fn">stripe</span>: { <span class="fn">secretKey</span>: process.env.STRIPE_SECRET_KEY }
 });
 
-<span class="kw">const</span> tx = <span class="aw">await</span> agent.<span class="fn">charge</span>(<span class="num">49.00</span>, <span class="str">"Pro plan, monthly"</span>);
+<span class="kw">const</span> tx = <span class="aw">await</span> agent.<span class="fn">charge</span>(<span class="num-tok">49.00</span>, <span class="str">"Pro plan, monthly"</span>);
 <span class="cm">// Escrow holds funds until you approve</span>
 <span class="aw">await</span> agent.<span class="fn">settle</span>(tx.id);
 <span class="cm">// Money moves. Ledger balanced. Credit score updated.</span></code></pre>
- </div>
- </section>
+  </div>
+</section>
 
- <!-- HOW IT WORKS -->
- <section class="how-it-works">
- <div class="container">
- <div class="section-header">
- <h2>How it works</h2>
- <p>From install to production in four steps.</p>
- </div>
- <div class="steps">
- <div class="step">
- <div class="step-num">1</div>
- <h4>Install</h4>
- <p>npm install @mnemopay/sdk. Zero config needed. Works immediately.</p>
- </div>
- <div class="step">
- <div class="step-num">2</div>
- <h4>Initialize</h4>
- <p>MnemoPay.quick("agent-id") gives your agent memory, a wallet, and identity.</p>
- </div>
- <div class="step">
- <div class="step-num">3</div>
- <h4>Transact</h4>
- <p>charge(), settle(), refund(). Real money through Stripe, Paystack, or Lightning. Escrow holds funds until humans approve.</p>
- </div>
- <div class="step">
- <div class="step-num">4</div>
- <h4>Scale</h4>
- <p>Autonomous shopping, multi-agent commerce, credit scoring. Your agents handle money like professionals.</p>
- </div>
- </div>
- </div>
- </section>
+<section class="how-it-works">
+  <div class="container">
+    <div class="section-header reveal">
+      <h2>How it works</h2>
+      <p>From install to production in four steps.</p>
+    </div>
+    <div class="steps">
+      <div class="step reveal"><div class="step-num">1</div><h4>Install</h4><p>npm install @mnemopay/sdk. Zero config needed. Works immediately.</p></div>
+      <div class="step reveal reveal-d1"><div class="step-num">2</div><h4>Initialize</h4><p>MnemoPay.quick("agent-id") gives your agent memory, a wallet, and identity.</p></div>
+      <div class="step reveal reveal-d2"><div class="step-num">3</div><h4>Transact</h4><p>charge(), settle(), refund(). Real money through Stripe, Paystack, or Lightning. Escrow holds funds until humans approve.</p></div>
+      <div class="step reveal reveal-d3"><div class="step-num">4</div><h4>Scale</h4><p>Autonomous shopping, multi-agent commerce, credit scoring. Your agents handle money like professionals.</p></div>
+    </div>
+  </div>
+</section>
 
- <!-- FEATURES -->
- <section class="features" id="features">
- <div class="container">
- <div class="section-header">
- <h2>What it actually does</h2>
- <p>Not a wrapper around Stripe. A full payment system built for agents.</p>
- </div>
- <div class="features-grid">
- <div class="feature">
- <div class="feature-icon">&#128176;</div>
- <h3>Real Payment Rails</h3>
- <p>Stripe (global), Paystack (Africa), Lightning (BTC micropayments). Same API regardless of rail. Charge, escrow, settle, refund. Double-entry ledger keeps every penny accounted for.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#128722;</div>
- <h3>Autonomous Shopping</h3>
- <p>Agents search products, compare prices across merchants, and buy what they need. Every purchase goes through escrow -- humans approve before money moves. No unsupervised spending.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#128200;</div>
- <h3>Agent Credit Score (300-850)</h3>
- <p>Like a credit score, but for AI agents. Tracks payment history, spending patterns, and reliability over time. Higher scores get lower fees. Bad actors get blocked automatically.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#128737;</div>
- <h3>Ed25519 Agent Identity</h3>
- <p>Every agent gets a cryptographic identity. Scoped permissions, spend limits, counterparty whitelists, and a kill switch if something goes wrong.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#128270;</div>
- <h3>Fraud Detection</h3>
- <p>Velocity checks, anomaly scoring, geo-based risk assessment. Flags suspicious patterns before money moves. Battle-tested against adversarial inputs.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#129504;</div>
- <h3>Compounding Memory</h3>
- <p>Not a traditional RAG lookup. Memories compound -- successful transactions strengthen associated context, weak memories decay naturally. Every interaction makes the agent smarter, not just more informed.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#129309;</div>
- <h3>Multi-Agent Commerce</h3>
- <p>Agents transact with each other directly. Buyer-seller flows, dispute resolution, reputation tracking. Works across agent networks.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#127757;</div>
- <h3>MCP Server</h3>
- <p>Works with Claude, Cursor, or any MCP-compatible client out of the box. Also ships as npm middleware for OpenAI, Anthropic, and LangChain.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#128274;</div>
- <h3>Hash-Chained Ledger</h3>
- <p>Every ledger entry links to the previous via SHA-256. If any entry is modified, the chain breaks instantly. Combined with Merkle integrity on memories and HMAC on transactions -- three independent tamper-detection layers.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#127942;</div>
- <h3>Reputation Streaks</h3>
- <p>Agents earn badges and build streaks through consecutive successful settlements. Streak bonuses compound reputation up to +10%. Refunds or disputes reset the streak. Six badge types from First Settlement to Perfect Record.</p>
- </div>
- <div class="feature">
- <div class="feature-icon">&#128165;</div>
- <h3>Replay Detection</h3>
- <p>SHA-256 transaction fingerprinting catches duplicate submissions within 60 seconds. 3+ replays in 5 minutes triggers critical severity. Auto-prunes, capped at 10K entries. Zero false negatives at 200K scale.</p>
- </div>
- </div>
- </div>
- </section>
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-header reveal">
+      <h2>What it actually does</h2>
+      <p>Not a wrapper around Stripe. A full payment system built for agents.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature reveal"><div class="feature-icon">&#128176;</div><h3>Real Payment Rails</h3><p>Stripe (global), Paystack (Africa), Lightning (BTC micropayments). Same API regardless of rail. Charge, escrow, settle, refund. Double-entry ledger keeps every penny accounted for.</p></div>
+      <div class="feature reveal reveal-d1"><div class="feature-icon">&#128722;</div><h3>Autonomous Shopping</h3><p>Agents search products, compare prices across merchants, and buy what they need. Every purchase goes through escrow — humans approve before money moves. No unsupervised spending.</p></div>
+      <div class="feature reveal reveal-d2"><div class="feature-icon">&#128200;</div><h3>Agent Credit Score (300-850)</h3><p>Like a credit score, but for AI agents. Tracks payment history, spending patterns, and reliability over time. Higher scores get lower fees. Bad actors get blocked automatically.</p></div>
+      <div class="feature reveal"><div class="feature-icon">&#128737;</div><h3>Ed25519 Agent Identity</h3><p>Every agent gets a cryptographic identity. Scoped permissions, spend limits, counterparty whitelists, and a kill switch if something goes wrong.</p></div>
+      <div class="feature reveal reveal-d1"><div class="feature-icon">&#128270;</div><h3>Fraud Detection</h3><p>Velocity checks, anomaly scoring, geo-based risk assessment. Flags suspicious patterns before money moves. Battle-tested against adversarial inputs.</p></div>
+      <div class="feature reveal reveal-d2"><div class="feature-icon">&#129504;</div><h3>Compounding Memory</h3><p>Not a traditional RAG lookup. Memories compound — successful transactions strengthen associated context, weak memories decay naturally. Every interaction makes the agent smarter, not just more informed.</p></div>
+      <div class="feature reveal"><div class="feature-icon">&#129309;</div><h3>Multi-Agent Commerce</h3><p>Agents transact with each other directly. Buyer-seller flows, dispute resolution, reputation tracking. Works across agent networks.</p></div>
+      <div class="feature reveal reveal-d1"><div class="feature-icon">&#127757;</div><h3>MCP Server</h3><p>Works with Claude, Cursor, or any MCP-compatible client out of the box. Also ships as npm middleware for OpenAI, Anthropic, and LangChain.</p></div>
+      <div class="feature reveal reveal-d2"><div class="feature-icon">&#128274;</div><h3>Hash-Chained Ledger</h3><p>Every ledger entry links to the previous via SHA-256. If any entry is modified, the chain breaks instantly. Combined with Merkle integrity on memories and HMAC on transactions — three independent tamper-detection layers.</p></div>
+      <div class="feature reveal"><div class="feature-icon">&#127942;</div><h3>Reputation Streaks</h3><p>Agents earn badges and build streaks through consecutive successful settlements. Streak bonuses compound reputation up to +10%. Refunds or disputes reset the streak. Six badge types from First Settlement to Perfect Record.</p></div>
+      <div class="feature reveal reveal-d1"><div class="feature-icon">&#128165;</div><h3>Replay Detection</h3><p>SHA-256 transaction fingerprinting catches duplicate submissions within 60 seconds. 3+ replays in 5 minutes triggers critical severity. Auto-prunes, capped at 10K entries. Zero false negatives at 200K scale.</p></div>
+    </div>
+  </div>
+</section>
 
- <!-- COMPARISON -->
- <section class="comparison" id="comparison">
- <div class="container">
- <div class="section-header">
- <h2>How MnemoPay compares</h2>
- <p>Competitors raised $87M+ combined. None ship the full stack.</p>
- </div>
- <table class="comp-table">
- <thead>
- <tr>
- <th>Product</th>
- <th>Real Rails</th>
- <th>Shopping</th>
- <th>Escrow</th>
- <th>Credit Score</th>
- <th>Identity</th>
- <th>Fraud</th>
- <th>Memory</th>
- <th>MCP</th>
- <th>Score</th>
- </tr>
- </thead>
- <tbody>
- <tr class="highlight">
- <td>MnemoPay ($0)</td>
- <td class="check">&#10003;</td>
- <td class="check">&#10003;</td>
- <td class="check">&#10003;</td>
- <td class="check">&#10003;</td>
- <td class="check">&#10003;</td>
- <td class="check">&#10003;</td>
- <td class="check">&#10003;</td>
- <td class="check">&#10003;</td>
- <td><strong>8/8</strong></td>
- </tr>
- <tr>
- <td>Mem0 ($24M)</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="check">&#10003;</td>
- <td class="cross">&#10007;</td>
- <td>1/8</td>
- </tr>
- <tr>
- <td>Skyfire ($9.5M)</td>
- <td class="check">&#10003;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="check">&#10003;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td>2/8</td>
- </tr>
- <tr>
- <td>Kite ($33M)</td>
- <td class="check">&#10003;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="check">&#10003;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td>2/8</td>
- </tr>
- <tr>
- <td>Stripe Toolkit</td>
- <td class="check">&#10003;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td>1/8</td>
- </tr>
- <tr>
- <td>Payman ($14M)</td>
- <td class="check">&#10003;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td class="cross">&#10007;</td>
- <td>1/8</td>
- </tr>
- </tbody>
- </table>
- </div>
- </section>
+<section class="comparison" id="comparison">
+  <div class="container">
+    <div class="section-header reveal">
+      <h2>How MnemoPay compares</h2>
+      <p>Competitors raised $87M+ combined. None ship the full stack.</p>
+    </div>
+    <table class="comp-table reveal reveal-d1">
+      <thead>
+        <tr><th>Product</th><th>Real Rails</th><th>Shopping</th><th>Escrow</th><th>Credit Score</th><th>Identity</th><th>Fraud</th><th>Memory</th><th>MCP</th><th>Score</th></tr>
+      </thead>
+      <tbody>
+        <tr class="highlight"><td>MnemoPay ($0)</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td><strong>8/8</strong></td></tr>
+        <tr><td>Mem0 ($24M)</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="check">&#10003;</td><td class="cross">&#10007;</td><td>1/8</td></tr>
+        <tr><td>Skyfire ($9.5M)</td><td class="check">&#10003;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="check">&#10003;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td>2/8</td></tr>
+        <tr><td>Kite ($33M)</td><td class="check">&#10003;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="check">&#10003;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td>2/8</td></tr>
+        <tr><td>Stripe Toolkit</td><td class="check">&#10003;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td>1/8</td></tr>
+        <tr><td>Payman ($14M)</td><td class="check">&#10003;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td class="cross">&#10007;</td><td>1/8</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
 
- <!-- RAILS -->
- <section class="rails">
- <div class="container">
- <div class="section-header">
- <h2>Real money. Real rails.</h2>
- <p>Plug in the payment rail your market needs.</p>
- </div>
- <div class="rails-grid">
- <div class="rail-card">
- <h3>Paystack</h3>
- <div class="region">Africa - NGN, GHS, ZAR, KES</div>
- <p>Checkout, saved cards, bank transfers, webhook verification. 23 Nigerian banks pre-mapped. HMAC-SHA512 security.</p>
- </div>
- <div class="rail-card">
- <h3>Stripe</h3>
- <div class="region">Global - USD, EUR, GBP</div>
- <p>Card payments with manual capture for true escrow. PaymentIntents API. 135+ currencies supported.</p>
- </div>
- <div class="rail-card">
- <h3>Lightning</h3>
- <div class="region">Crypto - BTC</div>
- <p>Instant micropayments via LND. HODL invoices for escrow. Sub-cent transaction costs. Instant settlement.</p>
- </div>
- </div>
- </div>
- </section>
+<section class="rails">
+  <div class="container">
+    <div class="section-header reveal">
+      <h2>Real money. Real rails.</h2>
+      <p>Plug in the payment rail your market needs.</p>
+    </div>
+    <div class="rails-grid">
+      <div class="rail-card reveal"><h3>Paystack</h3><div class="region">Africa — NGN, GHS, ZAR, KES</div><p>Checkout, saved cards, bank transfers, webhook verification. 23 Nigerian banks pre-mapped. HMAC-SHA512 security.</p></div>
+      <div class="rail-card reveal reveal-d1"><h3>Stripe</h3><div class="region">Global — USD, EUR, GBP</div><p>Card payments with manual capture for true escrow. PaymentIntents API. 135+ currencies supported.</p></div>
+      <div class="rail-card reveal reveal-d2"><h3>Lightning</h3><div class="region">Crypto — BTC</div><p>Instant micropayments via LND. HODL invoices for escrow. Sub-cent transaction costs. Instant settlement.</p></div>
+    </div>
+  </div>
+</section>
 
- <!-- PRICING -->
- <section class="pricing" id="pricing">
- <div class="container">
- <div class="section-header">
- <h2>Start free. Scale with volume.</h2>
- <p>The SDK is open source. Pay only when you process real money.</p>
- </div>
- <div class="pricing-grid">
- <div class="price-card">
- <h3>Starter</h3>
- <div class="price free">Free</div>
- <div class="fee">1.9% per settled transaction</div>
- <p class="desc">Everything you need to build and test.</p>
- <ul>
- <li><span class="tick">&#10003;</span> Full SDK - all features</li>
- <li><span class="tick">&#10003;</span> Unlimited agents</li>
- <li><span class="tick">&#10003;</span> Stripe, Paystack, Lightning</li>
- <li><span class="tick">&#10003;</span> Autonomous shopping + escrow</li>
- <li><span class="tick">&#10003;</span> Agent Credit Score</li>
- <li><span class="tick">&#10003;</span> MCP server</li>
- <li><span class="tick">&#10003;</span> Community support</li>
- </ul>
- <a href="https://www.npmjs.com/package/@mnemopay/sdk" class="cta-btn outline">npm install @mnemopay/sdk</a>
- </div>
- <div class="price-card featured">
- <div class="badge">Most Popular</div>
- <h3>Pro</h3>
- <div class="price">$49<small>/mo</small></div>
- <div class="fee">1.5% per settled transaction</div>
- <p class="desc">Production-ready with persistence and analytics.</p>
- <ul>
- <li><span class="tick">&#10003;</span> Everything in Starter</li>
- <li><span class="tick">&#10003;</span> File + SQLite persistence</li>
- <li><span class="tick">&#10003;</span> Transaction analytics dashboard</li>
- <li><span class="tick">&#10003;</span> Webhook notifications</li>
- <li><span class="tick">&#10003;</span> Geo trust profiles</li>
- <li><span class="tick">&#10003;</span> Priority email support</li>
- <li><span class="tick">&#10003;</span> Volume discount: 1.5% fee</li>
- </ul>
- <a href="https://buy.stripe.com/00w9AMe27c9pgT6gxtbo409" class="cta-btn primary">Start Pro, $49/mo</a>
- </div>
- <div class="price-card">
- <h3>Enterprise</h3>
- <div class="price">Custom</div>
- <div class="fee">1.0% per settled transaction</div>
- <p class="desc">For teams running agents at scale.</p>
- <ul>
- <li><span class="tick">&#10003;</span> Everything in Pro</li>
- <li><span class="tick">&#10003;</span> ML fraud detection (Isolation Forest)</li>
- <li><span class="tick">&#10003;</span> Custom payment rail integration</li>
- <li><span class="tick">&#10003;</span> SLA commitment (published SLA included)</li>
- <li><span class="tick">&#10003;</span> Dedicated support</li>
- <li><span class="tick">&#10003;</span> SSO + team management</li>
- <li><span class="tick">&#10003;</span> Lowest fee tier: 1.0%</li>
- </ul>
- <a href="https://buy.stripe.com/9B63co8HNehxcCQ5SPbo40a" class="cta-btn outline">Start Enterprise, $299/mo</a>
- </div>
- </div>
- </div>
- </section>
+<section class="pricing" id="pricing">
+  <div class="container">
+    <div class="section-header reveal">
+      <h2>Start free. Scale with volume.</h2>
+      <p>The SDK is open source. Pay only when you process real money.</p>
+    </div>
+    <div class="pricing-grid">
+      <div class="price-card reveal">
+        <h3>Starter</h3><div class="price free">Free</div><div class="fee">1.9% per settled transaction</div>
+        <p class="desc">Everything you need to build and test.</p>
+        <ul>
+          <li><span class="tick">&#10003;</span> Full SDK — all features</li>
+          <li><span class="tick">&#10003;</span> Unlimited agents</li>
+          <li><span class="tick">&#10003;</span> Stripe, Paystack, Lightning</li>
+          <li><span class="tick">&#10003;</span> Autonomous shopping + escrow</li>
+          <li><span class="tick">&#10003;</span> Agent Credit Score</li>
+          <li><span class="tick">&#10003;</span> MCP server</li>
+          <li><span class="tick">&#10003;</span> Community support</li>
+        </ul>
+        <a href="https://www.npmjs.com/package/@mnemopay/sdk" class="cta-btn outline">npm install @mnemopay/sdk</a>
+      </div>
+      <div class="price-card featured reveal reveal-d1">
+        <div class="badge">Most Popular</div>
+        <h3>Pro</h3><div class="price">$49<small>/mo</small></div><div class="fee">1.5% per settled transaction</div>
+        <p class="desc">Production-ready with persistence and analytics.</p>
+        <ul>
+          <li><span class="tick">&#10003;</span> Everything in Starter</li>
+          <li><span class="tick">&#10003;</span> File + SQLite persistence</li>
+          <li><span class="tick">&#10003;</span> Transaction analytics dashboard</li>
+          <li><span class="tick">&#10003;</span> Webhook notifications</li>
+          <li><span class="tick">&#10003;</span> Geo trust profiles</li>
+          <li><span class="tick">&#10003;</span> Priority email support</li>
+          <li><span class="tick">&#10003;</span> Volume discount: 1.5% fee</li>
+        </ul>
+        <a href="https://buy.stripe.com/00w9AMe27c9pgT6gxtbo409" class="cta-btn primary">Start Pro, $49/mo</a>
+      </div>
+      <div class="price-card reveal reveal-d2">
+        <h3>Enterprise</h3><div class="price">Custom</div><div class="fee">1.0% per settled transaction</div>
+        <p class="desc">For teams running agents at scale.</p>
+        <ul>
+          <li><span class="tick">&#10003;</span> Everything in Pro</li>
+          <li><span class="tick">&#10003;</span> ML fraud detection (Isolation Forest)</li>
+          <li><span class="tick">&#10003;</span> Custom payment rail integration</li>
+          <li><span class="tick">&#10003;</span> SLA commitment (published SLA included)</li>
+          <li><span class="tick">&#10003;</span> Dedicated support</li>
+          <li><span class="tick">&#10003;</span> SSO + team management</li>
+          <li><span class="tick">&#10003;</span> Lowest fee tier: 1.0%</li>
+        </ul>
+        <a href="https://buy.stripe.com/9B63co8HNehxcCQ5SPbo40a" class="cta-btn outline">Start Enterprise, $299/mo</a>
+      </div>
+    </div>
+  </div>
+</section>
 
- <!-- CTA -->
- <section class="cta-section">
- <div class="container">
- <h2>Your agents can handle money now</h2>
- <p>Real rails. Real escrow. $0 to start.</p>
- <div class="cta-actions">
- <a href="https://www.npmjs.com/package/@mnemopay/sdk" class="btn btn-primary btn-large">Get Started Free</a>
- <a href="https://github.com/mnemopay/mnemopay-sdk" class="btn btn-ghost btn-large">Read the Docs</a>
- </div>
- </div>
- </section>
+<section class="cta-section">
+  <div class="container">
+    <h2 class="reveal">Your agents can handle money now</h2>
+    <p class="reveal reveal-d1">Real rails. Real escrow. $0 to start.</p>
+    <div class="cta-actions reveal reveal-d2">
+      <a href="https://www.npmjs.com/package/@mnemopay/sdk" class="btn btn-primary btn-large">Get Started Free</a>
+      <a href="https://github.com/mnemopay/mnemopay-sdk" class="btn btn-ghost btn-large">Read the Docs</a>
+    </div>
+  </div>
+</section>
 
- <footer>
- <div class="container">
- <p>MnemoPay &copy; 2026 - Apache 2.0 Licensed - Built by <a href="https://github.com/mnemopay">Jerry Omiagbo</a></p>
- <p style="font-size:11px;color:#666;max-width:760px;margin:12px auto 0;line-height:1.6">
- <strong>Not affiliated with Fair Isaac Corporation.</strong> "Agent Credit Score" is a portable reputation score for software agents on a 300-850 range; it is not a FICO-brand score and is not derived from or compatible with any consumer credit bureau data. Scores agents (software), not humans. Not a "consumer report" and not governed by the Fair Credit Reporting Act (15 U.S.C. 1681). MnemoPay is a software SDK, not a bank, money transmitter, or credit bureau. Payment rails are operated by third-party providers (Stripe, Paystack, Lightning). See <a href="https://github.com/mnemopay/mnemopay-sdk#disclaimers">full disclaimers</a>.
- </p>
- </div>
- </footer>
+<footer>
+  <div class="container">
+    <p>MnemoPay &copy; 2026 — Apache 2.0 Licensed — Built by <a href="https://github.com/mnemopay">Jerry Omiagbo</a></p>
+    <p style="font-size:11px;color:#666;max-width:760px;margin:12px auto 0;line-height:1.6">
+      <strong>Not affiliated with Fair Isaac Corporation.</strong> "Agent Credit Score" is a portable reputation score for software agents on a 300-850 range; it is not a FICO-brand score and is not derived from or compatible with any consumer credit bureau data. Scores agents (software), not humans. Not a "consumer report" and not governed by the Fair Credit Reporting Act (15 U.S.C. 1681). MnemoPay is a software SDK, not a bank, money transmitter, or credit bureau. Payment rails are operated by third-party providers (Stripe, Paystack, Lightning). See <a href="https://github.com/mnemopay/mnemopay-sdk#disclaimers">full disclaimers</a>.
+    </p>
+  </div>
+</footer>
+
+<!-- Lenis 1.x smooth scroll + IntersectionObserver reveal + Three.js hero -->
+<script type="importmap">
+{
+  "imports": {
+    "lenis": "https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.mjs",
+    "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js"
+  }
+}
+</script>
+<script type="module">
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Lenis smooth scroll (Pattern B canonical, lerp 0.1)
+  if (!reduce) {
+    const { default: Lenis } = await import('lenis');
+    const lenis = new Lenis({ lerp: 0.1, duration: 1.2, smoothWheel: true, autoRaf: true });
+    window.__lenis = lenis;
+  }
+
+  // Reveal on viewport enter
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }
+  }, { rootMargin: '-8% 0px -8% 0px', threshold: 0 });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  // Three.js hero — particle ring orbit, low cost, no camera permission
+  if (!reduce) {
+    try {
+      const THREE = await import('three');
+      const root = document.getElementById('hero-canvas');
+      const w = () => root.clientWidth, h = () => root.clientHeight;
+      const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(w(), h());
+      root.appendChild(renderer.domElement);
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(55, w() / h(), 0.1, 100);
+      camera.position.z = 8;
+
+      // Particle ring
+      const N = 1800;
+      const positions = new Float32Array(N * 3);
+      const colors = new Float32Array(N * 3);
+      for (let i = 0; i < N; i++) {
+        const t = (i / N) * Math.PI * 2;
+        const r = 4.2 + Math.random() * 1.6;
+        const yJit = (Math.random() - 0.5) * 1.2;
+        positions[i*3] = Math.cos(t) * r;
+        positions[i*3+1] = yJit;
+        positions[i*3+2] = Math.sin(t) * r;
+        // gradient violet → cyan
+        const k = i / N;
+        colors[i*3] = 0.42 * (1 - k) + 0.0 * k;       // r
+        colors[i*3+1] = 0.36 * (1 - k) + 0.81 * k;    // g
+        colors[i*3+2] = 0.91 * (1 - k) + 0.79 * k;    // b
+      }
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const mat = new THREE.PointsMaterial({ size: 0.045, vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false });
+      const points = new THREE.Points(geom, mat);
+      scene.add(points);
+
+      // soft inner glow
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(2.3, 32, 32),
+        new THREE.MeshBasicMaterial({ color: 0x6c5ce7, transparent: true, opacity: 0.08 })
+      );
+      scene.add(glow);
+
+      let mx = 0, my = 0;
+      window.addEventListener('pointermove', (e) => {
+        mx = (e.clientX / window.innerWidth - 0.5) * 0.4;
+        my = (e.clientY / window.innerHeight - 0.5) * 0.4;
+      }, { passive: true });
+
+      const tick = (t) => {
+        points.rotation.y = t * 0.00012;
+        points.rotation.x = Math.sin(t * 0.00008) * 0.18;
+        camera.position.x += (mx * 1.4 - camera.position.x) * 0.04;
+        camera.position.y += (-my * 1.0 - camera.position.y) * 0.04;
+        camera.lookAt(0, 0, 0);
+        renderer.render(scene, camera);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+
+      const onResize = () => { renderer.setSize(w(), h()); camera.aspect = w() / h(); camera.updateProjectionMatrix(); };
+      window.addEventListener('resize', onResize);
+    } catch (err) { /* keep static hero on failure */ }
+  }
+</script>
 </body>
 </html>
