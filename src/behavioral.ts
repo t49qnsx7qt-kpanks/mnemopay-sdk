@@ -770,3 +770,223 @@ export class BehavioralEngine {
     return engine;
   }
 }
+
+// ─── Opinion Reinforcement (Hindsight write-path port) ──────────────────────
+// When a new opinion memory lands and overlaps with an existing opinion, we
+// classify the interaction {reinforce, weaken, contradict, neutral} and apply
+// a bounded confidence update. This is a generalization of EWMA-style RL
+// feedback to the opinion subspace — preferences stop decaying away just
+// because the agent hasn't restated them recently.
+//
+// Kept in behavioral.ts (not a new module) because it's a behavioral-finance
+// primitive: "the agent's confidence in its own stance should respond to new
+// evidence with known psychometric deltas." This mirrors prospect-theory-style
+// step sizes where reinforcing signal has smaller impact than contradicting
+// signal (humans update more on disconfirmation — Kahneman 2011).
+//
+// Import the public Memory shape lazily to avoid a circular import.
+
+/** Classification of how a new opinion relates to an existing overlapping one. */
+export type OpinionRelation = "reinforce" | "weaken" | "contradict" | "neutral";
+
+/** Confidence deltas per relation. Contradict is double the magnitude of
+ * reinforce/weaken, matching the behavioral-finance finding that
+ * disconfirming evidence dominates updating. Neutral is a no-op. */
+export const OPINION_DELTA: Record<OpinionRelation, number> = {
+  reinforce: +0.15,
+  weaken: -0.15,
+  contradict: -0.30,
+  neutral: 0,
+};
+
+/** Classifier injection point. Defaults to a lexical heuristic; tests may
+ * override with a deterministic mock, and production callers may swap in an
+ * LLM classifier via setOpinionClassifier(). */
+export type OpinionClassifier = (
+  newContent: string,
+  existingContent: string,
+) => OpinionRelation | Promise<OpinionRelation>;
+
+let opinionClassifier: OpinionClassifier | null = null;
+
+/** Install a custom classifier (LLM, rule-based, etc.). Pass null to revert
+ * to the built-in lexical heuristic. */
+export function setOpinionClassifier(fn: OpinionClassifier | null): void {
+  opinionClassifier = fn;
+}
+
+/** Cheap lexical heuristic for the `{reinforce,weaken,contradict,neutral}`
+ * classification. Production setups should inject a real classifier via
+ * `setOpinionClassifier()`; this keeps the zero-config path working. */
+function heuristicClassify(
+  newContent: string,
+  existingContent: string,
+): OpinionRelation {
+  const a = newContent.toLowerCase();
+  const b = existingContent.toLowerCase();
+  const NEG = /\b(no longer|don't|doesn't|didn't|not|never|hate|dislike|avoid|stopped|quit|wrong|bad|terrible|worst)\b/;
+  const POS = /\b(still|again|love|prefer|favorite|best|always|enjoy|great|like)\b/;
+  const aNeg = NEG.test(a);
+  const bNeg = NEG.test(b);
+  const aPos = POS.test(a);
+  const bPos = POS.test(b);
+
+  // If one is clearly negative and the other clearly positive → contradict.
+  if ((aNeg && bPos) || (aPos && bNeg)) return "contradict";
+  // Both negative or both positive with lexical overlap → reinforce.
+  if ((aPos && bPos) || (aNeg && bNeg)) return "reinforce";
+  // One side hedges ("sometimes", "maybe") without flipping sign → weaken.
+  if (/\b(sometimes|maybe|mostly|usually|often)\b/.test(a) && (bPos || bNeg)) {
+    return "weaken";
+  }
+  return "neutral";
+}
+
+/** Cosine similarity between two hash-bag embeddings of identical length.
+ * Copied inline (no import) so behavioral.ts has zero dependencies — this
+ * module is also published to the web client. */
+function _cosine(a: Float32Array, b: Float32Array): number {
+  if (a.length !== b.length) return 0;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  if (denom < 1e-10) return 0;
+  return dot / denom;
+}
+
+export interface ApplyOpinionReinforcementParams {
+  /** The newly-stored opinion memory. Must have factType === "opinion". */
+  newMemory: {
+    id: string;
+    content: string;
+    factType?: string;
+    entityIds?: string[];
+    confidence?: number;
+  };
+  /** The full in-agent memory store (id → Memory). Mutated in place: when a
+   * relation fires, the existing opinion's confidence is updated. */
+  memories: Map<string, {
+    id: string;
+    content: string;
+    factType?: string;
+    entityIds?: string[];
+    confidence?: number;
+  }>;
+  /** Recall engine used to embed candidate opinions for the cosine-sim gate.
+   * We reuse the already-configured provider so the local/openai/bge choice
+   * is honored — no hardcoded provider. */
+  recallEngine: {
+    getOrEmbed: (id: string, content: string) => Promise<Float32Array>;
+  };
+  /** Override the cosine-sim floor. Defaults to 0.75. */
+  simThreshold?: number;
+  /** Hook to override the classifier in tests. */
+  classifier?: OpinionClassifier;
+  /** Optional cap on # of candidates scanned per call. Defaults to 64 to keep
+   * this O(1) at large memory counts. */
+  scanLimit?: number;
+}
+
+export interface OpinionReinforcementResult {
+  existingId: string;
+  relation: OpinionRelation;
+  delta: number;
+  oldConfidence: number;
+  newConfidence: number;
+}
+
+/**
+ * For a newly-stored opinion memory, find existing opinions with entity
+ * overlap and cosine-sim ≥ threshold, classify their relation, and apply a
+ * bounded confidence update to each.
+ *
+ * Returns the list of reinforced opinions (so callers can audit / emit).
+ * Safe to call on non-opinion memories (returns []).
+ */
+export async function applyOpinionReinforcement(
+  params: ApplyOpinionReinforcementParams,
+): Promise<OpinionReinforcementResult[]> {
+  const { newMemory, memories, recallEngine } = params;
+  if (newMemory.factType !== "opinion") return [];
+
+  const newEntityIds = Array.isArray(newMemory.entityIds) ? newMemory.entityIds : [];
+  if (newEntityIds.length === 0) return [];
+
+  const simFloor = params.simThreshold ?? 0.75;
+  const classify = params.classifier ?? opinionClassifier ?? heuristicClassify;
+  const scanLimit = params.scanLimit ?? 64;
+
+  // Candidate pool: other opinions with ≥1 overlapping entity.
+  const candidates: Array<{ id: string; content: string; entityIds: string[]; confidence: number }> = [];
+  for (const [id, mem] of memories) {
+    if (id === newMemory.id) continue;
+    if (mem.factType !== "opinion") continue;
+    const ids = Array.isArray(mem.entityIds) ? mem.entityIds : [];
+    if (ids.length === 0) continue;
+    let overlap = false;
+    for (const eid of newEntityIds) {
+      if (ids.includes(eid)) { overlap = true; break; }
+    }
+    if (!overlap) continue;
+    candidates.push({
+      id,
+      content: mem.content,
+      entityIds: ids,
+      confidence: typeof mem.confidence === "number" ? mem.confidence : 1.0,
+    });
+    if (candidates.length >= scanLimit) break;
+  }
+
+  if (candidates.length === 0) return [];
+
+  // Embed the new memory once.
+  let newVec: Float32Array;
+  try {
+    newVec = await recallEngine.getOrEmbed(newMemory.id, newMemory.content);
+  } catch {
+    return [];
+  }
+
+  const results: OpinionReinforcementResult[] = [];
+  for (const cand of candidates) {
+    let candVec: Float32Array;
+    try {
+      candVec = await recallEngine.getOrEmbed(cand.id, cand.content);
+    } catch {
+      continue;
+    }
+    const sim = _cosine(newVec, candVec);
+    if (sim < simFloor) continue;
+
+    let relation: OpinionRelation;
+    try {
+      relation = await classify(newMemory.content, cand.content);
+    } catch {
+      relation = "neutral";
+    }
+
+    const delta = OPINION_DELTA[relation];
+    if (delta === 0) continue;
+
+    const oldConf = cand.confidence;
+    const newConf = Math.max(0, Math.min(1.0, oldConf + delta));
+    if (newConf === oldConf) continue;
+
+    // Mutate in place so persistence serialization picks it up.
+    const ref = memories.get(cand.id);
+    if (ref) ref.confidence = newConf;
+    results.push({
+      existingId: cand.id,
+      relation,
+      delta,
+      oldConfidence: oldConf,
+      newConfidence: newConf,
+    });
+  }
+
+  return results;
+}

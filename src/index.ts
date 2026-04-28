@@ -117,6 +117,25 @@ export interface MnemoPayConfig {
   agentpayApiKey?: string;
 }
 
+/**
+ * Fact-type labels — ported from the vectorize-io/hindsight observations
+ * pattern. Drives entity-consolidation summaries and opinion reinforcement.
+ *
+ *   world       — objective statement about the world (default, unchanged
+ *                 behavior for existing callers). Examples: "Paris is in France",
+ *                 "Stripe charges 2.9% + $0.30 per transaction."
+ *   experience  — first-person event the agent or its principal lived through.
+ *                 Examples: "Agent paid $49 for Pro plan last Tuesday."
+ *   opinion     — subjective stance/preference. Drives opinion reinforcement:
+ *                 when a new opinion with entity overlap is remembered, we
+ *                 classify whether it reinforces, weakens, contradicts, or is
+ *                 neutral to prior opinions and update confidence accordingly.
+ *   observation — agent-generated consolidated summary of multiple facts for
+ *                 a single entity. Emitted by the observations pipeline; not
+ *                 typically set by external callers.
+ */
+export type FactType = "world" | "experience" | "opinion" | "observation";
+
 export interface Memory {
   id: string;
   agentId: string;
@@ -127,11 +146,30 @@ export interface Memory {
   lastAccessed: Date;
   accessCount: number;
   tags: string[];
+  /** Fact-type label. Defaults to `"world"` on memories created before the
+   * fact-type migration landed. Drives observation + opinion-reinforcement
+   * write-path loops. */
+  factType?: FactType;
+  /** Opinion confidence in [0, 1]. Only meaningful when `factType === "opinion"`.
+   * Updated by `applyOpinionReinforcement()` when new overlapping opinions are
+   * stored. Defaults to 1.0. */
+  confidence?: number;
+  /** Canonical entity IDs this memory is associated with. Populated by the
+   * entity-extraction + graph-ingest write path. Used to key observations and
+   * to detect overlap for opinion reinforcement. */
+  entityIds?: string[];
 }
 
 export interface RememberOptions {
   importance?: number;
   tags?: string[];
+  /** See {@link FactType}. Defaults to `"world"`. */
+  factType?: FactType;
+  /** Initial opinion confidence in [0, 1]. Only used when factType==='opinion'.
+   * Subsequent opinion reinforcement may adjust this. */
+  confidence?: number;
+  /** Canonical entity IDs this memory is about (if known by the caller). */
+  entityIds?: string[];
 }
 
 export interface Transaction {
@@ -642,6 +680,9 @@ export class MnemoPayLite extends EventEmitter {
           createdAt: m.createdAt.toISOString(),
           lastAccessed: m.lastAccessed.toISOString(),
           tags: JSON.stringify(m.tags),
+          // Persist the Hindsight-port fields in their string-serialized form
+          // so the adapter can `?` bind them as TEXT.
+          entityIds: JSON.stringify(Array.isArray(m.entityIds) ? m.entityIds : []),
         })) as any,
         transactions: Array.from(this.transactions.values()).map(t => ({
           ...t,
@@ -673,11 +714,22 @@ export class MnemoPayLite extends EventEmitter {
       if (state.createdAt) this._createdAt = new Date(state.createdAt);
 
       for (const m of state.memories) {
+        // Parse JSON-encoded Hindsight-port fields on load.
+        let parsedEntityIds: string[] = [];
+        const rawEids = (m as any).entityIds;
+        if (typeof rawEids === "string") {
+          try { parsedEntityIds = JSON.parse(rawEids) || []; } catch { parsedEntityIds = []; }
+        } else if (Array.isArray(rawEids)) {
+          parsedEntityIds = rawEids;
+        }
         this.memories.set(m.id, {
           ...m,
           createdAt: new Date(m.createdAt),
           lastAccessed: new Date(m.lastAccessed),
           tags: typeof m.tags === "string" ? JSON.parse(m.tags) : m.tags,
+          factType: (m as any).factType ?? "world",
+          confidence: typeof (m as any).confidence === "number" ? (m as any).confidence : 1.0,
+          entityIds: parsedEntityIds,
         } as any);
       }
 
@@ -821,6 +873,15 @@ export class MnemoPayLite extends EventEmitter {
     // Security: validate and sanitize tags
     const safeTags = validateTags(opts?.tags ?? []);
     const importance = opts?.importance ?? autoScore(safeContent);
+    // Fact-type routing — defaults to "world" (no behavior change for existing callers)
+    const factType: FactType = opts?.factType ?? "world";
+    const confidence =
+      opts?.confidence !== undefined
+        ? Math.min(Math.max(opts.confidence, 0), 1)
+        : 1.0;
+    const entityIds = Array.isArray(opts?.entityIds)
+      ? opts!.entityIds!.filter((x) => typeof x === "string")
+      : [];
     const now = new Date();
     const mem: Memory = {
       id: randomUUID(),
@@ -832,6 +893,9 @@ export class MnemoPayLite extends EventEmitter {
       lastAccessed: now,
       accessCount: 0,
       tags: safeTags,
+      factType,
+      confidence,
+      entityIds,
     };
     this.memories.set(mem.id, mem);
 
@@ -840,11 +904,41 @@ export class MnemoPayLite extends EventEmitter {
       await this.recallEngine.embed(mem.id, content);
     }
 
-    this.audit("memory:stored", { id: mem.id, tags: safeTags, importance: mem.importance });
+    // Opinion reinforcement — only runs when this memory is an opinion with
+    // entity overlap against an existing opinion. Fire-and-forget so callers
+    // don't pay LLM latency on the write path; the EWMA-style update is
+    // applied directly to `this.memories` on completion.
+    if (factType === "opinion") {
+      // Lazy import to keep the hot path side-effect-free for non-opinion memories.
+      import("./behavioral.js")
+        .then(({ applyOpinionReinforcement }) => {
+          applyOpinionReinforcement({
+            newMemory: mem,
+            memories: this.memories,
+            recallEngine: this.recallEngine,
+          }).catch((e) => this.log(`opinion reinforcement failed: ${e?.message ?? e}`));
+        })
+        .catch(() => { /* best-effort; never break remember() */ });
+    }
+
+    // Observation regeneration — fire-and-forget per entity touched.
+    // No-op when no entityIds were supplied or no summarizer is configured.
+    if (entityIds.length > 0) {
+      import("./recall/observations.js")
+        .then(({ enqueueObservationRegen }) => {
+          for (const eid of entityIds) {
+            enqueueObservationRegen({ agentId: this.agentId, entityId: eid, memories: this.memories })
+              .catch((e) => this.log(`observation regen failed for ${eid}: ${e?.message ?? e}`));
+          }
+        })
+        .catch(() => { /* best-effort */ });
+    }
+
+    this.audit("memory:stored", { id: mem.id, tags: safeTags, importance: mem.importance, factType });
     this._saveToDisk();
-    this.emit("memory:stored", { id: mem.id, importance: mem.importance });
+    this.emit("memory:stored", { id: mem.id, importance: mem.importance, factType });
     this.adaptive.observe({ type: "memory_store", agentId: this.agentId, timestamp: Date.now() });
-    this.log(`Stored memory: id=${mem.id} (importance: ${mem.importance.toFixed(2)}, tags: ${safeTags.join(",") || "none"})`);
+    this.log(`Stored memory: id=${mem.id} (factType: ${factType}, importance: ${mem.importance.toFixed(2)}, tags: ${safeTags.join(",") || "none"})`);
     return mem.id;
   }
 

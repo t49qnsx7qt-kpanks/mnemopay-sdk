@@ -542,6 +542,12 @@ Copyright 2026 J&B Enterprise LLC.
 
 ---
 
+## Third-party attributions
+
+The entity-observation write-path in `src/recall/observations.ts` (per-entity consolidated summaries, debounced regeneration, session-spanning rollups) is derived from [vectorize-io/hindsight](https://github.com/vectorize-io/hindsight) (MIT, Copyright (c) 2025 Vectorize AI, Inc.). The full upstream notice is preserved in [NOTICE](NOTICE) and in the header of the ported file.
+
+---
+
 ## Trademark and regulatory notices
 
 **Agent Credit Score** is a creditworthiness scoring system **for autonomous software agents**, not for consumer credit reporting. It does not produce a consumer report as defined by the Fair Credit Reporting Act (FCRA) and is not regulated under the FCRA. MnemoPay is not a consumer reporting agency.

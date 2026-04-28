@@ -55,6 +55,21 @@ export interface PersistedMemory {
   lastAccessed: string;
   accessCount: number;
   tags: string; // JSON-encoded string[]
+  /** Fact-type label — one of "world" | "experience" | "opinion" | "observation".
+   * Added in the Hindsight observations port. Defaults to "world" for rows
+   * written before the migration. */
+  factType?: string;
+  /** Opinion confidence in [0,1]. Only meaningful when factType === "opinion". */
+  confidence?: number;
+  /** JSON-encoded canonical entity IDs associated with this memory. */
+  entityIds?: string;
+}
+
+export interface PersistedObservation {
+  entityId: string;
+  summary: string;
+  factsHash: string;
+  updatedAt: number;
 }
 
 export interface PersistedTransaction {
@@ -136,7 +151,20 @@ export class SQLiteStorage implements StorageAdapter {
         last_accessed TEXT NOT NULL,
         access_count INTEGER NOT NULL DEFAULT 0,
         tags TEXT NOT NULL DEFAULT '[]',
+        fact_type TEXT NOT NULL DEFAULT 'world',
+        confidence REAL NOT NULL DEFAULT 1.0,
+        entity_ids TEXT NOT NULL DEFAULT '[]',
         FOREIGN KEY (agent_id) REFERENCES agent_state(agent_id)
+      );
+
+      -- Per-entity consolidated observations (Hindsight pattern).
+      -- facts_hash debounces regeneration: we only re-summarize when the set
+      -- of fact IDs keying this entity has actually changed.
+      CREATE TABLE IF NOT EXISTS observations (
+        entity_id TEXT PRIMARY KEY,
+        summary TEXT NOT NULL,
+        facts_hash TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS transactions (
@@ -195,6 +223,32 @@ export class SQLiteStorage implements StorageAdapter {
         INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
       END;
     `);
+
+    // ── Idempotent column migrations ────────────────────────────────────
+    // SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so we
+    // introspect via PRAGMA table_info and add missing columns. This runs on
+    // every open; each ALTER is a single schema-change and is cheap on DBs
+    // that have already migrated.
+    this._ensureColumn("memories", "fact_type", "TEXT NOT NULL DEFAULT 'world'");
+    this._ensureColumn("memories", "confidence", "REAL NOT NULL DEFAULT 1.0");
+    this._ensureColumn("memories", "entity_ids", "TEXT NOT NULL DEFAULT '[]'");
+  }
+
+  /**
+   * Add `columnName` to `tableName` with `columnDef` (e.g. "TEXT NOT NULL
+   * DEFAULT 'world'") iff the column does not already exist. Idempotent —
+   * safe to call on every open.
+   */
+  private _ensureColumn(
+    tableName: string,
+    columnName: string,
+    columnDef: string,
+  ): void {
+    const rows = this.db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+    if (rows.some((r) => r.name === columnName)) return;
+    // Parameterized ALTER isn't supported for identifiers; whitelist inputs
+    // (no external callers — internal migration only).
+    this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
   }
 
   load(agentId: string): PersistedState | null {
@@ -234,6 +288,12 @@ export class SQLiteStorage implements StorageAdapter {
         accessCount: m.access_count,
         // PersistedMemory expects tags to be a JSON-encoded string
         tags: typeof m.tags === "string" ? m.tags : JSON.stringify(m.tags ?? []),
+        factType: typeof m.fact_type === "string" ? m.fact_type : "world",
+        confidence: typeof m.confidence === "number" ? m.confidence : 1.0,
+        entityIds:
+          typeof m.entity_ids === "string"
+            ? m.entity_ids
+            : JSON.stringify(m.entity_ids ?? []),
       })),
       transactions: transactions.map((t: any) => ({
         id: t.id,
@@ -287,15 +347,18 @@ export class SQLiteStorage implements StorageAdapter {
 
       // Upsert memories
       const upsertMem = this.db.prepare(`
-        INSERT INTO memories (id, agent_id, content, importance, score, created_at, last_accessed, access_count, tags)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO memories (id, agent_id, content, importance, score, created_at, last_accessed, access_count, tags, fact_type, confidence, entity_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           importance = excluded.importance,
           score = excluded.score,
           last_accessed = excluded.last_accessed,
           access_count = excluded.access_count,
           content = excluded.content,
-          tags = excluded.tags
+          tags = excluded.tags,
+          fact_type = excluded.fact_type,
+          confidence = excluded.confidence,
+          entity_ids = excluded.entity_ids
       `);
 
       for (const m of state.memories) {
@@ -309,7 +372,10 @@ export class SQLiteStorage implements StorageAdapter {
           m.lastAccessed,
           m.accessCount,
           // Persist tags should already be JSON-encoded string in PersistedMemory
-          m.tags
+          m.tags,
+          m.factType ?? "world",
+          typeof m.confidence === "number" ? m.confidence : 1.0,
+          m.entityIds ?? "[]"
         );
       }
 
@@ -466,6 +532,56 @@ export class SQLiteStorage implements StorageAdapter {
         ftsScore: r.fts_score ?? 0,
       };
     });
+  }
+
+  // ── Observations CRUD (Hindsight pattern) ───────────────────────────────
+
+  /**
+   * Upsert the consolidated summary for a single entity.
+   * `factsHash` is used to debounce regeneration: callers pass the hash of
+   * the sorted fact IDs that fed this summary; if the stored hash matches,
+   * regeneration can be skipped.
+   */
+  upsertObservation(row: PersistedObservation): void {
+    this.db.prepare(
+      `
+      INSERT INTO observations (entity_id, summary, facts_hash, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(entity_id) DO UPDATE SET
+        summary = excluded.summary,
+        facts_hash = excluded.facts_hash,
+        updated_at = excluded.updated_at
+    `,
+    ).run(row.entityId, row.summary, row.factsHash, row.updatedAt);
+  }
+
+  getObservation(entityId: string): PersistedObservation | null {
+    const r = this.db
+      .prepare("SELECT * FROM observations WHERE entity_id = ?")
+      .get(entityId);
+    if (!r) return null;
+    return {
+      entityId: r.entity_id,
+      summary: r.summary,
+      factsHash: r.facts_hash,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  deleteObservation(entityId: string): void {
+    this.db.prepare("DELETE FROM observations WHERE entity_id = ?").run(entityId);
+  }
+
+  /**
+   * Test helper — verifies the column exists in the `memories` table.
+   * Part of the public surface so the fact-type migration test can assert
+   * schema-level changes without reaching into `db.pragma` directly.
+   */
+  hasColumn(tableName: string, columnName: string): boolean {
+    const rows = this.db
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as Array<{ name: string }>;
+    return rows.some((r) => r.name === columnName);
   }
 }
 

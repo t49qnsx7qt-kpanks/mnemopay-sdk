@@ -17,6 +17,7 @@
 import type { PersistenceAdapter, PersistenceOptions } from "./persistence/types.js";
 import { MemoryAdapter } from "./persistence/memory.js";
 import { NeonAdapter } from "./persistence/neon.js";
+import { getObservation as lookupObservation } from "./observations.js";
 
 export type RecallStrategy = "score" | "vector" | "hybrid";
 
@@ -126,6 +127,12 @@ export interface RecallResult {
   lastAccessed: Date;
   accessCount: number;
   tags: string[];
+  /** Set when this result was synthesized from an entity observation rather
+   * than a raw stored fact. The content is the observation summary; the id
+   * is a synthetic `observation::<entityId>`. */
+  isObservation?: boolean;
+  /** When `isObservation` is true, the canonical entity id this came from. */
+  entityId?: string;
 }
 
 // ─── Math: Cosine Similarity ────────────────────────────────────────────────
@@ -708,6 +715,10 @@ export class RecallEngine {
       lastAccessed: Date;
       accessCount: number;
       tags: string[];
+      /** Canonical entity IDs this memory is about. When present and an
+       * observation exists for any of them, the observation is hoisted
+       * above raw facts in the returned top-K (Hindsight pattern). */
+      entityIds?: string[];
     }>,
     limit: number
   ): Promise<RecallResult[]> {
@@ -715,13 +726,14 @@ export class RecallEngine {
 
     // Pure score mode
     if (strategy === "score") {
-      return memories
+      const sorted = memories
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
         .map((m) => ({
           ...m,
           combinedScore: m.score,
         }));
+      return hoistObservations(sorted, this.config.agentId, limit);
     }
 
     const safeLimit = Math.max(1, Math.floor(limit || 10));
@@ -837,7 +849,7 @@ export class RecallEngine {
 
     const out = Array.from(dedup.values());
     out.sort((a, b) => b.combinedScore - a.combinedScore);
-    return out.slice(0, safeLimit);
+    return hoistObservations(out.slice(0, safeLimit), this.config.agentId, safeLimit);
   }
 
   stats(): {
@@ -854,3 +866,86 @@ export class RecallEngine {
     };
   }
 }
+
+/**
+ * Hoist cached entity-observation summaries above raw facts (Hindsight pattern).
+ *
+ * Weight: an observation's synthetic score is `OBSERVATION_BOOST × max(raw
+ * fact score for that entity)`. With the default 1.3 it always beats its
+ * own source facts. Observations whose entities aren't in the top-K are
+ * ignored — we never introduce an observation the recaller wasn't already
+ * reaching for via raw-fact hits.
+ *
+ * The function is a no-op if no input result carries `entityIds`, which keeps
+ * the rest of the SDK unaffected for callers that haven't wired the fact-type
+ * write path yet.
+ */
+const OBSERVATION_BOOST = 1.3;
+
+function hoistObservations<
+  T extends {
+    id: string;
+    content: string;
+    importance: number;
+    score: number;
+    combinedScore: number;
+    createdAt: Date;
+    lastAccessed: Date;
+    accessCount: number;
+    tags: string[];
+    entityIds?: string[];
+    vectorScore?: number;
+  },
+>(results: T[], agentId: string, limit: number): RecallResult[] {
+  if (results.length === 0) return results as unknown as RecallResult[];
+
+  // Direct ESM import — observations.ts only imports *types* from index.ts,
+  // which TypeScript erases at runtime, so there's no true runtime cycle.
+  const getObservation = lookupObservation;
+
+  // Collect the max raw fact score per entity from the current result set.
+  // We only consider entities that are actually represented here, so an
+  // observation cannot drag in a completely off-topic entity.
+  const maxScoreByEntity = new Map<string, number>();
+  for (const r of results) {
+    const eids = Array.isArray(r.entityIds) ? r.entityIds : [];
+    for (const eid of eids) {
+      const cur = maxScoreByEntity.get(eid) ?? 0;
+      if (r.combinedScore > cur) maxScoreByEntity.set(eid, r.combinedScore);
+    }
+  }
+
+  if (maxScoreByEntity.size === 0) return results as unknown as RecallResult[];
+
+  const hoisted: RecallResult[] = [];
+  for (const [entityId, maxScore] of maxScoreByEntity) {
+    const obs = getObservation(entityId, agentId);
+    if (!obs) continue;
+    hoisted.push({
+      id: `observation::${entityId}`,
+      content: obs.summary,
+      importance: 1.0,
+      score: maxScore * OBSERVATION_BOOST,
+      combinedScore: maxScore * OBSERVATION_BOOST,
+      createdAt: new Date(obs.updatedAt),
+      lastAccessed: new Date(obs.updatedAt),
+      accessCount: 0,
+      tags: ["observation"],
+      isObservation: true,
+      entityId,
+    });
+  }
+
+  if (hoisted.length === 0) return results as unknown as RecallResult[];
+
+  // Merge + re-sort. Observations win by construction of OBSERVATION_BOOST,
+  // but we don't hard-pin to slot 0 in case two entities share a summary:
+  // we want the higher-max-score entity's observation to lead.
+  const merged: RecallResult[] = [
+    ...hoisted,
+    ...(results as unknown as RecallResult[]),
+  ];
+  merged.sort((a, b) => b.combinedScore - a.combinedScore);
+  return merged.slice(0, limit);
+}
+

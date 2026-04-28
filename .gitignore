@@ -41,3 +41,4 @@ hyperframes-poc/
 build/
 out/
 .aider*
+stress-3m-run-*.log
