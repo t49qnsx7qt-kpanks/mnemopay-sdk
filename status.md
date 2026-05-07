@@ -1,7 +1,8 @@
 # mnemopay-sdk status — 2026-05-06
 
 ## Shipped today
-- **Praetor governance fold (Phase 1)** — branch `feat/governance-module`, ready for npm publish gate
+- **`@mnemopay/sdk` v1.5.0 PUBLISHED to npm** — verified live via `npm view @mnemopay/sdk version` → `1.5.0`. Git tag `v1.5.0` pushed to `origin` (commit `c20267b`).
+- **Praetor governance fold (Phase 1) — COMPLETE** — branch `feat/governance-module` merged into release pipeline
   - `src/governance/{audit,charter,runtime,article12,payments,index}.ts` — 6 files folded from `praetor/packages/{core,payments}`
   - `tests/governance.spec.ts` — 11 tests, all passing
   - `src/index.ts` — additive exports appended (no breaking changes)
@@ -16,8 +17,8 @@
 - **Maileroo schema bug fixed** in `marketing/send-strategic-2026-05-06.js` — `to: [{address: x}]`. Existing send-eu-ai-act.js + send-day4-followups.js verified already correct.
 
 ## In progress
-- npm publish v1.5.0 — gated on user/senior sign-off; tests green, fold reviewed
-- mnemopay.com production redeploy — gated on user/senior sign-off
+- mnemopay.com production redeploy — local edits ready (hero pivot + portable section + compliance.html), gated on user/senior sign-off
+- Merge `feat/governance-module` → `master` — branch shipped, master still on `d4e6b04`
 
 ## Blocked
 - Phase 2+ of Praetor consolidation (toolkit republish, BizSuite source moves, personal-project handoff, praetor.mnemopay.com sunset, mnemopay.com Praetor section update) — gated on senior sign-off per `project_mnemopay_platform_2026_05_06.md`
