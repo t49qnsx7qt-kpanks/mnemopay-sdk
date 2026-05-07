@@ -1,7 +1,7 @@
 {
   "name": "@mnemopay/sdk",
   "mcpName": "com.mnemopay/sdk",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "Production payment infrastructure for AI agents — real Stripe/Paystack/Lightning rails, autonomous shopping with escrow, Agent Credit Score (300-850), Ed25519 identity, behavioral finance, Merkle integrity, anomaly detection, human-in-the-loop approval. Battle-tested.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
