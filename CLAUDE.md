@@ -60,8 +60,8 @@ Entry: `src/mcp/server.ts` | Binary: `mnemopay-mcp` | Rate limit: 60/min, 500/hr
 
 ## Deployment
 
-- npm: `@mnemopay/sdk` v1.0.0-beta.1
-- PyPI: `mnemopay` v1.0.0b1 (separate Python SDK)
+- npm: `@mnemopay/sdk` v1.5.0 (governance fold: Charter, FiscalGate, Article 12, MerkleAudit). Companion `@mnemopay/toolkit` v0.1.0 = capability layer (14 packages).
+- PyPI: `mnemopay` v1.0.0b3 (separate Python SDK)
 - MCP: Smithery registry
 - Site: `site/index.html`
 - Dashboard: `node dashboard/server.js` → localhost:3200
