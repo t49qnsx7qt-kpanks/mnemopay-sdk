@@ -4,6 +4,48 @@ All notable changes to `@mnemopay/sdk` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.5.0] — 2026-05-06
+
+### Added
+
+- **Governance module** (`src/governance/`). Folds the Charter, FiscalGate,
+  Article 12 audit-bundle, and MerkleAudit primitives — previously published
+  under `@kpanks/{core,payments}` — into `@mnemopay/sdk` as first-class
+  modules. Phase 1 of the Praetor → MnemoPay platform consolidation.
+  - `MerkleAudit` — sha256-chained event log with `verify()`, `toJSON()`,
+    listener subscriptions, deterministic replay.
+  - `Charter` schema + `validateCharter()` — declares an agent mission's
+    goal, allowed tools, and budget cap.
+  - `runMission(ctx)` — the FiscalGate primitive. Reserves the full
+    charter budget up-front, runs the agent loop, settles actual spend on
+    success, releases on halt/error. Returns `{ status: "ok" | "halted" |
+    "error", spentUsd, outputs, auditDigest, ... }`.
+  - `buildArticle12Bundle({ charter, result, audit })` — produces a
+    regulator-handable bundle (mission.json, events.json, events.csv,
+    chain.txt, manifest.json with checksums + retention metadata).
+    Defaults to 6-month retention per EU AI Act Article 12. Bundle has
+    a deterministic SHA-256 digest for tamper detection.
+  - `PaymentsAdapter` interface + `MockPayments` reference implementation.
+- **11 governance tests** in `tests/governance.spec.ts` covering charter
+  validation, MerkleAudit chain + tamper detection, FiscalGate happy /
+  halt / error paths, Article 12 bundle file count + checksums + default
+  retention.
+
+### Changed
+
+- **Public API exports** in `src/index.ts` — additive only. New exports:
+  `MerkleAudit`, `validateCharter`, `runMission`, `buildArticle12Bundle`,
+  `MockPayments`, plus accompanying types (`AuditEvent`, `Charter*`,
+  `MissionResult`, `MissionContext`, `Article12Bundle*`, `PaymentsAdapter`).
+  No existing exports were modified or removed.
+
+### Compatibility
+
+- Fully backward compatible with v1.4.2. Existing consumers see no API
+  change. The `@kpanks/{core,payments}` packages remain published for
+  consumers that haven't migrated; new code should prefer the
+  `@mnemopay/sdk` exports.
+
 ## [1.4.0] — 2026-04-20
 
 ### Security

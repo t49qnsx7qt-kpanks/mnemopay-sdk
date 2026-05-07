@@ -2274,3 +2274,15 @@ export { formatForClaudeCache, serializeMemoriesForCache } from "./claude-cache.
 export type { ClaudeCacheBlock, FormatForClaudeCacheOptions } from "./claude-cache.js";
 export { SubagentCostTracker, computeSubagentCost, MODEL_PRICING } from "./subagent-cost.js";
 export type { AttributeSubagentCostParams, SubagentCostRecord, SubagentCostBreakdownEntry, ModelPricing } from "./subagent-cost.js";
+
+// ─── Governance: FiscalGate + EU AI Act Article 12 ──────────────────────────
+// Folded from praetor/packages/{core,payments} on 2026-05-06 as part of the
+// Praetor narrative consolidation. See src/governance/ for source.
+export { MerkleAudit, validateCharter, runMission, buildArticle12Bundle, MockPayments } from "./governance/index.js";
+export type {
+  AuditEvent, AuditListener,
+  Charter, CharterBudget, CharterAgent, CharterStep, CharterRole,
+  MissionResult, MissionContext,
+  Article12Bundle, Article12BundleFile, Article12BundleInput,
+  PaymentsAdapter,
+} from "./governance/index.js";
