@@ -2229,8 +2229,8 @@ export { FraudGuard, RateLimiter, DEFAULT_FRAUD_CONFIG, DEFAULT_RATE_LIMIT } fro
 export type { FraudConfig, FeeTier, FraudSignal, RiskAssessment, Dispute, PlatformFeeRecord, RequestContext, RateLimitConfig, GeoProfile, GeoFraudConfig } from "./fraud.js";
 export { IsolationForest, TransactionGraph, BehaviorProfile } from "./fraud-ml.js";
 export type { CollusionSignal, DriftSignal, BehaviorSnapshot } from "./fraud-ml.js";
-export { MockRail, StripeRail, LightningRail, PaystackRail, NIGERIAN_BANKS } from "./rails/index.js";
-export type { PaymentRail, PaymentRailResult, HoldOptions, PaystackConfig, PaystackCurrency, PaystackHoldResult, PaystackVerifyResult, PaystackTransferRecipient, PaystackTransferResult, PaystackWebhookEvent } from "./rails/index.js";
+export { MockRail, StripeRail, LightningRail, PaystackRail, StripeMPPRail, NIGERIAN_BANKS } from "./rails/index.js";
+export type { PaymentRail, PaymentRailResult, HoldOptions, PaystackConfig, PaystackCurrency, PaystackHoldResult, PaystackVerifyResult, PaystackTransferRecipient, PaystackTransferResult, PaystackWebhookEvent, StripeMPPOptions } from "./rails/index.js";
 export { SQLiteStorage, JSONFileStorage } from "./storage/sqlite.js";
 export type { StorageAdapter, PersistedState } from "./storage/sqlite.js";
 export { Ledger, hashEntry } from "./ledger.js";

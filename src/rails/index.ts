@@ -280,6 +280,10 @@ export type {
   PaystackTransferResult, PaystackWebhookEvent,
 } from "./paystack.js";
 
+// Re-export Stripe MPP rail (experimental, v1.6.x)
+export { StripeMPPRail } from "./stripe-mpp.js";
+export type { StripeMPPOptions } from "./stripe-mpp.js";
+
 // ─── Lightning Rail (L402) ──────────────────────────────────────────────────
 // Requires a running LND node. Uses HODL invoices for escrow.
 
