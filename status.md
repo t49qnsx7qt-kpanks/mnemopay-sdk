@@ -1,8 +1,14 @@
 # mnemopay-sdk status — 2026-05-06
 
 ## Shipped today
-- **`@mnemopay/sdk` v1.5.0 PUBLISHED to npm** — verified live via `npm view @mnemopay/sdk version` → `1.5.0`. Git tag `v1.5.0` pushed to `origin` (commit `c20267b`).
-- **Praetor governance fold (Phase 1) — COMPLETE** — branch `feat/governance-module` merged into release pipeline
+- **Praetor consolidation Phases 1, 2, 5, 7, 8 — COMPLETE.** Phase 6 staged (deploy needed). Phases 3, 4 held on senior/user decisions.
+- **`@mnemopay/sdk@1.5.0` PUBLISHED** — governance fold (Charter, FiscalGate, runMission, Article 12, MerkleAudit). Git tag `v1.5.0`, commit `c20267b`, merged to master (`950fc9a`), pushed.
+- **`@mnemopay/toolkit@0.1.0` PUBLISHED** — meta-package depending on 14 `@kpanks/*` packages. New repo scaffold at `~/Projects/mnemopay-toolkit/`.
+- **mnemopay.com index.html updated** — Praetor section killed, replaced with Toolkit section (14 packages grid, install.sh code, npm-install CTA). Footer trademark dropped Praetor. Schema.org + ai:description + section spine + top nav + footer column all migrated.
+- **mnemopay.com/toolkit** — new full-polish landing page (toolkit.html). Curtain, particles, Lenis, mask-hero, tilt cards. Hero: "Capabilities for agents that handle money."
+- **mnemopay.com/compliance** — already shipped earlier today.
+- **vercel.json** — added redirects: `praetor.mnemopay.com/*` → `mnemopay.com/governance` (host-based 301), `/praetor`+`/praetor.html` → `/toolkit`, plus clean-URL rules for compliance.html and toolkit.html.
+- **sitemap.xml** — added `/toolkit` and `/compliance` entries.
   - `src/governance/{audit,charter,runtime,article12,payments,index}.ts` — 6 files folded from `praetor/packages/{core,payments}`
   - `tests/governance.spec.ts` — 11 tests, all passing
   - `src/index.ts` — additive exports appended (no breaking changes)
@@ -17,12 +23,13 @@
 - **Maileroo schema bug fixed** in `marketing/send-strategic-2026-05-06.js` — `to: [{address: x}]`. Existing send-eu-ai-act.js + send-day4-followups.js verified already correct.
 
 ## In progress
-- mnemopay.com production redeploy — local edits ready (hero pivot + portable section + compliance.html), gated on user/senior sign-off
-- Merge `feat/governance-module` → `master` — branch shipped, master still on `d4e6b04`
+- mnemopay.com production redeploy — local edits ready (Phase 6 redirects + Phase 7 toolkit.html + Phase 8 brand kill on index.html + sitemap update), gated on Vercel deploy
 
 ## Blocked
-- Phase 2+ of Praetor consolidation (toolkit republish, BizSuite source moves, personal-project handoff, praetor.mnemopay.com sunset, mnemopay.com Praetor section update) — gated on senior sign-off per `project_mnemopay_platform_2026_05_06.md`
-- E2E haiku-goal silent failure in praetor master (separate session) — needs CLI-source-level investigation, not blocking the fold
+- **Phase 3 (BizSuite content packages):** senior decision needed on integration shape — plugins under `biz-plugins/plugin-*` vs new `@bizsuite/*` npm scope
+- **Phase 4 (personal-project handoff):** Jeremiah's call needed on name + npm scope for `3d`/`world-gen`/`game`/`game-assets`
+- **mnemopay.com Vercel deploy:** local files staged, awaiting `vercel --prod` or git push trigger
+- E2E haiku-goal silent failure in praetor master (separate session)
 
 ## Next session
 - Senior reviews `feedback_senior_review_2026_05_06.md` + `project_mnemopay_platform_2026_05_06.md` from shared memory; answers the 5 open questions (toolkit shape, BizSuite integration shape, personal-project name, sequencing, @kpanks/* deprecation tone)
